@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from "react";
 
 // Typed port of design/components/forms/Button.jsx — keep the two in sync.
-type Variant = "primary" | "secondary" | "ghost";
+type Variant = "primary" | "secondary" | "ghost" | "danger";
 
 type Props = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
   variant?: Variant;
@@ -35,6 +35,7 @@ const variants: Record<Variant, CSSProperties> = {
     border: "1px solid var(--color-divider)",
   },
   ghost: { background: "transparent", color: "var(--color-text-primary)" },
+  danger: { background: "var(--color-danger)", color: "var(--color-text-on-danger)" },
 };
 
 export function Button({
@@ -44,6 +45,7 @@ export function Button({
   loading,
   fullWidth = true,
   style,
+  className,
   ...rest
 }: Props) {
   const disabledStyle: CSSProperties | null = disabled
@@ -53,6 +55,7 @@ export function Button({
     <button
       type="button"
       disabled={disabled || loading}
+      className={["btn", className].filter(Boolean).join(" ")}
       style={{
         ...base,
         width: fullWidth ? "100%" : "auto",

@@ -26,10 +26,13 @@ export type PitstopKind = "planned" | "dynamic";
 export type ConsentPolicy = "tnc" | "privacy" | "medical" | "dpdp";
 
 // Helper: a table definition with Row / Insert / Update shapes.
+// Relationships is required by @supabase/postgrest-js's typed query builder;
+// we expose none (no embedded-resource typing) with an empty tuple.
 type Table<Row, Insert = Partial<Row>, Update = Partial<Insert>> = {
   Row: Row;
   Insert: Insert;
   Update: Update;
+  Relationships: [];
 };
 
 // Convenience: mark generated/defaulted columns optional on Insert.
@@ -144,8 +147,15 @@ export interface Database {
         { ride_id: string; created_by: string; kind?: PitstopKind; location?: Json | null; note?: string | null }
       >;
       sos_alerts: Table<
-        { id: string; ride_id: string; user_id: string; kind: SosKind; payload: Json | null; triggered_at: string; resolved_at: string | null; resolved_by: string | null },
-        { ride_id: string; user_id: string; kind: SosKind; payload?: Json | null }
+        { id: string; ride_id: string; user_id: string; kind: SosKind; payload: Json | null; triggered_at: string; resolved_at: string | null; resolved_by: string | null; stay_requested_at: string | null },
+        { ride_id: string; user_id: string; kind: SosKind; payload?: Json | null },
+        { resolved_at?: string | null; resolved_by?: string | null; stay_requested_at?: string | null }
+      >;
+      // Flow 5 (migration 0002_sos.sql) — hand-authored mirror; regenerate later.
+      sos_responses: Table<
+        { id: string; alert_id: string; ride_id: string; user_id: string; reached_at: string | null; created_at: string },
+        { alert_id: string; ride_id: string; user_id: string },
+        { reached_at?: string | null }
       >;
       ride_summaries: Table<
         { ride_id: string; total_distance_m: number; total_time_s: number; break_time_s: number; avg_speed: number | null; ended_at: string },

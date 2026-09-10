@@ -30,3 +30,9 @@ a {
   color: var(--color-accent);
   text-decoration: none;
 }
+
+/* Visible focus ring for buttons (base style clears the native outline). */
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}

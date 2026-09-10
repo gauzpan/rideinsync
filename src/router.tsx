@@ -7,6 +7,7 @@ import { JoinRidePage } from "./pages/JoinRidePage";
 import { RiderViewPage } from "./pages/RiderViewPage";
 import { LeadViewPage } from "./pages/LeadViewPage";
 import { DemoControlsPage } from "./pages/DemoControlsPage";
+import { SosPage } from "./pages/SosPage";
 
 // Route shells only — no functionality yet. Pages map to the PRD's PWA structure.
 export const router = createBrowserRouter([
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
       { path: "ride/:rideId", element: <RiderViewPage /> },
       { path: "ride/:rideId/lead", element: <LeadViewPage /> },
       { path: "demo", element: <DemoControlsPage /> },
+      { path: "sos", element: <SosPage /> },
     ],
   },
 ]);

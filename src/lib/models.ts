@@ -53,6 +53,7 @@ export type StoppageReport = Row<"stoppage_reports">;
 export type SeparationEvent = Row<"separation_events">;
 export type Pitstop = Row<"pitstops">;
 export type SosAlert = Row<"sos_alerts">;
+export type SosResponse = Row<"sos_responses">;
 export type RideSummary = Row<"ride_summaries">;
 export type RideFeedback = Row<"ride_feedback">;
 
@@ -63,6 +64,7 @@ export type RiderPositionInsert = Insert<"rider_positions">;
 export type RideEventInsert = Insert<"ride_events">;
 export type StoppageReportInsert = Insert<"stoppage_reports">;
 export type SosAlertInsert = Insert<"sos_alerts">;
+export type SosResponseInsert = Insert<"sos_responses">;
 export type RideFeedbackInsert = Insert<"ride_feedback">;
 
 // ---- Geo helper (shape stored in start_point/destination/location jsonb) -----
