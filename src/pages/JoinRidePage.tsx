@@ -7,6 +7,7 @@ import { QrScannerSheet } from "../components/QrScannerSheet";
 import { useAuth } from "../hooks/useAuth";
 import {
   extractJoinCode,
+  getJoinRequestStatus,
   getMinimumProfileStatus,
   getRidePreview,
   joinRideByCode,
@@ -15,7 +16,9 @@ import {
   type RidePreview,
 } from "../services/onboardingService";
 
-type Step = "code" | "preview" | "profile";
+type Step = "code" | "preview" | "profile" | "pending";
+
+const STATUS_POLL_MS = 5000;
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -70,6 +73,12 @@ export function JoinRidePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+
+  // Non-demo join: request_join_ride leaves the rider pending until the lead
+  // approves/declines (ticket 05). Track the outcome here instead of
+  // navigating to ride detail, which RLS would block for a non-member.
+  const [pendingRideId, setPendingRideId] = useState<string | null>(null);
+  const [requestStatus, setRequestStatus] = useState<"pending" | "approved" | "rejected">("pending");
 
   async function lookUpCode(value: string) {
     if (!value.trim()) return;
@@ -126,9 +135,49 @@ export function JoinRidePage() {
 
   async function completeJoin() {
     if (!preview || !user) return;
-    const ride = await joinRideByCode(preview.code, user.id);
-    navigate(`/ride/${ride.ride.id}`);
+    const joined = await joinRideByCode(preview.code, user.id);
+    if (joined.member) {
+      // Demo ride (or already-approved): membership materialised immediately.
+      navigate(`/ride/${joined.ride.id}`);
+      return;
+    }
+    // Non-demo ride: a `ride_join_requests` row was created, pending the
+    // lead's approval — wait here rather than navigating to a ride-detail
+    // fetch that RLS would block for a non-member.
+    setPendingRideId(joined.ride.id);
+    setRequestStatus("pending");
+    setStep("pending");
   }
+
+  // Poll the rider's own join-request status while waiting, so an approval
+  // or decline (ticket 05) is reflected here without a manual refresh.
+  useEffect(() => {
+    if (step !== "pending" || !pendingRideId || !user) return;
+    let cancelled = false;
+
+    async function poll() {
+      try {
+        const status = await getJoinRequestStatus(pendingRideId!, user!.id);
+        if (cancelled || !status) return;
+        if (status === "approved") {
+          navigate(`/ride/${pendingRideId}`);
+        } else if (status === "rejected") {
+          setRequestStatus("rejected");
+        }
+      } catch {
+        // Transient network/RLS hiccup — the interval retries; no need to
+        // surface an error for a background poll.
+      }
+    }
+
+    void poll();
+    const id = window.setInterval(poll, STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, pendingRideId, user?.id]);
 
   async function handleJoinFromProfile() {
     if (!user) return;
@@ -179,7 +228,7 @@ export function JoinRidePage() {
         }}
         style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}
       >
-        ‹ {step === "code" ? "Home" : "Back"}
+        ‹ {step === "code" || step === "pending" ? "Home" : "Back"}
       </Link>
       <h1
         style={{
@@ -323,6 +372,35 @@ export function JoinRidePage() {
           <Button onClick={() => void handleJoinFromProfile()} loading={loading}>
             {profileIncomplete ? "Join anyway" : "Join ride"}
           </Button>
+        </div>
+      )}
+
+      {step === "pending" && (
+        <div>
+          <Card padding="var(--space-lg)" style={{ textAlign: "center" }}>
+            {requestStatus === "rejected" ? (
+              <>
+                <p style={{ margin: "0 0 var(--space-sm)", fontSize: "var(--text-body-size)" }}>
+                  The lead declined your request to join{preview ? ` "${preview.name}"` : ""}.
+                </p>
+                <p style={{ color: "var(--color-text-secondary)", margin: 0 }}>
+                  Check with the lead, or try a different join code.
+                </p>
+              </>
+            ) : (
+              <>
+                <p style={{ margin: "0 0 var(--space-sm)", fontSize: "var(--text-body-size)" }}>
+                  Request sent{preview ? ` to join "${preview.name}"` : ""}.
+                </p>
+                <p style={{ color: "var(--color-text-secondary)", margin: 0 }}>
+                  Waiting for the lead to approve — this updates automatically.
+                </p>
+              </>
+            )}
+          </Card>
+          <Link to="/" style={{ display: "block", marginTop: "var(--space-lg)" }}>
+            <Button variant="secondary">Back to home</Button>
+          </Link>
         </div>
       )}
     </div>

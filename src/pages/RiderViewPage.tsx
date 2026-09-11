@@ -1,23 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { useAuth } from "../hooks/useAuth";
-import type { MemberRole } from "../lib/models";
+import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import { getRideDetail, type RideDetail } from "../services/onboardingService";
-
-const ROLE_LABEL: Record<MemberRole, string> = {
-  leader: "Lead",
-  co_leader: "Co-lead",
-  sweep: "Sweep",
-  rider: "Rider",
-};
-
-const ROLE_COLOR: Record<MemberRole, string> = {
-  leader: "var(--color-role-lead)",
-  co_leader: "var(--color-role-lead)",
-  sweep: "var(--color-role-sweep)",
-  rider: "var(--color-role-member)",
-};
 
 function SectionTitle({ children }: { children: ReactNode }) {
   return (
@@ -37,6 +24,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
 export function RiderViewPage() {
   const { rideId } = useParams<{ rideId: string }>();
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [detail, setDetail] = useState<RideDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -154,6 +142,16 @@ export function RiderViewPage() {
           {ride.member_capacity ? ` · Capacity ${roster.length} / ${ride.member_capacity}` : ` · ${roster.length} riders`}
         </p>
       </Card>
+
+      {(self?.member.role === "leader" || self?.member.role === "co_leader") && (
+        <Button
+          variant="secondary"
+          style={{ marginTop: "var(--space-md)" }}
+          onClick={() => navigate(`/ride/${ride.id}/lead`)}
+        >
+          Manage roster & requests
+        </Button>
+      )}
 
       <SectionTitle>Roster</SectionTitle>
       {roster.map(({ member, profile }) => (

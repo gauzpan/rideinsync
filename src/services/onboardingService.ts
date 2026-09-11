@@ -2,7 +2,16 @@
 // screen needs, so components never build query shapes inline. Tests for
 // this flow should go through here (see docs/flow1-onboarding-spec.md).
 import { supabase } from "../lib/supabase";
-import type { Profile, Ride, RideInsert, RideMember, RouteStop } from "../lib/models";
+import type {
+  JoinRequestStatus,
+  MemberRole,
+  Profile,
+  Ride,
+  RideInsert,
+  RideMember,
+  RouteStop,
+  Vehicle,
+} from "../lib/models";
 
 export type StopKind = "fuel" | "food" | "rest" | "scenic";
 
@@ -382,4 +391,118 @@ export async function getRideDetail(rideId: string): Promise<RideDetail | null> 
     stops: stops ?? [],
     roster: memberRows.map((member) => ({ member, profile: profileById.get(member.user_id) ?? null })),
   };
+}
+
+/** Reads back the current user's own `ride_join_requests` row for a ride —
+ *  lets the pending-approval screen (ticket 05) know whether they're still
+ *  waiting, were approved (materialised as a `ride_members` row separately),
+ *  or were declined. Own-row read only (RLS: `user_id = auth.uid()`). */
+export async function getJoinRequestStatus(rideId: string, userId: string): Promise<JoinRequestStatus | null> {
+  const { data, error } = await supabase
+    .from("ride_join_requests")
+    .select("status")
+    .eq("ride_id", rideId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.status ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Ticket 05 — lead approval, roster & role assignment
+// ---------------------------------------------------------------------------
+
+/** A pending join request enriched with what the lead needs to decide:
+ *  rider name, avatar, and vehicle (per the ticket's acceptance criteria). */
+export type PendingJoinRequest = {
+  id: string;
+  userId: string;
+  requestedAt: string;
+  displayName: string;
+  avatarUrl: string | null;
+  vehiclePlate: string | null;
+  vehicleMakeModel: string | null;
+};
+
+/** Fetches the pending join requests for a ride, joined with each requester's
+ *  profile and most recent vehicle. Readable by the leader/co-leader under
+ *  `join_requests_select` RLS. */
+export async function getPendingJoinRequests(rideId: string): Promise<PendingJoinRequest[]> {
+  const { data: requests, error } = await supabase
+    .from("ride_join_requests")
+    .select("*")
+    .eq("ride_id", rideId)
+    .eq("status", "pending")
+    .order("requested_at", { ascending: true });
+  if (error) throw error;
+  const rows = requests ?? [];
+  if (rows.length === 0) return [];
+
+  const userIds = rows.map((r) => r.user_id);
+  const [{ data: profiles, error: profileError }, { data: vehicles, error: vehicleError }] = await Promise.all([
+    supabase.from("profiles").select("*").in("id", userIds),
+    supabase.from("vehicles").select("*").in("user_id", userIds).order("created_at", { ascending: false }),
+  ]);
+  if (profileError) throw profileError;
+  if (vehicleError) throw vehicleError;
+
+  const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
+  // Vehicles are ordered newest-first above, so the first hit per user is
+  // their most recent registration.
+  const vehicleByUser = new Map<string, Vehicle>();
+  for (const v of vehicles ?? []) {
+    if (!vehicleByUser.has(v.user_id)) vehicleByUser.set(v.user_id, v);
+  }
+
+  return rows.map((r) => {
+    const profile = profileById.get(r.user_id);
+    const vehicle = vehicleByUser.get(r.user_id);
+    return {
+      id: r.id,
+      userId: r.user_id,
+      requestedAt: r.requested_at,
+      displayName: profile?.display_name ?? "Rider",
+      avatarUrl: profile?.avatar_url ?? null,
+      vehiclePlate: vehicle?.plate ?? null,
+      vehicleMakeModel: vehicle?.make_model ?? null,
+    };
+  });
+}
+
+/** Approves a pending join request, materialising the rider's `ride_members`
+ *  row via the foundation's `approve_join_request` RPC (0001_foundation.sql).
+ *  Callers should apply the client-side capacity guard before invoking this —
+ *  the RPC itself does not enforce `member_capacity` (hard enforcement is a
+ *  foundation-owned follow-up, see docs/flow1-onboarding-spec.md). */
+export async function approveJoinRequest(requestId: string): Promise<void> {
+  const { error } = await supabase.rpc("approve_join_request", { request_id: requestId });
+  if (error) throw error;
+}
+
+/** Declines a pending join request via the `decline_join_request` RPC
+ *  (supabase/migrations/0003_flow1_lead_approval.sql) — `ride_join_requests`
+ *  has no leader UPDATE policy, only SELECT, so a plain table update would be
+ *  blocked by RLS. The rider's own `getJoinRequestStatus` read reflects the
+ *  decline back to them. */
+export async function declineJoinRequest(requestId: string): Promise<void> {
+  const { error } = await supabase.rpc("decline_join_request", { p_request_id: requestId });
+  if (error) throw error;
+}
+
+/** Roles a lead can hand out from the roster — reassigning the leader itself
+ *  is out of scope for this ticket. */
+export type AssignableRole = Extract<MemberRole, "sweep" | "co_leader" | "rider">;
+
+/** Assigns Sweep/Co-lead (or clears a member back to Rider) via the
+ *  `assign_ride_role` RPC — `ride_members_write_self` only lets a member
+ *  update their own row, so cross-member role changes must go through the
+ *  leader-checked RPC, which also demotes the outgoing holder of that role so
+ *  the schema's one-leader/one-sweep constraint is never violated. */
+export async function assignRideRole(rideId: string, userId: string, role: AssignableRole): Promise<void> {
+  const { error } = await supabase.rpc("assign_ride_role", {
+    p_ride_id: rideId,
+    p_user_id: userId,
+    p_role: role,
+  });
+  if (error) throw error;
 }

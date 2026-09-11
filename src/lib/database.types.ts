@@ -173,6 +173,9 @@ export interface Database {
       get_ride_preview: { Args: { p_code: string }; Returns: Json };
       is_ride_member: { Args: { rid: string }; Returns: boolean };
       is_ride_leader: { Args: { rid: string }; Returns: boolean };
+      // supabase/migrations/0003_flow1_lead_approval.sql — ticket 05.
+      decline_join_request: { Args: { p_request_id: string }; Returns: undefined };
+      assign_ride_role: { Args: { p_ride_id: string; p_user_id: string; p_role: MemberRole }; Returns: undefined };
     };
     Enums: {
       member_role: MemberRole;
