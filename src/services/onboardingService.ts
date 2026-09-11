@@ -234,6 +234,9 @@ export type MinimumProfileStatus = {
   emergencyContactPhone: string;
   hasVehicle: boolean;
   vehiclePlate: string;
+  /** Whether the current consent version has already been granted — see
+   *  `grantConsent`/`CONSENT_VERSION` below. */
+  hasConsent: boolean;
   /** True once all three minimum fields are present — a returning rider. */
   isComplete: boolean;
 };
@@ -241,12 +244,17 @@ export type MinimumProfileStatus = {
 /** Fetches what's already on file for the signed-in user, so a returning
  *  rider's join form is prefilled/skippable instead of asked again. */
 export async function getMinimumProfileStatus(userId: string): Promise<MinimumProfileStatus> {
-  const [{ data: profile, error: profileError }, { data: contact, error: contactError }, { data: vehicle, error: vehicleError }] =
-    await Promise.all([
-      supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
-      supabase.from("emergency_contacts").select("*").eq("user_id", userId).eq("ordinal", 1).maybeSingle(),
-      supabase.from("vehicles").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-    ]);
+  const [
+    { data: profile, error: profileError },
+    { data: contact, error: contactError },
+    { data: vehicle, error: vehicleError },
+    hasConsent,
+  ] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
+    supabase.from("emergency_contacts").select("*").eq("user_id", userId).eq("ordinal", 1).maybeSingle(),
+    supabase.from("vehicles").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    hasGrantedConsent(userId),
+  ]);
   if (profileError) throw profileError;
   if (contactError) throw contactError;
   if (vehicleError) throw vehicleError;
@@ -261,8 +269,76 @@ export async function getMinimumProfileStatus(userId: string): Promise<MinimumPr
     emergencyContactPhone: contact?.phone ?? "",
     hasVehicle,
     vehiclePlate: vehicle?.plate ?? "",
-    isComplete: !!displayName && hasEmergencyContact && hasVehicle,
+    hasConsent,
+    isComplete: !!displayName && hasEmergencyContact && hasVehicle && hasConsent,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Ticket 07 — consent, guest→lead upgrade, join edge cases
+// ---------------------------------------------------------------------------
+
+/** Bump this when the T&C/DPDP copy changes materially — a new version means
+ *  every user is asked to re-consent once (full policy copy is out of scope
+ *  for this build; see docs/flow1-onboarding-spec.md). */
+const CONSENT_VERSION = "2026-09-v1";
+const CONSENT_POLICIES = ["dpdp", "tnc"] as const;
+
+/** True once the user has granted the current consent version for every
+ *  policy the single checkbox covers (DPDP + T&Cs). */
+export async function hasGrantedConsent(userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("consent_records")
+    .select("policy")
+    .eq("user_id", userId)
+    .eq("version", CONSENT_VERSION);
+  if (error) throw error;
+  const granted = new Set((data ?? []).map((r) => r.policy));
+  return CONSENT_POLICIES.every((p) => granted.has(p));
+}
+
+/** Records the single consent checkbox as one `consent_records` row per
+ *  policy it covers. Upsert so re-checking an already-granted version is a
+ *  no-op rather than a unique-constraint error. */
+export async function grantConsent(userId: string): Promise<void> {
+  const { error } = await supabase
+    .from("consent_records")
+    .upsert(
+      CONSENT_POLICIES.map((policy) => ({ user_id: userId, policy, version: CONSENT_VERSION })),
+      { onConflict: "user_id,policy,version" }
+    );
+  if (error) throw error;
+}
+
+/** Withdraws a still-pending join request (own row only — enforced by
+ *  `join_requests_delete_self_pending` RLS in 0006_flow1_consent_edge_cases.sql).
+ *  Approved/rejected requests are left in place as an audit trail. */
+export async function withdrawJoinRequest(rideId: string, userId: string): Promise<void> {
+  const { error } = await supabase
+    .from("ride_join_requests")
+    .delete()
+    .eq("ride_id", rideId)
+    .eq("user_id", userId)
+    .eq("status", "pending");
+  if (error) throw error;
+}
+
+/** Lets a member leave a ride they joined before it starts, by deleting
+ *  their own `ride_members` row (`ride_members_write_self` RLS in
+ *  0001_foundation.sql already permits this — no new policy needed). Also
+ *  clears a pillion's own link, if any, so it doesn't dangle. Mid-ride
+ *  leaving (`member_status = 'leaving'`) is Flow 3/4 territory, out of scope
+ *  here — callers should only offer this while `ride.status === 'draft'`. */
+export async function leaveRide(rideId: string, userId: string): Promise<void> {
+  const { error: linkError } = await supabase
+    .from("ride_pillion_links")
+    .delete()
+    .eq("ride_id", rideId)
+    .eq("pillion_user_id", userId);
+  if (linkError) throw linkError;
+
+  const { error } = await supabase.from("ride_members").delete().eq("ride_id", rideId).eq("user_id", userId);
+  if (error) throw error;
 }
 
 export type MinimumProfileInput = {

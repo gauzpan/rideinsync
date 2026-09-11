@@ -7,6 +7,7 @@ import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import {
   getEligibleRidersForPillion,
   getRideDetail,
+  leaveRide,
   linkPillionToRider,
   type PillionRiderOption,
   type RideDetail,
@@ -45,6 +46,12 @@ export function RiderViewPage() {
   const [selectedRiderId, setSelectedRiderId] = useState("");
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
+
+  // Leave-before-start (ticket 07): a rider can back out of a ride that
+  // hasn't started yet. Mid-ride leaving is Flow 3/4 territory, out of scope.
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!rideId) return;
@@ -92,6 +99,19 @@ export function RiderViewPage() {
       setLinkError(e instanceof Error ? e.message : "Couldn't link to that rider. Try again.");
     } finally {
       setLinking(false);
+    }
+  }
+
+  async function handleLeave() {
+    if (!rideId || !user) return;
+    setLeaving(true);
+    setLeaveError(null);
+    try {
+      await leaveRide(rideId, user.id);
+      navigate("/");
+    } catch (e) {
+      setLeaveError(e instanceof Error ? e.message : "Couldn't leave the ride. Try again.");
+      setLeaving(false);
     }
   }
 
@@ -220,6 +240,37 @@ export function RiderViewPage() {
         >
           Complete your profile (optional)
         </Button>
+      )}
+      {/* Leave-before-start (ticket 07): a leader leaving needs reassignment
+          first (out of scope here), and once the ride is active/ended this
+          is Flow 3/4 territory — so both are excluded. */}
+      {self && ride.status === "draft" && self.member.role !== "leader" && (
+        <Button
+          variant="secondary"
+          style={{ marginTop: "var(--space-sm)" }}
+          onClick={() => setLeaveConfirmOpen(true)}
+        >
+          Leave ride
+        </Button>
+      )}
+      {leaveConfirmOpen && (
+        <Card padding="var(--space-lg)" style={{ marginTop: "var(--space-md)" }}>
+          <p style={{ margin: "0 0 var(--space-md)" }}>Leave "{ride.name}"? You'll need the join code to come back.</p>
+          {leaveError && (
+            <p style={{ color: "var(--color-role-sweep)", margin: "0 0 var(--space-md)" }}>{leaveError}</p>
+          )}
+          <Button onClick={() => void handleLeave()} loading={leaving}>
+            Leave ride
+          </Button>
+          <Button
+            variant="ghost"
+            style={{ marginTop: "var(--space-sm)" }}
+            onClick={() => setLeaveConfirmOpen(false)}
+            disabled={leaving}
+          >
+            Cancel
+          </Button>
+        </Card>
       )}
 
       <SectionTitle>Roster</SectionTitle>

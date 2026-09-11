@@ -12,9 +12,11 @@ import {
   getJoinRequestStatus,
   getMinimumProfileStatus,
   getRidePreview,
+  grantConsent,
   joinRideByCode,
   linkPillionToRider,
   submitMinimumProfile,
+  withdrawJoinRequest,
   type MinimumProfileStatus,
   type PillionRiderOption,
   type RidePreview,
@@ -77,6 +79,8 @@ export function JoinRidePage() {
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [vehiclePlate, setVehiclePlate] = useState("");
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
 
   // Pillion linking (ticket 06) — populated once the pillion has become a
   // ride member and can read the roster under RLS.
@@ -120,6 +124,15 @@ export function JoinRidePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codeParam]);
 
+  // Ride full (ticket 07): a client-side capacity guard — the join RPCs live
+  // in the shared foundation and aren't altered here (see
+  // docs/flow1-onboarding-spec.md). Doesn't apply to a member re-entering.
+  const isRideFull =
+    !!preview &&
+    !preview.alreadyMember &&
+    !!preview.memberCapacity &&
+    preview.memberCount >= preview.memberCapacity;
+
   // Own-bike vs pillion branch (ticket 06): pick the join path's shape before
   // asking for any profile fields, so a pillion never sees the vehicle field.
   function handleContinueFromPreview() {
@@ -128,6 +141,11 @@ export function JoinRidePage() {
       navigate(`/ride/${preview.rideId}`);
       return;
     }
+    if (isRideFull) {
+      setError("This ride is full. Ask the lead to raise the capacity, or try another ride.");
+      return;
+    }
+    setError(null);
     setStep("mode");
   }
 
@@ -142,9 +160,10 @@ export function JoinRidePage() {
       setContactName(status.emergencyContactName);
       setContactPhone(status.emergencyContactPhone);
       setVehiclePlate(status.vehiclePlate);
+      setConsentChecked(status.hasConsent);
       const complete =
         mode === "pillion"
-          ? !!status.displayName && status.hasEmergencyContact
+          ? !!status.displayName && status.hasEmergencyContact && status.hasConsent
           : status.isComplete;
       if (complete) {
         await completeJoin();
@@ -243,10 +262,14 @@ export function JoinRidePage() {
   }, [step, pendingRideId, user?.id]);
 
   async function handleJoinFromProfile() {
-    if (!user) return;
+    if (!user || !consentChecked) return;
     setLoading(true);
     setError(null);
     try {
+      // Consent is the one hard gate here (unlike name/contact/vehicle,
+      // which stay skippable for the demo) — a single checkbox covers both
+      // policies this build tracks (docs/flow1-onboarding-spec.md).
+      await grantConsent(user.id);
       await submitMinimumProfile(user.id, {
         displayName,
         emergencyContactName: contactName,
@@ -267,6 +290,20 @@ export function JoinRidePage() {
     mode === "pillion"
       ? !displayName.trim() || !contactName.trim() || !contactPhone.trim()
       : !displayName.trim() || !contactName.trim() || !contactPhone.trim() || !vehiclePlate.trim();
+
+  async function handleWithdraw() {
+    if (!pendingRideId || !user) return;
+    setWithdrawing(true);
+    setError(null);
+    try {
+      await withdrawJoinRequest(pendingRideId, user.id);
+      navigate("/");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't withdraw the request. Try again.");
+    } finally {
+      setWithdrawing(false);
+    }
+  }
 
   function handleScanned(text: string) {
     setScannerOpen(false);
@@ -467,10 +504,39 @@ export function JoinRidePage() {
               We reused details already on file for you.
             </p>
           )}
+
+          <label
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "var(--space-sm)",
+              minHeight: 56,
+              cursor: "pointer",
+              marginBottom: "var(--space-md)",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={consentChecked}
+              onChange={(e) => setConsentChecked(e.target.checked)}
+              style={{
+                width: 20,
+                height: 20,
+                marginTop: 2,
+                flexShrink: 0,
+                accentColor: "var(--color-accent)",
+              }}
+            />
+            <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-body-size)" }}>
+              I agree to RideInSync handling my data (including for emergencies) per its terms and
+              privacy policy.
+            </span>
+          </label>
+
           {error && (
             <p style={{ color: "var(--color-role-sweep)", marginBottom: "var(--space-md)" }}>{error}</p>
           )}
-          <Button onClick={() => void handleJoinFromProfile()} loading={loading}>
+          <Button onClick={() => void handleJoinFromProfile()} loading={loading} disabled={!consentChecked}>
             {profileIncomplete ? "Join anyway" : mode === "pillion" ? "Continue" : "Join ride"}
           </Button>
         </div>
@@ -572,7 +638,20 @@ export function JoinRidePage() {
               </>
             )}
           </Card>
-          <Link to="/" style={{ display: "block", marginTop: "var(--space-lg)" }}>
+          {error && (
+            <p style={{ color: "var(--color-role-sweep)", margin: "var(--space-md) 0 0" }}>{error}</p>
+          )}
+          {requestStatus === "pending" && (
+            <Button
+              variant="secondary"
+              style={{ marginTop: "var(--space-lg)" }}
+              onClick={() => void handleWithdraw()}
+              loading={withdrawing}
+            >
+              Withdraw request
+            </Button>
+          )}
+          <Link to="/" style={{ display: "block", marginTop: "var(--space-sm)" }}>
             <Button variant="secondary">Back to home</Button>
           </Link>
         </div>
