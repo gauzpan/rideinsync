@@ -4,6 +4,7 @@ import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { useAuth } from "../hooks/useAuth";
+import { LiveOps } from "../components/liveops/LiveOps";
 import type { MemberRole } from "../lib/models";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import {
@@ -230,8 +231,12 @@ export function LeadViewPage() {
         )}
       </p>
 
+      {/* Flow 3 live tracker for this real ride — route geocoded from the
+          form's start/destination labels, real roster shown live. */}
+      <LiveOps ride={ride} />
+
       {actionError && (
-        <p style={{ color: "var(--color-role-sweep)", margin: "0 0 var(--space-md)" }}>{actionError}</p>
+        <p style={{ color: "var(--color-role-sweep)", margin: "var(--space-md) 0 var(--space-md)" }}>{actionError}</p>
       )}
 
       <SectionTitle>Join requests{pending.length > 0 ? ` (${pending.length})` : ""}</SectionTitle>
