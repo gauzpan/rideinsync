@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabase";
 import type {
   JoinRequestStatus,
   MemberRole,
+  PillionLink,
   Profile,
   Ride,
   RideInsert,
@@ -362,18 +363,27 @@ export type RideDetail = {
   ride: Ride;
   stops: RouteStop[];
   roster: { member: RideMember; profile: Profile | null }[];
+  /** ticket 06 — pillion↔rider pairings for this ride, so the roster can
+   *  show a pillion grouped with the rider whose bike they're on. */
+  pillionLinks: PillionLink[];
 };
 
 export async function getRideDetail(rideId: string): Promise<RideDetail | null> {
-  const [{ data: ride, error: rideError }, { data: stops, error: stopsError }, { data: members, error: membersError }] =
-    await Promise.all([
-      supabase.from("rides").select("*").eq("id", rideId).maybeSingle(),
-      supabase.from("route_stops").select("*").eq("ride_id", rideId).order("seq", { ascending: true }),
-      supabase.from("ride_members").select("*").eq("ride_id", rideId).order("joined_at", { ascending: true }),
-    ]);
+  const [
+    { data: ride, error: rideError },
+    { data: stops, error: stopsError },
+    { data: members, error: membersError },
+    { data: pillionLinks, error: pillionLinksError },
+  ] = await Promise.all([
+    supabase.from("rides").select("*").eq("id", rideId).maybeSingle(),
+    supabase.from("route_stops").select("*").eq("ride_id", rideId).order("seq", { ascending: true }),
+    supabase.from("ride_members").select("*").eq("ride_id", rideId).order("joined_at", { ascending: true }),
+    supabase.from("ride_pillion_links").select("*").eq("ride_id", rideId),
+  ]);
   if (rideError) throw rideError;
   if (stopsError) throw stopsError;
   if (membersError) throw membersError;
+  if (pillionLinksError) throw pillionLinksError;
   if (!ride) return null;
 
   const memberRows = members ?? [];
@@ -390,6 +400,7 @@ export async function getRideDetail(rideId: string): Promise<RideDetail | null> 
     ride,
     stops: stops ?? [],
     roster: memberRows.map((member) => ({ member, profile: profileById.get(member.user_id) ?? null })),
+    pillionLinks: pillionLinks ?? [],
   };
 }
 
@@ -504,5 +515,69 @@ export async function assignRideRole(rideId: string, userId: string, role: Assig
     p_user_id: userId,
     p_role: role,
   });
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Ticket 06 — pillion join, linked to rider
+// ---------------------------------------------------------------------------
+
+export type PillionRiderOption = { userId: string; displayName: string };
+
+/** Riders a pillion can pick as "who I'm riding with": every other member of
+ *  the ride, minus anyone already recorded as somebody else's pillion (a
+ *  pillion has no bike of their own to sit on) and the pillion themselves.
+ *  Only readable once the pillion is a ride member (RLS `is_ride_member`),
+ *  which the join flow guarantees before this is called. */
+export async function getEligibleRidersForPillion(
+  rideId: string,
+  pillionUserId: string
+): Promise<PillionRiderOption[]> {
+  const [{ data: members, error: membersError }, { data: links, error: linksError }] = await Promise.all([
+    supabase.from("ride_members").select("user_id").eq("ride_id", rideId),
+    supabase.from("ride_pillion_links").select("pillion_user_id").eq("ride_id", rideId),
+  ]);
+  if (membersError) throw membersError;
+  if (linksError) throw linksError;
+
+  const pillionIds = new Set((links ?? []).map((l) => l.pillion_user_id));
+  const riderIds = (members ?? [])
+    .map((m) => m.user_id)
+    .filter((id) => id !== pillionUserId && !pillionIds.has(id));
+  if (riderIds.length === 0) return [];
+
+  const { data: profiles, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, display_name")
+    .in("id", riderIds);
+  if (profileError) throw profileError;
+  return (profiles ?? []).map((p) => ({ userId: p.id, displayName: p.display_name ?? "Rider" }));
+}
+
+/** The current user's own pillion link for a ride, if any — used so a
+ *  returning pillion (e.g. after their approval came through) isn't asked to
+ *  pick a rider twice. */
+export async function getOwnPillionLink(rideId: string, pillionUserId: string): Promise<PillionLink | null> {
+  const { data, error } = await supabase
+    .from("ride_pillion_links")
+    .select("*")
+    .eq("ride_id", rideId)
+    .eq("pillion_user_id", pillionUserId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/** Writes the pillion→rider pairing. Upsert (not plain insert) so re-picking
+ *  a different rider replaces the row instead of hitting the
+ *  `unique(ride_id, pillion_user_id)` constraint — a pillion is one bike's
+ *  passenger per ride, but which bike can change before the ride starts. */
+export async function linkPillionToRider(rideId: string, pillionUserId: string, riderUserId: string): Promise<void> {
+  const { error } = await supabase
+    .from("ride_pillion_links")
+    .upsert(
+      { ride_id: rideId, pillion_user_id: pillionUserId, rider_user_id: riderUserId },
+      { onConflict: "ride_id,pillion_user_id" }
+    );
   if (error) throw error;
 }

@@ -116,6 +116,11 @@ export interface Database {
         { id: string; ride_id: string; user_id: string; status: JoinRequestStatus; requested_at: string; decided_at: string | null; decided_by: string | null },
         { ride_id: string; user_id: string; status?: JoinRequestStatus }
       >;
+      // Flow 1 ticket 06 — supabase/migrations/0004_flow1_pillion.sql
+      ride_pillion_links: Table<
+        { id: string; ride_id: string; pillion_user_id: string; rider_user_id: string; created_at: string },
+        { ride_id: string; pillion_user_id: string; rider_user_id: string }
+      >;
       user_stats: Table<
         { user_id: string; rides_completed: number; distance_m: number; rides_led: number; updated_at: string },
         { user_id: string; rides_completed?: number; distance_m?: number; rides_led?: number }
