@@ -11,7 +11,16 @@ import type {
   RideSummary,
   UserBadge,
   RideMember,
+  TravelMode,
 } from "./models";
+import { levelForDistance, type Vehicle } from "../components/ui/RideBadge";
+
+// travel_mode (DB) → badge Vehicle (design). No motorcycle 'trek' equivalent.
+const VEHICLE_OF: Record<TravelMode, Vehicle> = {
+  motorcycle: "bike",
+  car: "car",
+  cycle: "cycle",
+};
 
 /** Everything the summary screen renders in one shot. */
 export type SummaryView = {
@@ -20,6 +29,9 @@ export type SummaryView = {
   members: RideMember[];
   summary: RideSummary | null;
   badges: UserBadge[];
+  /** Badge shelf: which vehicle + how many tiers the viewer has unlocked. */
+  vehicle?: Vehicle;
+  unlockedLevel?: number;
 };
 
 // ---- Local-only mock (git-ignored src/lib/flow6.mock.ts) --------------------
@@ -41,7 +53,24 @@ export async function loadSummaryView(rideId: string): Promise<SummaryView> {
   const { data: ride } = await supabase.from("rides").select("*").eq("id", rideId).maybeSingle();
   const [summary, members] = await Promise.all([getRideSummary(rideId), getHomeRoster(rideId)]);
   const badges = me ? await getRideBadges(rideId, me) : [];
-  return { me, ride, members, summary, badges };
+
+  // Badge shelf: viewer's unlocked tier for this ride's vehicle, from lifetime
+  // per-mode distance in user_stats.
+  let vehicle: Vehicle | undefined;
+  let unlockedLevel: number | undefined;
+  if (ride) {
+    vehicle = VEHICLE_OF[ride.travel_mode];
+    if (me) {
+      const { data: stat } = await supabase
+        .from("user_stats")
+        .select("distance_m")
+        .eq("user_id", me)
+        .eq("mode", ride.travel_mode)
+        .maybeSingle();
+      unlockedLevel = levelForDistance(vehicle, (stat?.distance_m ?? 0) / 1000);
+    }
+  }
+  return { me, ride, members, summary, badges, vehicle, unlockedLevel };
 }
 
 /** Leader/co-leader finalizes the ride (idempotent server-side). */

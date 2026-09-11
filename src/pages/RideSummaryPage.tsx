@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import type { FeedbackSentiment, Ride, RideMember, RideSummary, UserBadge } from "../lib/models";
-import { RideBadge } from "../components/ui/RideBadge";
+import { BadgeGrid, type Vehicle } from "../components/ui/RideBadge";
 import { closeRide, loadSummaryView, markReachedHome, submitFeedback } from "../lib/ending";
 import { shareRide } from "../lib/shareCard";
 
@@ -20,6 +20,8 @@ export function RideSummaryPage() {
   const [members, setMembers] = useState<RideMember[]>([]);
   const [summary, setSummary] = useState<RideSummary | null>(null);
   const [badges, setBadges] = useState<UserBadge[]>([]);
+  const [vehicle, setVehicle] = useState<Vehicle | undefined>(undefined);
+  const [unlockedLevel, setUnlockedLevel] = useState<number>(1);
   const [sentiment, setSentiment] = useState<FeedbackSentiment | null>(null);
   const [liked, setLiked] = useState("");
   const [improve, setImprove] = useState("");
@@ -32,6 +34,8 @@ export function RideSummaryPage() {
     setSummary(v.summary);
     setMembers(v.members);
     setBadges(v.badges);
+    setVehicle(v.vehicle);
+    setUnlockedLevel(v.unlockedLevel ?? 1);
   }, [rideId]);
 
   useEffect(() => {
@@ -99,14 +103,10 @@ export function RideSummaryPage() {
       </Card>
 
       {/* Badges */}
-      {badges.length > 0 && (
+      {vehicle && (
         <Card>
-          <h2 style={{ fontSize: "var(--text-h2)", margin: "0 0 var(--space-sm)" }}>Badges earned</h2>
-          <div style={{ display: "flex", gap: "var(--space-xs)", flexWrap: "wrap" }}>
-            {badges.map((b) => (
-              <RideBadge key={b.badge_key} badgeKey={b.badge_key} />
-            ))}
-          </div>
+          <h2 style={{ fontSize: "var(--text-h2)", margin: "0 0 var(--space-md)" }}>Badges earned</h2>
+          <BadgeGrid vehicle={vehicle} unlockedLevel={unlockedLevel} />
         </Card>
       )}
 
