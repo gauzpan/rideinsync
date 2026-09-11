@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
@@ -31,12 +31,23 @@ export function AppLayout() {
 
   if (loading) {
     // Brief, unstyled beat while the initial session check resolves — avoids
-    // flashing the sign-in sheet for an already-authenticated user.
+    // flashing the landing/login for an already-authenticated user.
     return null;
   }
 
-  if (!isAuthenticated) {
-    return <SignInSheet joinCode={joinCodeFromPath} />;
+  const onLanding = location.pathname === "/";
+
+  // Landing ("/") is the public login entry. Signed-in users skip it and go
+  // straight to the app menu.
+  if (isAuthenticated && onLanding) {
+    return <Navigate to="/menu" replace />;
+  }
+  // A protected route without a session: keep the join deep-link's sign-in
+  // sheet (it stashes the code across the Google redirect); everything else
+  // bounces to the landing to log in.
+  if (!isAuthenticated && !onLanding) {
+    if (joinCodeFromPath) return <SignInSheet joinCode={joinCodeFromPath} />;
+    return <Navigate to="/" replace />;
   }
 
   return (
@@ -49,7 +60,7 @@ export function AppLayout() {
         paddingBottom: "calc(var(--space-2xl) + env(safe-area-inset-bottom))",
       }}
     >
-      <AccountBar />
+      {isAuthenticated && <AccountBar />}
       <Outlet />
     </div>
   );

@@ -1,9 +1,9 @@
-import type { ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, type ReactNode } from "react";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Carousel } from "../components/ui/Carousel";
 import { Mark } from "../components/ui/Logo";
+import { useAuth } from "../hooks/useAuth";
 
 type Value = { icon: ReactNode; title: string; body: string };
 
@@ -71,7 +71,33 @@ const values: Value[] = [
 ];
 
 export function LandingPage() {
-  const navigate = useNavigate();
+  const { signInWithGoogle, signInAsGuest, signInDev } = useAuth();
+  const [pending, setPending] = useState<"google" | "guest" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const isDev = import.meta.env.DEV;
+
+  async function handleGoogle() {
+    setError(null);
+    setPending("google");
+    try {
+      await signInWithGoogle(); // redirects away for the OAuth round-trip
+    } catch (e) {
+      setPending(null);
+      setError(e instanceof Error ? e.message : "Couldn't start Google sign-in.");
+    }
+  }
+
+  async function handleGuest() {
+    setError(null);
+    setPending("guest");
+    try {
+      await signInAsGuest(); // AppLayout redirects "/" → "/menu" once signed in
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't sign in as guest.");
+    } finally {
+      setPending(null);
+    }
+  }
 
   return (
     <div>
@@ -185,8 +211,9 @@ export function LandingPage() {
         </Carousel>
       </section>
 
-      {/* CTAs */}
+      {/* Login */}
       <section
+        aria-label="Sign in"
         style={{
           display: "flex",
           flexDirection: "column",
@@ -194,24 +221,37 @@ export function LandingPage() {
           marginTop: "var(--space-2xl)",
         }}
       >
-        <Button onClick={() => navigate("/create")}>Create a ride</Button>
-        <Button variant="secondary" onClick={() => navigate("/join")}>
-          Join a ride
+        {error && (
+          <p style={{ color: "var(--color-role-sweep)", fontSize: "var(--text-label)", margin: 0 }}>
+            {error}
+          </p>
+        )}
+        <Button onClick={handleGoogle} disabled={pending !== null} loading={pending === "google"}>
+          Continue with Google
         </Button>
-        <button
-          type="button"
-          onClick={() => navigate("/menu")}
+        <Button
+          variant="secondary"
+          onClick={handleGuest}
+          disabled={pending !== null}
+          loading={pending === "guest"}
+        >
+          Continue as guest
+        </Button>
+        {isDev && (
+          <Button variant="ghost" onClick={signInDev} disabled={pending !== null}>
+            Continue as developer (dev)
+          </Button>
+        )}
+        <p
           style={{
-            background: "transparent",
-            border: "none",
-            color: "var(--color-text-tertiary)",
             fontSize: "var(--text-label)",
-            cursor: "pointer",
-            padding: "var(--space-sm)",
+            color: "var(--color-text-tertiary)",
+            textAlign: "center",
+            margin: "var(--space-xs) 0 0",
           }}
         >
-          Explore all screens
-        </button>
+          By continuing you agree to share ride and safety details with your group.
+        </p>
       </section>
     </div>
   );

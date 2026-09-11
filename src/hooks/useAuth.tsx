@@ -29,15 +29,31 @@ type AuthState = {
   isGuest: boolean;
   signInWithGoogle: () => Promise<void>;
   signInAsGuest: () => Promise<void>;
+  /** Local-dev only: fake session so you can explore screens without a backend. */
+  signInDev: () => void;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
 
+// Dev-only dummy auth (only ever active under `import.meta.env.DEV`, i.e.
+// `npm run dev` — never in a production build). Lets local development reach
+// the post-login screens without a real Supabase session.
+const DEV_AUTH_KEY = "rideinsync:devAuth";
+const DEV_USER = { id: "dev-user", is_anonymous: true } as unknown as User;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [devAuthed, setDevAuthed] = useState<boolean>(() => {
+    if (!import.meta.env.DEV) return false;
+    try {
+      return localStorage.getItem(DEV_AUTH_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   // Guards against a slower in-flight profile fetch overwriting a newer one.
   const fetchToken = useRef(0);
 
@@ -86,17 +102,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       loading,
       session,
-      user: session?.user ?? null,
+      user: session?.user ?? (devAuthed ? DEV_USER : null),
       profile,
-      isAuthenticated: !!session,
-      isGuest: !!session?.user?.is_anonymous,
+      isAuthenticated: !!session || devAuthed,
+      isGuest: !!session?.user?.is_anonymous || devAuthed,
       signInWithGoogle,
       signInAsGuest: async () => {
         await signInAsGuest();
       },
-      signOut: signOutService,
+      signInDev: () => {
+        if (!import.meta.env.DEV) return;
+        try {
+          localStorage.setItem(DEV_AUTH_KEY, "1");
+        } catch {
+          // ignore
+        }
+        setDevAuthed(true);
+      },
+      signOut: async () => {
+        try {
+          localStorage.removeItem(DEV_AUTH_KEY);
+        } catch {
+          // ignore
+        }
+        setDevAuthed(false);
+        if (session) await signOutService();
+      },
     }),
-    [loading, session, profile]
+    [loading, session, profile, devAuthed]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
