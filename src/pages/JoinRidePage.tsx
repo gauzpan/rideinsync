@@ -3,8 +3,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
+import { QrScannerSheet } from "../components/QrScannerSheet";
 import { useAuth } from "../hooks/useAuth";
 import {
+  extractJoinCode,
   getMinimumProfileStatus,
   getRidePreview,
   joinRideByCode,
@@ -67,6 +69,7 @@ export function JoinRidePage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   async function lookUpCode(value: string) {
     if (!value.trim()) return;
@@ -148,6 +151,18 @@ export function JoinRidePage() {
 
   const profileIncomplete = !displayName.trim() || !contactName.trim() || !contactPhone.trim() || !vehiclePlate.trim();
 
+  function handleScanned(text: string) {
+    setScannerOpen(false);
+    const scannedCode = extractJoinCode(text);
+    if (!scannedCode) {
+      setError("That QR code doesn't look like a RideInSync invite.");
+      return;
+    }
+    setError(null);
+    setCode(scannedCode);
+    void lookUpCode(scannedCode);
+  }
+
   return (
     <div>
       <Link
@@ -193,8 +208,17 @@ export function JoinRidePage() {
           <Button onClick={() => void lookUpCode(code)} loading={loading} disabled={!code.trim()}>
             Find ride
           </Button>
+          <Button
+            variant="secondary"
+            style={{ marginTop: "var(--space-sm)" }}
+            onClick={() => setScannerOpen(true)}
+          >
+            Scan QR to join
+          </Button>
         </div>
       )}
+
+      {scannerOpen && <QrScannerSheet onDecode={handleScanned} onClose={() => setScannerOpen(false)} />}
 
       {step === "preview" && preview && (
         <div>

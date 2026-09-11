@@ -2,6 +2,13 @@ import { useState } from "react";
 import { Button } from "./ui/Button";
 import { Mark } from "./ui/Logo";
 import { useAuth } from "../hooks/useAuth";
+import { stashPendingJoinCode } from "../services/authService";
+
+type Props = {
+  /** Set when the sign-in sheet is showing over a `/join/:code` deep link —
+   *  stashed before a Google redirect so the join resumes on return. */
+  joinCode?: string;
+};
 
 /**
  * Sign-in sheet: the entry gate offering "Continue with Google" and
@@ -9,7 +16,7 @@ import { useAuth } from "../hooks/useAuth";
  * true bottom sheet + backdrop) but keeps the sheet visual language — a
  * surface-1 card anchored to the bottom with pill actions.
  */
-export function SignInSheet() {
+export function SignInSheet({ joinCode }: Props) {
   const { signInWithGoogle, signInAsGuest } = useAuth();
   const [pending, setPending] = useState<"google" | "guest" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -18,6 +25,9 @@ export function SignInSheet() {
     setError(null);
     setPending("google");
     try {
+      // Guest sign-in is in-page and needs no round-trip; only the Google
+      // redirect can lose the join code, so only stash it here.
+      if (joinCode) stashPendingJoinCode(joinCode);
       await signInWithGoogle();
       // Browser navigates away for the OAuth round-trip; nothing else to do.
     } catch (e) {
@@ -92,8 +102,9 @@ export function SignInSheet() {
             maxWidth: 420,
           }}
         >
-          Sign in to lead or join a ride. Guests can hop into a ride in seconds — leading a ride needs a
-          Google account.
+          {joinCode
+            ? `Sign in to continue joining with code ${joinCode}. Guests can hop into a ride in seconds — leading a ride needs a Google account.`
+            : "Sign in to lead or join a ride. Guests can hop into a ride in seconds — leading a ride needs a Google account."}
         </p>
       </div>
 

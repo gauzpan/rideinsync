@@ -125,6 +125,23 @@ export function buildJoinUrl(code: string): string {
   return `${window.location.origin}/join/${code}`;
 }
 
+/** Pulls a join code out of scanned/decoded QR text — either a full join URL
+ *  (native-camera and in-app-scanner paths both encode `buildJoinUrl`'s
+ *  shape) or a bare code. Returns null for anything else, so callers can
+ *  show "that's not a RideInSync invite" instead of looking up garbage. */
+export function extractJoinCode(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    const match = url.pathname.match(/\/join\/([^/]+)/);
+    return match ? decodeURIComponent(match[1]).toUpperCase() : null;
+  } catch {
+    // Not a URL — accept it as a bare code if it looks like one.
+    return /^[A-Za-z0-9]{4,12}$/.test(trimmed) ? trimmed.toUpperCase() : null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Ticket 03 — rider joins by code and lands on ride detail
 // ---------------------------------------------------------------------------
