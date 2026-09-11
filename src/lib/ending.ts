@@ -7,19 +7,63 @@
 import { supabase } from "./supabase";
 import type {
   FeedbackSentiment,
+  Ride,
   RideSummary,
   UserBadge,
   RideMember,
 } from "./models";
 
+/** Everything the summary screen renders in one shot. */
+export type SummaryView = {
+  me: string | null;
+  ride: Ride | null;
+  members: RideMember[];
+  summary: RideSummary | null;
+  badges: UserBadge[];
+};
+
+// ---- Local-only mock (git-ignored src/lib/flow6.mock.ts) --------------------
+// Picked up ONLY when VITE_MOCK_FLOW6=1 and the file exists. import.meta.glob
+// returns {} when the file is absent, so this never breaks a clean checkout.
+const mockModules = import.meta.glob<{ mockView?: SummaryView }>("./flow6.mock.ts", {
+  eager: true,
+});
+const mockView: SummaryView | undefined =
+  import.meta.env.VITE_MOCK_FLOW6 === "1"
+    ? Object.values(mockModules)[0]?.mockView
+    : undefined;
+
+/** One-shot load for the summary screen (mock-aware). */
+export async function loadSummaryView(rideId: string): Promise<SummaryView> {
+  if (mockView) return structuredClone(mockView);
+  const { data: auth } = await supabase.auth.getUser();
+  const me = auth.user?.id ?? null;
+  const { data: ride } = await supabase.from("rides").select("*").eq("id", rideId).maybeSingle();
+  const [summary, members] = await Promise.all([getRideSummary(rideId), getHomeRoster(rideId)]);
+  const badges = me ? await getRideBadges(rideId, me) : [];
+  return { me, ride, members, summary, badges };
+}
+
 /** Leader/co-leader finalizes the ride (idempotent server-side). */
 export async function closeRide(rideId: string): Promise<void> {
+  if (mockView) {
+    if (mockView.ride) mockView.ride.status = "ended";
+    return;
+  }
   const { error } = await supabase.rpc("close_ride", { p_ride_id: rideId });
   if (error) throw error;
 }
 
 /** Rider marks themselves home after the ride (self only). */
 export async function markReachedHome(rideId: string): Promise<void> {
+  if (mockView) {
+    const m = mockView.members.find((x) => x.user_id === mockView.me);
+    if (m && !m.reached_home_at) {
+      m.reached_home_at = new Date().toISOString();
+      if (mockView.summary) mockView.summary.riders_home += 1;
+    }
+    return;
+  }
   const { error } = await supabase.rpc("reached_home", { p_ride_id: rideId });
   if (error) throw error;
 }
@@ -32,6 +76,7 @@ export async function submitFeedback(input: {
   likedText?: string;
   improveText?: string;
 }): Promise<void> {
+  if (mockView) return; // feedback accepted in mock; nothing to persist
   const { error } = await supabase.from("ride_feedback").upsert(
     {
       ride_id: input.rideId,

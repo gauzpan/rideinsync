@@ -1,17 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { supabase } from "../lib/supabase";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import type { FeedbackSentiment, Ride, RideMember, RideSummary, UserBadge } from "../lib/models";
-import {
-  closeRide,
-  getHomeRoster,
-  getRideBadges,
-  getRideSummary,
-  markReachedHome,
-  submitFeedback,
-} from "../lib/ending";
+import { closeRide, loadSummaryView, markReachedHome, submitFeedback } from "../lib/ending";
 import { shareRide } from "../lib/shareCard";
 
 const sentiments: { value: FeedbackSentiment; label: string }[] = [
@@ -32,25 +24,18 @@ export function RideSummaryPage() {
   const [improve, setImprove] = useState("");
   const [status, setStatus] = useState<string>("");
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      const uid = auth.user?.id ?? null;
-      const { data: r } = await supabase.from("rides").select("*").eq("id", rideId).maybeSingle();
-      const [sum, mem] = await Promise.all([getRideSummary(rideId), getHomeRoster(rideId)]);
-      const bdg = uid ? await getRideBadges(rideId, uid) : [];
-      if (!active) return;
-      setMe(uid);
-      setRide(r);
-      setSummary(sum);
-      setMembers(mem);
-      setBadges(bdg);
-    })().catch((e) => setStatus(String(e?.message ?? e)));
-    return () => {
-      active = false;
-    };
+  const reload = useCallback(async () => {
+    const v = await loadSummaryView(rideId);
+    setMe(v.me);
+    setRide(v.ride);
+    setSummary(v.summary);
+    setMembers(v.members);
+    setBadges(v.badges);
   }, [rideId]);
+
+  useEffect(() => {
+    reload().catch((e) => setStatus(String((e as Error)?.message ?? e)));
+  }, [reload]);
 
   const myMember = members.find((m) => m.user_id === me);
   const isLead = myMember?.role === "leader" || myMember?.role === "co_leader";
@@ -66,6 +51,7 @@ export function RideSummaryPage() {
     setStatus("");
     try {
       await fn();
+      await reload();
       setStatus(label);
     } catch (e) {
       setStatus(String((e as Error)?.message ?? e));
