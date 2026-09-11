@@ -4,7 +4,7 @@ import { useAuth } from "./hooks/useAuth";
 import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
-import { Footer } from "./components/Footer";
+import { SosButton } from "./components/SosButton";
 import { SosAlertCard } from "./components/SosAlertCard";
 import { HOME } from "./routes";
 import { consumePendingJoinCode } from "./services/authService";
@@ -130,13 +130,11 @@ export function AppLayout() {
           minHeight: "100%",
           margin: "0 auto",
           padding: "var(--space-lg) var(--gutter)",
-          // Clear both fixed bottom bars: the TabBar (bottom) and, in-app, the
-          // SOS Footer stacked above it.
-          paddingBottom: inApp
-            ? "calc(var(--tabbar-height) + var(--footer-height, 96px) + var(--space-xl) + env(safe-area-inset-bottom))"
-            : isAuthenticated
-              ? "calc(var(--tabbar-height) + var(--space-2xl) + env(safe-area-inset-bottom))"
-              : "calc(var(--space-2xl) + env(safe-area-inset-bottom))",
+          // Clear the fixed TabBar. The SOS control floats in the corner and
+          // doesn't reserve layout space of its own.
+          paddingBottom: isAuthenticated
+            ? "calc(var(--tabbar-height) + var(--space-2xl) + env(safe-area-inset-bottom))"
+            : "calc(var(--space-2xl) + env(safe-area-inset-bottom))",
         }}
       >
         {isAuthenticated && <AccountBar />}
@@ -151,10 +149,11 @@ export function AppLayout() {
                 position: "fixed",
                 left: 0,
                 right: 0,
-                // Above the TabBar + the SOS Footer that sits on top of it.
+                // Above the TabBar; overlays the floating SOS control (a peer's
+                // SOS outranks your own trigger button while it shows).
                 bottom:
-                  "calc(var(--tabbar-height) + var(--footer-height, 96px) + env(safe-area-inset-bottom) + var(--space-sm))",
-                zIndex: 19,
+                  "calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-sm))",
+                zIndex: 41,
                 maxWidth: 600,
                 margin: "0 auto",
                 padding: "0 var(--gutter)",
@@ -177,7 +176,7 @@ export function AppLayout() {
               ))}
             </div>
           )}
-          <Footer
+          <SosButton
             disabled={!rideId}
             showVoiceToggle={Boolean(rideId)}
             voiceOn={voiceOn}
