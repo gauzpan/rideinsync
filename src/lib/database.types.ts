@@ -15,7 +15,9 @@ export type RideStatus = "draft" | "active" | "ended";
 export type MemberStatus = "riding" | "stopped" | "rejoining" | "leaving" | "arrived";
 export type EventType =
   | "sos" | "hazard" | "route_change" | "stop" | "rejoin"
-  | "leave" | "regroup" | "pitstop" | "separation" | "arrived";
+  | "leave" | "regroup" | "pitstop" | "separation" | "arrived" | "badge_awarded";
+export type TravelMode = "motorcycle" | "car" | "cycle";
+export type FeedbackSentiment = "like" | "dislike" | "can_be_better";
 export type StoppageReason = "fuel" | "rest" | "mechanical" | "traffic" | "medical" | "other";
 export type JoinRequestStatus = "pending" | "approved" | "rejected";
 export type DocumentType = "license" | "permit" | "insurance" | "registration" | "other";
@@ -26,10 +28,14 @@ export type PitstopKind = "planned" | "dynamic";
 export type ConsentPolicy = "tnc" | "privacy" | "medical" | "dpdp";
 
 // Helper: a table definition with Row / Insert / Update shapes.
+// `Relationships: []` is required for supabase-js to recognize the schema
+// (without it the client falls back to `never` for inserts and `undefined`
+// for rpc args).
 type Table<Row, Insert = Partial<Row>, Update = Partial<Insert>> = {
   Row: Row;
   Insert: Insert;
   Update: Update;
+  Relationships: [];
 };
 
 // Convenience: mark generated/defaulted columns optional on Insert.
@@ -51,6 +57,7 @@ export interface Database {
           separation_distance_km: number; separation_time_seconds: number;
           default_location_visibility: Visibility; status: RideStatus;
           retention_until: string | null; is_demo: boolean; ended_at: string | null;
+          travel_mode: TravelMode;
         } & Timestamps,
         { code: string; name: string; leader_id: string; city?: string | null; start_point?: Json | null;
           destination?: Json | null; route?: Json | null; guidelines?: string | null; permits?: Json | null;
@@ -63,6 +70,7 @@ export interface Database {
         {
           id: string; ride_id: string; user_id: string; role: MemberRole; status: MemberStatus;
           location_visibility: Visibility | null; joined_at: string; last_seen_at: string | null;
+          reached_home_at: string | null;
         },
         { ride_id: string; user_id: string; role?: MemberRole; status?: MemberStatus;
           location_visibility?: Visibility | null; last_seen_at?: string | null }
@@ -112,12 +120,12 @@ export interface Database {
         { ride_id: string; user_id: string; status?: JoinRequestStatus }
       >;
       user_stats: Table<
-        { user_id: string; rides_completed: number; distance_m: number; rides_led: number; updated_at: string },
-        { user_id: string; rides_completed?: number; distance_m?: number; rides_led?: number }
+        { user_id: string; mode: TravelMode; rides_completed: number; distance_m: number; rides_led: number; xp: number; updated_at: string },
+        { user_id: string; mode: TravelMode; rides_completed?: number; distance_m?: number; rides_led?: number; xp?: number }
       >;
       badges: Table<
-        { key: string; name: string; description: string | null; icon: string | null },
-        { key: string; name: string; description?: string | null; icon?: string | null }
+        { key: string; name: string; description: string | null; icon: string | null; mode: TravelMode | null; threshold: number | null },
+        { key: string; name: string; description?: string | null; icon?: string | null; mode?: TravelMode | null; threshold?: number | null }
       >;
       user_badges: Table<
         { id: string; user_id: string; badge_key: string; ride_id: string | null; awarded_at: string },
@@ -148,12 +156,12 @@ export interface Database {
         { ride_id: string; user_id: string; kind: SosKind; payload?: Json | null }
       >;
       ride_summaries: Table<
-        { ride_id: string; total_distance_m: number; total_time_s: number; break_time_s: number; avg_speed: number | null; ended_at: string },
-        { ride_id: string; total_distance_m?: number; total_time_s?: number; break_time_s?: number; avg_speed?: number | null }
+        { ride_id: string; total_distance_m: number; total_time_s: number; break_time_s: number; avg_speed: number | null; ended_at: string; riders_total: number; riders_home: number; arrival_unconfirmed: number },
+        { ride_id: string; total_distance_m?: number; total_time_s?: number; break_time_s?: number; avg_speed?: number | null; riders_total?: number; riders_home?: number; arrival_unconfirmed?: number }
       >;
       ride_feedback: Table<
-        { id: string; ride_id: string; user_id: string; answers: Json | null; reached_home: boolean | null; created_at: string },
-        { ride_id: string; user_id: string; answers?: Json | null; reached_home?: boolean | null }
+        { id: string; ride_id: string; user_id: string; answers: Json | null; sentiment: FeedbackSentiment | null; liked_text: string | null; improve_text: string | null; created_at: string },
+        { ride_id: string; user_id: string; answers?: Json | null; sentiment?: FeedbackSentiment | null; liked_text?: string | null; improve_text?: string | null }
       >;
       analytics_events: Table<
         { id: number; user_id: string | null; name: string; props: Json | null; created_at: string },
@@ -166,6 +174,8 @@ export interface Database {
       approve_join_request: { Args: { request_id: string }; Returns: string };
       is_ride_member: { Args: { rid: string }; Returns: boolean };
       is_ride_leader: { Args: { rid: string }; Returns: boolean };
+      close_ride: { Args: { p_ride_id: string }; Returns: undefined };
+      reached_home: { Args: { p_ride_id: string }; Returns: undefined };
     };
     Enums: {
       member_role: MemberRole;
@@ -180,6 +190,9 @@ export interface Database {
       ack_state: AckState;
       pitstop_kind: PitstopKind;
       consent_policy: ConsentPolicy;
+      travel_mode: TravelMode;
+      feedback_sentiment: FeedbackSentiment;
     };
+    CompositeTypes: Record<string, never>;
   };
 }

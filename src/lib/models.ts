@@ -27,6 +27,8 @@ export type {
   AckState,
   PitstopKind,
   ConsentPolicy,
+  TravelMode,
+  FeedbackSentiment,
   Json,
 } from "./database.types";
 

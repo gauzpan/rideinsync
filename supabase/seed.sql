@@ -89,12 +89,13 @@ insert into stoppage_reports (ride_id, user_id, reason) values
   ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000a4','fuel');
 
 -- ---- Baseline dashboard data ------------------------------------------------
-insert into user_stats (user_id, rides_completed, distance_m, rides_led) values
-  ('00000000-0000-0000-0000-0000000000a1', 12, 1840000, 5),
-  ('00000000-0000-0000-0000-0000000000a2', 8,  1220000, 0),
-  ('00000000-0000-0000-0000-0000000000a3', 3,  410000,  0),
-  ('00000000-0000-0000-0000-0000000000a4', 1,  120000,  0)
-on conflict (user_id) do nothing;
+-- Per-mode stats (0002 makes user_stats keyed by (user_id, mode)); demo is motorcycle.
+insert into user_stats (user_id, mode, rides_completed, distance_m, rides_led) values
+  ('00000000-0000-0000-0000-0000000000a1', 'motorcycle', 12, 1840000, 5),
+  ('00000000-0000-0000-0000-0000000000a2', 'motorcycle', 8,  1220000, 0),
+  ('00000000-0000-0000-0000-0000000000a3', 'motorcycle', 3,  410000,  0),
+  ('00000000-0000-0000-0000-0000000000a4', 'motorcycle', 1,  120000,  0)
+on conflict (user_id, mode) do nothing;
 
 insert into user_badges (user_id, badge_key, ride_id) values
   ('00000000-0000-0000-0000-0000000000a1', 'trailblazer', '00000000-0000-0000-0000-0000000000b1'),
