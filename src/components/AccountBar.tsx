@@ -1,13 +1,28 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Logo } from "./ui/Logo";
 import { Icon } from "./ui/Icon";
 
+const menuItemStyle: CSSProperties = {
+  width: "100%",
+  textAlign: "left",
+  background: "transparent",
+  border: "none",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--color-text-primary)",
+  fontSize: "var(--text-label)",
+  fontFamily: "var(--font-ui)",
+  cursor: "pointer",
+  padding: "var(--space-sm)",
+};
+
 /** Top app bar: the RideInSync logo on the left, and a single account icon on
- *  the right. The rider's identity and sign-out live together in the icon's
- *  menu — no separate name label or sign-out link. */
+ *  the right. The rider's identity, profile link, and sign-out live together in
+ *  the icon's menu — no separate name label or sign-out link. */
 export function AccountBar() {
   const { profile, isGuest, signOut } = useAuth();
+  const navigate = useNavigate();
   const label = profile?.display_name ?? (isGuest ? "Guest" : "Rider");
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -116,20 +131,20 @@ export function AccountBar() {
               role="menuitem"
               onClick={() => {
                 setOpen(false);
+                navigate("/profile");
+              }}
+              style={menuItemStyle}
+            >
+              Profile
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
                 void signOut();
               }}
-              style={{
-                width: "100%",
-                textAlign: "left",
-                background: "transparent",
-                border: "none",
-                borderRadius: "var(--radius-sm)",
-                color: "var(--color-text-primary)",
-                fontSize: "var(--text-label)",
-                fontFamily: "var(--font-ui)",
-                cursor: "pointer",
-                padding: "var(--space-sm)",
-              }}
+              style={menuItemStyle}
             >
               Sign out
             </button>

@@ -24,7 +24,7 @@ type Tab = {
 const TABS: Tab[] = [
   { label: "Home", icon: "home", to: "/home", match: (p) => p === "/home" || p === "/menu" },
   { label: "Ride", icon: "map", to: "/ride/demo", match: (p) => p.startsWith("/ride") },
-  { label: "Profile", icon: "user", to: "/profile", match: (p) => p === "/profile" },
+  { label: "Discover", icon: "compass", to: "/discover", match: (p) => p.startsWith("/discover") },
 ];
 
 export function TabBar() {
