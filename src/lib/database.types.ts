@@ -169,6 +169,8 @@ export interface Database {
     Functions: {
       request_join_ride: { Args: { join_code: string }; Returns: string };
       approve_join_request: { Args: { request_id: string }; Returns: string };
+      // supabase/migrations/0002_flow1_ride_preview.sql — see RidePreviewJson in models.ts.
+      get_ride_preview: { Args: { p_code: string }; Returns: Json };
       is_ride_member: { Args: { rid: string }; Returns: boolean };
       is_ride_leader: { Args: { rid: string }; Returns: boolean };
     };
