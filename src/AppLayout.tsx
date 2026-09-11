@@ -3,6 +3,7 @@ import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
+import { TabBar } from "./components/ui/TabBar";
 import { consumePendingJoinCode } from "./services/authService";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
@@ -40,7 +41,7 @@ export function AppLayout() {
   // Landing ("/") is the public login entry. Signed-in users skip it and go
   // straight to the app menu.
   if (isAuthenticated && onLanding) {
-    return <Navigate to="/menu" replace />;
+    return <Navigate to="/home" replace />;
   }
   // A protected route without a session: keep the join deep-link's sign-in
   // sheet (it stashes the code across the Google redirect); everything else
@@ -51,17 +52,23 @@ export function AppLayout() {
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 600,
-        minHeight: "100%",
-        margin: "0 auto",
-        padding: "var(--space-lg) var(--gutter)",
-        paddingBottom: "calc(var(--space-2xl) + env(safe-area-inset-bottom))",
-      }}
-    >
-      {isAuthenticated && <AccountBar />}
-      <Outlet />
-    </div>
+    <>
+      <div
+        style={{
+          maxWidth: 600,
+          minHeight: "100%",
+          margin: "0 auto",
+          padding: "var(--space-lg) var(--gutter)",
+          // Clear the fixed TabBar (control height + its padding + safe area).
+          paddingBottom: isAuthenticated
+            ? "calc(var(--control-height) + var(--space-2xl) + env(safe-area-inset-bottom))"
+            : "calc(var(--space-2xl) + env(safe-area-inset-bottom))",
+        }}
+      >
+        {isAuthenticated && <AccountBar />}
+        <Outlet />
+      </div>
+      {isAuthenticated && <TabBar />}
+    </>
   );
 }

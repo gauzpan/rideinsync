@@ -30,3 +30,9 @@ a {
   color: var(--color-accent);
   text-decoration: none;
 }
+
+/* Accessibility-critical: visible 2px accent focus ring (design guidelines §4/§5). */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

@@ -1,0 +1,149 @@
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
+import { useAuth } from "./useAuth";
+import type { MemberRole } from "../lib/models";
+
+// Data backing the post-login landing (/home). Queries are defensive: a missing
+// backend, a dev session, or empty tables all resolve to quiet empty state
+// rather than an error. Stats are demo constants until Flow 2's user_stats
+// pipeline lands (see DEMO_STATS below).
+
+export type ActiveRide = {
+  id: string;
+  name: string;
+  code: string;
+  role: MemberRole;
+  riderCount: number;
+};
+
+export type PastRide = {
+  rideId: string;
+  name: string;
+  endedAt: string;
+  distanceKm: number;
+};
+
+export type Completeness = { done: number; total: number };
+
+export type HomeStats = { rides: number; distanceKm: number; ridesLed: number };
+
+// TODO(Flow 2): replace with live user_stats aggregation. Flagged as demo data.
+const DEMO_STATS: HomeStats = { rides: 12, distanceKm: 486, ridesLed: 3 };
+
+export type HomeData = {
+  loading: boolean;
+  activeRide: ActiveRide | null;
+  completeness: Completeness;
+  stats: HomeStats;
+  pastRides: PastRide[];
+  /** True once we know there is no active ride and no history — drives empty state. */
+  isEmpty: boolean;
+};
+
+const COMPLETENESS_TOTAL = 4; // avatar · vehicle · medical · driving licence
+
+export function useHomeData(): HomeData {
+  const { user, profile } = useAuth();
+  const [state, setState] = useState<HomeData>({
+    loading: true,
+    activeRide: null,
+    completeness: { done: 0, total: COMPLETENESS_TOTAL },
+    stats: DEMO_STATS,
+    pastRides: [],
+    isEmpty: false,
+  });
+
+  const userId = user?.id;
+  const avatarDone = !!profile?.avatar_url;
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+
+    (async () => {
+      const [memberships, vehicle, medical, licence] = await Promise.all([
+        safe(() => supabase.from("ride_members").select("ride_id, role").eq("user_id", userId)),
+        safe(() => supabase.from("vehicles").select("id").eq("user_id", userId).limit(1)),
+        safe(() => supabase.from("medical_profiles").select("user_id").eq("user_id", userId).limit(1)),
+        safe(() =>
+          supabase.from("documents").select("id").eq("user_id", userId).eq("type", "license").limit(1)
+        ),
+      ]);
+
+      const done =
+        (avatarDone ? 1 : 0) +
+        (vehicle.length ? 1 : 0) +
+        (medical.length ? 1 : 0) +
+        (licence.length ? 1 : 0);
+
+      const rideIds = memberships.map((m) => m.ride_id);
+      let activeRide: ActiveRide | null = null;
+      let pastRides: PastRide[] = [];
+
+      if (rideIds.length) {
+        const rides = await safe(() =>
+          supabase.from("rides").select("id, name, code, status, ended_at").in("id", rideIds)
+        );
+        const active = rides.find((r) => r.status === "active");
+        if (active) {
+          const roleRow = memberships.find((m) => m.ride_id === active.id);
+          const members = await safe(() =>
+            supabase.from("ride_members").select("id").eq("ride_id", active.id)
+          );
+          activeRide = {
+            id: active.id,
+            name: active.name,
+            code: active.code,
+            role: (roleRow?.role as MemberRole) ?? "rider",
+            riderCount: members.length,
+          };
+        }
+
+        const endedIds = rides.filter((r) => r.status === "ended").map((r) => r.id);
+        if (endedIds.length) {
+          const summaries = await safe(() =>
+            supabase
+              .from("ride_summaries")
+              .select("ride_id, total_distance_m, ended_at")
+              .in("ride_id", endedIds)
+              .order("ended_at", { ascending: false })
+              .limit(5)
+          );
+          const nameById = new Map(rides.map((r) => [r.id, r.name]));
+          pastRides = summaries.map((s) => ({
+            rideId: s.ride_id,
+            name: nameById.get(s.ride_id) ?? "Ride",
+            endedAt: s.ended_at,
+            distanceKm: Math.round((s.total_distance_m ?? 0) / 100) / 10,
+          }));
+        }
+      }
+
+      if (cancelled) return;
+      setState({
+        loading: false,
+        activeRide,
+        completeness: { done, total: COMPLETENESS_TOTAL },
+        stats: DEMO_STATS,
+        pastRides,
+        isEmpty: !activeRide && pastRides.length === 0,
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, avatarDone]);
+
+  return state;
+}
+
+/** Runs a PostgREST query, returning its rows or [] on any error/empty. */
+async function safe<T>(run: () => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  try {
+    const { data } = await run();
+    return data ?? [];
+  } catch {
+    return [];
+  }
+}

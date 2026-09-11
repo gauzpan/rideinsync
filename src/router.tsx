@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router-dom";
+import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AppLayout } from "./AppLayout";
 import { LandingPage } from "./pages/LandingPage";
 import { HomePage } from "./pages/HomePage";
@@ -18,7 +18,9 @@ export const router = createBrowserRouter([
     element: <AppLayout />,
     children: [
       { index: true, element: <LandingPage /> },
-      { path: "menu", element: <HomePage /> },
+      { path: "home", element: <HomePage /> },
+      // Legacy alias — earlier links pointed at /menu.
+      { path: "menu", element: <Navigate to="/home" replace /> },
       { path: "create", element: <CreateRidePage /> },
       { path: "ride/:rideId/invite", element: <RideInvitePage /> },
       { path: "join", element: <JoinRidePage /> },
