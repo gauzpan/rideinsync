@@ -12,7 +12,14 @@ if (!url || !anonKey) {
   console.warn("[supabase] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY not set — using a placeholder client.");
 }
 
+/** True only when real keys are configured; false in keyless demo mode. */
+export const supabaseConfigured = Boolean(url && anonKey);
+
 // Typed against the schema in supabase/migrations/0001_foundation.sql.
+// createClient THROWS on an empty url, which would blank the whole app before
+// any keys are set. Fall back to a valid placeholder so the app still renders;
+// queries fail at runtime (or the keyless demo backend takes over) until real
+// keys land in .env.local.
 export const supabase = createClient<Database>(
   url || "https://placeholder.supabase.co",
   anonKey || "placeholder-anon-key"

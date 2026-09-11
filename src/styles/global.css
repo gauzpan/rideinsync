@@ -36,3 +36,15 @@ a {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+
+/* Buttons clear the native outline in their base style — restore a ring. */
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* Height of the fixed bottom TabBar (excludes the safe-area inset it adds as
+   its own padding); the SOS footer and page padding offset above it. */
+:root {
+  --tabbar-height: calc(var(--control-height) + 2 * var(--space-xs));
+}

@@ -20,6 +20,12 @@
   --color-text-on-accent:#0A0A0B;
   --color-text-on-inverse:#000000;
 
+  /* Danger — SOS only. Added for Flow 5; pending owner design review. */
+  --color-danger:#FF3B30;
+  --color-danger-deep:#C4271D;
+  --color-danger-glow:rgba(255,59,48,0.35);
+  --color-text-on-danger:#FFFFFF;
+
   /* Utility / feedback */
   --color-inverse-surface:#FFFFFF;
   --color-status-positive:#C4F82A;
@@ -67,6 +73,9 @@
   --color-map-road:#B0B0B6;
   --color-map-building:#8A8A8E;
   --color-divider:rgba(0,0,0,0.10);
+
+  --color-danger:#E5342A;
+  --color-danger-deep:#B21F16;
 
   --color-role-member:#0A84D8;
   --color-checkpoint-upcoming:#9A9AA0;

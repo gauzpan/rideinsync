@@ -158,8 +158,15 @@ export interface Database {
         { ride_id: string; created_by: string; kind?: PitstopKind; location?: Json | null; note?: string | null }
       >;
       sos_alerts: Table<
-        { id: string; ride_id: string; user_id: string; kind: SosKind; payload: Json | null; triggered_at: string; resolved_at: string | null; resolved_by: string | null },
-        { ride_id: string; user_id: string; kind: SosKind; payload?: Json | null }
+        { id: string; ride_id: string; user_id: string; kind: SosKind; payload: Json | null; triggered_at: string; resolved_at: string | null; resolved_by: string | null; stay_requested_at: string | null },
+        { ride_id: string; user_id: string; kind: SosKind; payload?: Json | null },
+        { resolved_at?: string | null; resolved_by?: string | null; stay_requested_at?: string | null }
+      >;
+      // Flow 5 (migration 0002_sos.sql) — hand-authored mirror; regenerate later.
+      sos_responses: Table<
+        { id: string; alert_id: string; ride_id: string; user_id: string; reached_at: string | null; created_at: string },
+        { alert_id: string; ride_id: string; user_id: string },
+        { reached_at?: string | null }
       >;
       ride_summaries: Table<
         { ride_id: string; total_distance_m: number; total_time_s: number; break_time_s: number; avg_speed: number | null; ended_at: string; riders_total: number; riders_home: number; arrival_unconfirmed: number },

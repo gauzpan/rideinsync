@@ -1,20 +1,36 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
+import { Footer } from "./components/Footer";
+import { SosAlertCard } from "./components/SosAlertCard";
+import { HOME } from "./routes";
 import { consumePendingJoinCode } from "./services/authService";
+import { useActiveRide } from "./lib/activeRide";
+import { markReached, respondToSos, sosCardState, useSosAlerts, useSosResponses } from "./lib/sos";
+import { useVoiceTrigger } from "./lib/voiceTrigger";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
+const VOICE_KEY = "sos.voice";
+
+function readVoicePref(): boolean {
+  try {
+    return localStorage.getItem(VOICE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export function AppLayout() {
-  const { loading, isAuthenticated } = useAuth();
+  const { loading, isAuthenticated, user } = useAuth();
   const location = useLocation();
+  const { pathname } = location;
   const navigate = useNavigate();
   const resumedRef = useRef(false);
 
-  const joinCodeFromPath = location.pathname.match(JOIN_PATH_RE)?.[1];
+  const joinCodeFromPath = pathname.match(JOIN_PATH_RE)?.[1];
 
   // Resume a join interrupted by the Google OAuth redirect: the code was
   // stashed (see authService) before leaving the app, and is restored here
@@ -30,16 +46,71 @@ export function AppLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
+  // SOS wiring (Flow 5). The fork's placeholder useSession() is superseded by
+  // this branch's real useAuth — we feed its user id to the SOS hooks directly.
+  // `inApp` gates every subscription so nothing opens on the public landing.
+  const userId = isAuthenticated ? user?.id ?? null : null;
+  const inApp = isAuthenticated && pathname !== "/";
+  const { rideId } = useActiveRide(inApp ? userId : null);
+  const alerts = useSosAlerts(inApp ? rideId : null, userId);
+  const responsesByAlert = useSosResponses(inApp ? rideId : null);
+
+  // A card is shown until any responder reaches the rider; it returns only if the
+  // rider taps Stay (stay_requested_at > that reach). No local hide state.
+  const visibleAlerts = alerts
+    .map((a) => ({ alert: a, ...sosCardState(a, responsesByAlert[a.id] ?? []) }))
+    .filter((x) => x.visible);
+
+  // Voice SOS preference (remembered), gated on an active ride + user toggle.
+  const [voiceOn, setVoiceOn] = useState<boolean>(readVoicePref);
+  function toggleVoice() {
+    setVoiceOn((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(VOICE_KEY, next ? "1" : "0");
+      } catch {
+        /* private mode / disabled storage — preference is best-effort */
+      }
+      return next;
+    });
+  }
+
+  const voice = useVoiceTrigger({
+    enabled: inApp && Boolean(rideId) && voiceOn,
+    onTrigger: () => {
+      if (pathname !== "/sos") navigate("/sos", { state: { auto: true } });
+    },
+    onCancelWord: () => {
+      // Only cancel an in-progress countdown; ignore once the SOS is sent.
+      if (pathname === "/sos" && (location.state as { auto?: boolean } | null)?.auto === true) {
+        navigate(HOME);
+      }
+    },
+  });
+
+  function handleRespond(alertId: string) {
+    if (!rideId || !userId) return;
+    void respondToSos(alertId, rideId, userId).catch(() => {
+      /* logged in respondToSos; unique-constraint clashes are expected */
+    });
+  }
+
+  function handleReached(responseId: string) {
+    void markReached(responseId).catch(() => {
+      /* logged in markReached */
+    });
+  }
+
   if (loading) {
     // Brief, unstyled beat while the initial session check resolves — avoids
     // flashing the landing/login for an already-authenticated user.
     return null;
   }
 
-  const onLanding = location.pathname === "/";
+  const onLanding = pathname === "/";
 
   // Landing ("/") is the public login entry. Signed-in users skip it and go
-  // straight to the app menu.
+  // straight to the home screen.
   if (isAuthenticated && onLanding) {
     return <Navigate to="/home" replace />;
   }
@@ -59,15 +130,65 @@ export function AppLayout() {
           minHeight: "100%",
           margin: "0 auto",
           padding: "var(--space-lg) var(--gutter)",
-          // Clear the fixed TabBar (control height + its padding + safe area).
-          paddingBottom: isAuthenticated
-            ? "calc(var(--control-height) + var(--space-2xl) + env(safe-area-inset-bottom))"
-            : "calc(var(--space-2xl) + env(safe-area-inset-bottom))",
+          // Clear both fixed bottom bars: the TabBar (bottom) and, in-app, the
+          // SOS Footer stacked above it.
+          paddingBottom: inApp
+            ? "calc(var(--tabbar-height) + var(--footer-height, 96px) + var(--space-xl) + env(safe-area-inset-bottom))"
+            : isAuthenticated
+              ? "calc(var(--tabbar-height) + var(--space-2xl) + env(safe-area-inset-bottom))"
+              : "calc(var(--space-2xl) + env(safe-area-inset-bottom))",
         }}
       >
         {isAuthenticated && <AccountBar />}
         <Outlet />
       </div>
+
+      {inApp && (
+        <>
+          {visibleAlerts.length > 0 && (
+            <div
+              style={{
+                position: "fixed",
+                left: 0,
+                right: 0,
+                // Above the TabBar + the SOS Footer that sits on top of it.
+                bottom:
+                  "calc(var(--tabbar-height) + var(--footer-height, 96px) + env(safe-area-inset-bottom) + var(--space-sm))",
+                zIndex: 19,
+                maxWidth: 600,
+                margin: "0 auto",
+                padding: "0 var(--gutter)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-sm)",
+              }}
+            >
+              {visibleAlerts.map(({ alert: a, still }) => (
+                <SosAlertCard
+                  key={a.id}
+                  name={a.name}
+                  triggeredAt={a.triggeredAt}
+                  responders={responsesByAlert[a.id] ?? []}
+                  selfUserId={userId}
+                  still={still}
+                  onRespond={() => handleRespond(a.id)}
+                  onReached={handleReached}
+                />
+              ))}
+            </div>
+          )}
+          <Footer
+            disabled={!rideId}
+            showVoiceToggle={Boolean(rideId)}
+            voiceOn={voiceOn}
+            voiceSupported={voice.supported}
+            voiceListening={voice.listening}
+            voiceError={voice.error}
+            onToggleVoice={toggleVoice}
+          />
+        </>
+      )}
+
       {isAuthenticated && <TabBar />}
     </>
   );
