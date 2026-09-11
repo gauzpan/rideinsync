@@ -15,7 +15,9 @@ export type RideStatus = "draft" | "active" | "ended";
 export type MemberStatus = "riding" | "stopped" | "rejoining" | "leaving" | "arrived";
 export type EventType =
   | "sos" | "hazard" | "route_change" | "stop" | "rejoin"
-  | "leave" | "regroup" | "pitstop" | "separation" | "arrived";
+  | "leave" | "regroup" | "pitstop" | "separation" | "arrived" | "badge_awarded";
+export type TravelMode = "motorcycle" | "car" | "cycle";
+export type FeedbackSentiment = "like" | "dislike" | "can_be_better";
 export type StoppageReason = "fuel" | "rest" | "mechanical" | "traffic" | "medical" | "other";
 export type JoinRequestStatus = "pending" | "approved" | "rejected";
 export type DocumentType = "license" | "permit" | "insurance" | "registration" | "other";
@@ -55,6 +57,7 @@ export interface Database {
           separation_distance_km: number; separation_time_seconds: number;
           default_location_visibility: Visibility; status: RideStatus;
           retention_until: string | null; is_demo: boolean; ended_at: string | null;
+          travel_mode: TravelMode;
         } & Timestamps,
         { code: string; name: string; leader_id: string; city?: string | null; start_point?: Json | null;
           destination?: Json | null; route?: Json | null; guidelines?: string | null; permits?: Json | null;
@@ -67,6 +70,7 @@ export interface Database {
         {
           id: string; ride_id: string; user_id: string; role: MemberRole; status: MemberStatus;
           location_visibility: Visibility | null; joined_at: string; last_seen_at: string | null;
+          reached_home_at: string | null;
         },
         { ride_id: string; user_id: string; role?: MemberRole; status?: MemberStatus;
           location_visibility?: Visibility | null; last_seen_at?: string | null }
@@ -115,13 +119,18 @@ export interface Database {
         { id: string; ride_id: string; user_id: string; status: JoinRequestStatus; requested_at: string; decided_at: string | null; decided_by: string | null },
         { ride_id: string; user_id: string; status?: JoinRequestStatus }
       >;
+      // Flow 1 ticket 06 — supabase/migrations/0004_flow1_pillion.sql
+      ride_pillion_links: Table<
+        { id: string; ride_id: string; pillion_user_id: string; rider_user_id: string; created_at: string },
+        { ride_id: string; pillion_user_id: string; rider_user_id: string }
+      >;
       user_stats: Table<
-        { user_id: string; rides_completed: number; distance_m: number; rides_led: number; updated_at: string },
-        { user_id: string; rides_completed?: number; distance_m?: number; rides_led?: number }
+        { user_id: string; mode: TravelMode; rides_completed: number; distance_m: number; rides_led: number; xp: number; updated_at: string },
+        { user_id: string; mode: TravelMode; rides_completed?: number; distance_m?: number; rides_led?: number; xp?: number }
       >;
       badges: Table<
-        { key: string; name: string; description: string | null; icon: string | null },
-        { key: string; name: string; description?: string | null; icon?: string | null }
+        { key: string; name: string; description: string | null; icon: string | null; mode: TravelMode | null; threshold: number | null },
+        { key: string; name: string; description?: string | null; icon?: string | null; mode?: TravelMode | null; threshold?: number | null }
       >;
       user_badges: Table<
         { id: string; user_id: string; badge_key: string; ride_id: string | null; awarded_at: string },
@@ -148,16 +157,23 @@ export interface Database {
         { ride_id: string; created_by: string; kind?: PitstopKind; location?: Json | null; note?: string | null }
       >;
       sos_alerts: Table<
-        { id: string; ride_id: string; user_id: string; kind: SosKind; payload: Json | null; triggered_at: string; resolved_at: string | null; resolved_by: string | null },
-        { ride_id: string; user_id: string; kind: SosKind; payload?: Json | null }
+        { id: string; ride_id: string; user_id: string; kind: SosKind; payload: Json | null; triggered_at: string; resolved_at: string | null; resolved_by: string | null; stay_requested_at: string | null },
+        { ride_id: string; user_id: string; kind: SosKind; payload?: Json | null },
+        { resolved_at?: string | null; resolved_by?: string | null; stay_requested_at?: string | null }
+      >;
+      // Flow 5 (migration 0002_sos.sql) — hand-authored mirror; regenerate later.
+      sos_responses: Table<
+        { id: string; alert_id: string; ride_id: string; user_id: string; reached_at: string | null; created_at: string },
+        { alert_id: string; ride_id: string; user_id: string },
+        { reached_at?: string | null }
       >;
       ride_summaries: Table<
-        { ride_id: string; total_distance_m: number; total_time_s: number; break_time_s: number; avg_speed: number | null; ended_at: string },
-        { ride_id: string; total_distance_m?: number; total_time_s?: number; break_time_s?: number; avg_speed?: number | null }
+        { ride_id: string; total_distance_m: number; total_time_s: number; break_time_s: number; avg_speed: number | null; ended_at: string; riders_total: number; riders_home: number; arrival_unconfirmed: number },
+        { ride_id: string; total_distance_m?: number; total_time_s?: number; break_time_s?: number; avg_speed?: number | null; riders_total?: number; riders_home?: number; arrival_unconfirmed?: number }
       >;
       ride_feedback: Table<
-        { id: string; ride_id: string; user_id: string; answers: Json | null; reached_home: boolean | null; created_at: string },
-        { ride_id: string; user_id: string; answers?: Json | null; reached_home?: boolean | null }
+        { id: string; ride_id: string; user_id: string; answers: Json | null; sentiment: FeedbackSentiment | null; liked_text: string | null; improve_text: string | null; created_at: string },
+        { ride_id: string; user_id: string; answers?: Json | null; sentiment?: FeedbackSentiment | null; liked_text?: string | null; improve_text?: string | null }
       >;
       analytics_events: Table<
         { id: number; user_id: string | null; name: string; props: Json | null; created_at: string },
@@ -168,8 +184,16 @@ export interface Database {
     Functions: {
       request_join_ride: { Args: { join_code: string }; Returns: string };
       approve_join_request: { Args: { request_id: string }; Returns: string };
+      // supabase/migrations/0002_flow1_ride_preview.sql — see RidePreviewJson in models.ts.
+      get_ride_preview: { Args: { p_code: string }; Returns: Json };
       is_ride_member: { Args: { rid: string }; Returns: boolean };
       is_ride_leader: { Args: { rid: string }; Returns: boolean };
+      // supabase/migrations/0003_flow1_lead_approval.sql — ticket 05.
+      decline_join_request: { Args: { p_request_id: string }; Returns: undefined };
+      assign_ride_role: { Args: { p_ride_id: string; p_user_id: string; p_role: MemberRole }; Returns: undefined };
+      // supabase/migrations/0007_ending.sql (Flow 6) — renumbered on merge; see below.
+      close_ride: { Args: { p_ride_id: string }; Returns: undefined };
+      reached_home: { Args: { p_ride_id: string }; Returns: undefined };
     };
     Enums: {
       member_role: MemberRole;
@@ -184,6 +208,8 @@ export interface Database {
       ack_state: AckState;
       pitstop_kind: PitstopKind;
       consent_policy: ConsentPolicy;
+      travel_mode: TravelMode;
+      feedback_sentiment: FeedbackSentiment;
     };
     CompositeTypes: Record<string, never>;
   };

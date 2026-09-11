@@ -2,7 +2,18 @@
 // (each dummy rider its own guest session), and renders the Lead/Sweep ops view:
 // live map, group-status roster, SOS, a join QR for your phone, and controls to
 // trigger the behind/stopped states on cue.
-
+import { Link } from "react-router-dom";
+import { Card } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
+import {
+  isDemoBackend,
+  raiseAlertFrom,
+  respondAs,
+  reachAs,
+  stayLatest,
+  resolveLatest,
+  SEED_USERS,
+} from "../lib/sosDemo";
 import { useEffect, useMemo, useState } from "react";
 import { RideMap } from "../components/liveops/RideMap";
 import { useRideChannel } from "../hooks/useRideChannel";
@@ -12,10 +23,21 @@ import { RideSimulator } from "../lib/simulator";
 import type { SimRiderView } from "../lib/simulator";
 import { supabase } from "../lib/supabase";
 import type { GroupStatus, RiderOnMap } from "../lib/models";
-import { Card } from "../components/ui/Card";
-import { Button } from "../components/ui/Button";
 import QRCode from "qrcode";
 
+const linkStyle = {
+  color: "var(--color-text-secondary)",
+  fontSize: "var(--text-label)",
+} as const;
+
+const h1Style = {
+  fontSize: "var(--text-h1)",
+  lineHeight: "var(--lh-h1)",
+  fontWeight: "var(--weight-semibold)",
+  margin: "var(--space-sm) 0 var(--space-lg)",
+} as const;
+
+const noteStyle = { color: "var(--color-text-secondary)", margin: 0 } as const;
 // Session-level singleton so React StrictMode's double-mount (and navigation
 // back to the page) doesn't spawn a second ride or a second simulator.
 type DemoState = { rideId: string; code: string; leaderId: string; sim: RideSimulator };
@@ -106,7 +128,8 @@ export function DemoControlsPage() {
     );
   }
 
-  return (
+  return ( 
+    
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
       <div>
         <h1 style={{ fontFamily: "var(--font-brand)", fontSize: 24, margin: 0 }}>Lead / sweep view</h1>

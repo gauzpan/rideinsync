@@ -20,25 +20,26 @@ insert into badges (key, name, description, icon) values
 on conflict (key) do nothing;
 
 -- ---- Demo auth users (trigger creates profiles) ----------------------------
+-- Demo users get a random, unknown password: they are data fixtures, not login accounts (sign-in is Google OAuth / anonymous per ARCHITECTURE.md).
 insert into auth.users
   (instance_id, id, aud, role, email, encrypted_password,
    email_confirmed_at, created_at, updated_at,
    raw_app_meta_data, raw_user_meta_data, is_anonymous)
 values
   ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000a1',
-   'authenticated', 'authenticated', 'lead@demo.rideinsync', crypt('demo-password', gen_salt('bf')),
+   'authenticated', 'authenticated', 'lead@demo.rideinsync', crypt(gen_random_uuid()::text, gen_salt('bf')),
    now(), now(), now(), '{"provider":"email","providers":["email"]}',
    '{"display_name":"Aarav (Lead)","is_guest":false}', false),
   ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000a2',
-   'authenticated', 'authenticated', 'sweep@demo.rideinsync', crypt('demo-password', gen_salt('bf')),
+   'authenticated', 'authenticated', 'sweep@demo.rideinsync', crypt(gen_random_uuid()::text, gen_salt('bf')),
    now(), now(), now(), '{"provider":"email","providers":["email"]}',
    '{"display_name":"Meera (Sweep)","is_guest":false}', false),
   ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000a3',
-   'authenticated', 'authenticated', 'rider1@demo.rideinsync', crypt('demo-password', gen_salt('bf')),
+   'authenticated', 'authenticated', 'rider1@demo.rideinsync', crypt(gen_random_uuid()::text, gen_salt('bf')),
    now(), now(), now(), '{"provider":"email","providers":["email"]}',
    '{"display_name":"Rohan","is_guest":false}', false),
   ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000a4',
-   'authenticated', 'authenticated', 'rider2@demo.rideinsync', crypt('demo-password', gen_salt('bf')),
+   'authenticated', 'authenticated', 'rider2@demo.rideinsync', crypt(gen_random_uuid()::text, gen_salt('bf')),
    now(), now(), now(), '{"provider":"email","providers":["email"]}',
    '{"display_name":"Kavya","is_guest":false}', false)
 on conflict (id) do nothing;
@@ -89,12 +90,13 @@ insert into stoppage_reports (ride_id, user_id, reason) values
   ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000a4','fuel');
 
 -- ---- Baseline dashboard data ------------------------------------------------
-insert into user_stats (user_id, rides_completed, distance_m, rides_led) values
-  ('00000000-0000-0000-0000-0000000000a1', 12, 1840000, 5),
-  ('00000000-0000-0000-0000-0000000000a2', 8,  1220000, 0),
-  ('00000000-0000-0000-0000-0000000000a3', 3,  410000,  0),
-  ('00000000-0000-0000-0000-0000000000a4', 1,  120000,  0)
-on conflict (user_id) do nothing;
+-- Per-mode stats (0007 makes user_stats keyed by (user_id, mode)); demo is motorcycle.
+insert into user_stats (user_id, mode, rides_completed, distance_m, rides_led) values
+  ('00000000-0000-0000-0000-0000000000a1', 'motorcycle', 12, 1840000, 5),
+  ('00000000-0000-0000-0000-0000000000a2', 'motorcycle', 8,  1220000, 0),
+  ('00000000-0000-0000-0000-0000000000a3', 'motorcycle', 3,  410000,  0),
+  ('00000000-0000-0000-0000-0000000000a4', 'motorcycle', 1,  120000,  0)
+on conflict (user_id, mode) do nothing;
 
 insert into user_badges (user_id, badge_key, ride_id) values
   ('00000000-0000-0000-0000-0000000000a1', 'trailblazer', '00000000-0000-0000-0000-0000000000b1'),

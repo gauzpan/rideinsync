@@ -30,6 +30,9 @@ yarn-error.log*
 .env*.local
 .env
 
+# local-only mock data (never commit)
+src/lib/flow6.mock.ts
+
 # vercel
 .vercel
 
