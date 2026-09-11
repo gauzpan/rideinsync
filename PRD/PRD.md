@@ -213,6 +213,91 @@ Voice-first interaction (D) → cuts across A, B, D
 
 - In-ride voice chat between riders. This is now in scope, but the spike (voice quality at riding speed over cellular, battery drain, Bluetooth headset compatibility) needs to happen before it gets a firm effort estimate or timeline placement
 
+---
+
+## **PART 6: UX & INTERACTION PRINCIPLES**
+
+A standing checklist for every screen in every flow — not a one-time review, something each flow owner
+checks their own screens against as they're built.
+
+- Choices per screen
+- Make targets large
+- Follow familiar patterns
+- Group related information
+- Break content into chunks
+- Interactions within 400 ms
+- Highlight the primary action
+- Place key actions nearby
+- Put essentials first
+- End flows memorably
+- Show visible progress
+- Simplify complex interfaces
+- Use sensible defaults
+- Prevent errors proactively
+- Make errors recoverable
+- Maintain pattern consistency
+- Connect related elements visually
+- Reduce task completion time
+- Reveal complexity gradually
+- Make completion feel closer
+
+**Already reflected in flow-level decisions on record** (not repeated at length here): the ≥56px tap target
+and glove-friendly-touch rule in the design system is *make targets large*; the MSF hand-signal vocabulary
+adapted digitally for group-ride signals is *follow familiar patterns*; sender attribution on signals
+(showing who flagged a hazard, not just what) is *connect related elements visually*; signal-density scaling
+by rider experience is *reveal complexity gradually* and *use sensible defaults*; reusing one haptic/audio
+pattern per urgency tier instead of a unique one per signal type is *maintain pattern consistency* and
+*simplify complex interfaces*; stopped-rider confirmation delays and duplicate-hazard-report coalescing are
+*prevent errors proactively*.
+
+**Concrete decisions this checklist has already produced, by flow:**
+
+| # | Principle | Decision | Flow |
+|---|---|---|---|
+| 1 | Interactions within 400ms | Applies to *local* UI response only — button-press feedback, a cancel/dismiss tap, an "I'm okay" acknowledgment — not push delivery, which is network-dependent and can't be bounded that tightly. | Flow 4/5 |
+| 2 | Make errors recoverable | A brief cancel window (e.g. 3-5s) between an SOS trigger and it actually dispatching, to recover from an accidental press — distinct from being able to dismiss an alert that's already live. Once dispatched, delivery is never throttled or delayed. | Flow 5 |
+| 3 | Show visible progress | The sender of a signal (not just Lead/Sweep) should see delivery progress — "Sent → Delivered → Seen by {lead}" — not just silence after tapping SOS or a hazard call. | Flow 4/5 |
+| 4 | Show visible progress / Break content into chunks | The mandatory iOS "Add to Home Screen" onboarding step needs visible step progress ("Step 1 of 3"), not a static wall of instructions — it's also the one onboarding step that has to be screenshot-driven rather than voice-guided, since it walks through OS-level gestures. | Flow 1 |
+| 5 | End flows memorably | Nothing currently marks "ride complete, everyone accounted for" as its own positive moment — everything in the signals taxonomy is routine or urgent. Built from status data Flow 4 already tracks (manual status, reached-destination), but belongs to Flow 6's territory to design and own. | Flow 4 → Flow 6 |
+| 6 | Choices per screen / Reveal complexity gradually | The preferences panel shouldn't expose every individual signal as its own toggle — too many choices on one screen, and works against signal-density scaling. Default to tier-level controls (Critical/High/Medium/Low), with per-signal overrides behind an "advanced" layer. | Flow 2 |
+
+---
+
+## **PART 7: BETA LAUNCH READINESS CHECKLIST**
+
+Standard pre-launch checklist, cross-checked against what's actually decided/built for this app rather than
+applied blindly — a few items aren't real requirements here, and a few directly hit gaps already on record
+elsewhere in this doc or the gap analysis.
+
+| # | Item | Applies to this app's beta? | Owner / flow | Note |
+|---|---|---|---|---|
+| 1 | Onboarding | Yes | Flow 1 | Includes the mandatory iOS "Add to Home Screen" step (Part 6, row 4) — easy to forget it's part of onboarding, not a separate settings task. |
+| 2 | Sign-up and login | Yes | Flow 1 | OTP primary, Google fallback, per the solution-space spec — no password path. |
+| 3 | Email verification | **Likely N/A** | Flow 1 | Auth is phone OTP + Google OAuth, not email/password — confirm there's no email step hiding in the Google fallback before skipping this, but don't build one speculatively. |
+| 4 | Password reset | **Likely N/A** | Flow 1 | Same reason as above — there's no password to reset in a passwordless (OTP) flow. Flag explicitly so nobody builds this for a flow that doesn't need it. |
+| 5 | Account deletion | **Blocked, not just unbuilt** | Flow 1 / legal | Doesn't exist anywhere in the PRD or solution space yet, and it's not just a missing feature — it's very likely required by the same DPDP Act compliance work already flagged as a "hard prerequisite before launch" (gap analysis item 9). Can't be checked off independently of that. |
+| 6 | User permissions | Yes | Flow 1 / Flow 3 | Two layers: role permissions (Lead/Sweep/Member — note the multi-leader ambiguity in gap analysis Conflict 1 is still unresolved), and device permissions (location, notifications, camera for QR scan). |
+| 7 | Empty states | Yes | All flows | No ride yet, no ride history, nobody's joined the roster yet, no signals fired yet. |
+| 8 | Loading states | Yes | All flows | GPS acquiring, push subscription pending, route/map loading. |
+| 9 | Error states | Yes | All flows | Especially: GPS permission denied, push subscription failed (the iOS non-installed case from `signals_haptics_plan.md` §10 is a real, expected error state, not an edge case), ride-join failure. |
+| 10 | Slow or no internet connection | **Partially blocked** | Flow 3 | Two already-flagged, unresolved platform risks sit under this: the Bluetooth mesh fallback (unbuilt, Android-only if it ships) and background-location reliability on iOS PWAs (gap analysis risk). This item can't be fully checked off until those are resolved, not just tested. |
+| 11 | User data actually saves correctly | Yes | All flows | Every Supabase write path once built — profile, ride, positions, events. |
+| 12 | Test your payment flow | **N/A for beta** | — | PRD Part 1: fees field is UI-only, payment processing is explicitly future scope, not v1. Flag so nobody spends beta-prep time testing something that isn't built. |
+| 13 | Test notifications | Yes — the big one | Flow 4/5 | This is the entire subject of `signals_haptics_plan.md`. Given how much of that doc is real iOS-vs-Android platform gaps (haptics Android-only, push requiring iOS install-to-home-screen), this has to mean testing on **real iOS Safari and Android Chrome devices**, not just a simulator — a simulator won't surface most of what that doc found. |
+| 14 | Add analytics | **Scope change, not just a task** | Flow 7 | Currently sits as "metrics scope to be decided later" in the solution-space doc's open questions — this checklist item makes it a beta-launch requirement, not a deferred nice-to-have. Worth raising that scope change with Mithul explicitly, not assuming it's already agreed. |
+| 15 | Add crash reporting | **New requirement** | Unassigned | Not mentioned anywhere in the PRD or architecture docs today. Needs a tool decision (e.g. Sentry) and an owner before beta, not just a checkbox. |
+| 16 | Check your privacy setup | **Blocked** | Legal / Flow 1 | Same blocking dependency as account deletion (row 5) — Problem F's privacy controls and DPDP compliance are both already flagged P0 / hard-prerequisite and still unresolved. This can't be "checked" until that work exists. |
+| 17 | Check accessibility | Yes | Design | The design system already has the rules (≥56px targets, focus rings, colorblind-safe encoding — see `signals_haptics_plan.md` §4) — this checklist item is the actual verification pass against those rules, not a rule-writing task. |
+| 18 | Test different devices and screen sizes | Yes | All flows | Given how platform-specific this app's real constraints are (see row 13), this must explicitly include iOS Safari vs. Android Chrome behavior, not just responsive-layout testing across screen sizes. |
+| 19 | Test every critical user flow | Yes | All flows | End to end on real devices: create ride → join ride → active tracking → SOS → ride end. |
+| 20 | Give it to real beta testers before launch | Yes — already in motion | Flow 7 | This is exactly what the LinkedIn/Instagram beta-waitlist landing page (published separately this session) is recruiting for. |
+
+**Add analytics to debug, specifically** — the addition called out alongside this checklist deserves its own
+line: analytics here isn't only product usage metrics (row 14), it needs to answer "did this push actually
+deliver," "why didn't this signal fire," "did the stopped-rider dwell timer behave as designed." That's a
+different capture surface (delivery/failure events per signal, not just screen views) — worth specifying to
+whoever builds analytics (Flow 7) before they scope it as a generic usage-tracking task.
+
 ## **Solution**
 
 A lightweight Android app that:

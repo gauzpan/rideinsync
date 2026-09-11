@@ -10,6 +10,9 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
+        // id/start_url/scope make the app identity explicit so a TWA (Android
+        // APK) wrapper and the installed PWA resolve to the same app. See docs/ANDROID.md.
+        id: "/",
         name: "RideInSync",
         short_name: "RideInSync",
         description: "Voice-first group-ride coordination for motorcyclists.",
@@ -17,16 +20,28 @@ export default defineConfig({
         background_color: "#0A0A0B",
         display: "standalone",
         orientation: "portrait",
+        start_url: "/",
+        scope: "/",
         icons: [
           {
             src: "icons/icon-192.png",
             sizes: "192x192",
             type: "image/png",
+            purpose: "any",
           },
           {
             src: "icons/icon-512.png",
             sizes: "512x512",
             type: "image/png",
+            purpose: "any",
+          },
+          {
+            // Maskable icon for Android adaptive icons (TWA/Play Store). Uses the
+            // 512 for now — replace with a purpose-built maskable (safe-zone) art.
+            src: "icons/icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable",
           },
         ],
       },

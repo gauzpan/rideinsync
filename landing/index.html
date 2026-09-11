@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RideInSync Beta</title>
+<meta name="description" content="Voice-first group-ride coordination for motorcyclists — join the beta waitlist.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 120 120%22><rect width=%22120%22 height=%22120%22 rx=%2224%22 fill=%22%230A0A0B%22/><polyline points=%2222,30 56,60 22,90%22 fill=%22none%22 stroke=%22%236B6B70%22 stroke-width=%2212%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/><polyline points=%2244,30 78,60 44,90%22 fill=%22none%22 stroke=%22%23FFFFFF%22 stroke-width=%2212%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/><polyline points=%2266,30 100,60 66,90%22 fill=%22none%22 stroke=%22%23C4F82A%22 stroke-width=%2212%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap">
+<style>
+  :root{
+    /* RideInSync tokens (dark-first; mirrors design/tokens/*.css in the main app) */
+    --bg: #0A0A0B;
+    --bg-void: #000000;
+    --surface-1: #141416;
+    --surface-2: #1C1C1E;
+    --surface-3: #2A2A2D;
+    --text-primary: #FFFFFF;
+    --text-secondary: #9A9A9E;
+    --text-tertiary: #6B6B70;
+    --text-on-accent: #0A0A0B;
+    --accent: #C4F82A;
+    --accent-bright: #C9FF3D;
+    --accent-deep: #A8E000;
+    --accent-glow: rgba(178,232,46,0.35);
+    --divider: rgba(255,255,255,0.08);
+    /* Diverges from design/tokens/colors.css's lead=lime/sweep=coral/member=blue, per explicit request for this page */
+    --role-lead: #5AC8FA;
+    --role-sweep: #C4F82A;
+    --role-member: #FF7A5A;
+    --shadow-card: 0 8px 24px rgba(0,0,0,0.5);
+
+    --font-brand: "Poppins", "Quicksand", sans-serif;
+    --font-ui: "Inter", "SF Pro Text", system-ui, sans-serif;
+    --text-display: 44px; --lh-display: 48px;
+    --text-h1: 26px; --lh-h1: 32px;
+    --text-h2: 20px; --lh-h2: 26px;
+    --text-body: 16px; --lh-body: 26px;
+    --text-label: 14px; --lh-label: 20px;
+    --text-caption: 12px; --lh-caption: 16px;
+    --w-medium: 500; --w-semibold: 600; --w-bold: 700;
+    --tracking-brand: -0.01em;
+
+    --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px;
+    --space-lg: 24px; --space-xl: 32px; --space-2xl: 48px; --space-3xl: 72px;
+    --radius-full: 999px; --radius-lg: 20px; --radius-md: 16px; --radius-sm: 12px;
+  }
+
+  /* Light theme mirrors design/tokens/colors.css's [data-theme="light"] block */
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="dark"]){
+      --bg: #F5F5F7; --bg-void: #FFFFFF;
+      --surface-1: #FFFFFF; --surface-2: #EFEFF2; --surface-3: #E6E6EB;
+      --text-primary: #0A0A0B; --text-secondary: #5A5A60; --text-tertiary: #8A8A90;
+      --divider: rgba(0,0,0,0.10);
+      --role-lead: #0A84D8;
+      --shadow-card: 0 8px 24px rgba(20,20,25,0.12);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg: #F5F5F7; --bg-void: #FFFFFF;
+    --surface-1: #FFFFFF; --surface-2: #EFEFF2; --surface-3: #E6E6EB;
+    --text-primary: #0A0A0B; --text-secondary: #5A5A60; --text-tertiary: #8A8A90;
+    --divider: rgba(0,0,0,0.10);
+    --role-lead: #0A84D8;
+    --shadow-card: 0 8px 24px rgba(20,20,25,0.12);
+  }
+
+  *{ box-sizing: border-box; }
+  html{ color-scheme: dark; }
+  body{ margin: 0; background: var(--bg); color: var(--text-primary); font-family: var(--font-ui); }
+  h1,h2,h3{ font-family: var(--font-brand); letter-spacing: var(--tracking-brand); text-wrap: balance; margin: 0; }
+  p{ margin: 0; }
+  a{ color: inherit; }
+  img{ max-width: 100%; }
+  :focus-visible{ outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius-sm); }
+
+  .wrap{ max-width: 640px; margin: 0 auto; padding: var(--space-xl) var(--space-lg) var(--space-3xl); position: relative; }
+
+  /* ---- Hero ---- */
+  .hero{ position: relative; padding-top: var(--space-lg); }
+  .glow{
+    position: absolute; top: -60px; right: -100px; width: 360px; height: 360px;
+    border-radius: var(--radius-full); pointer-events: none; z-index: 0;
+    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+  }
+  .brandrow{ display: flex; align-items: center; gap: var(--space-sm); position: relative; z-index: 1; }
+  .wordmark{ font-size: 22px; font-weight: var(--w-semibold); }
+  .headline{ position: relative; z-index: 1; font-size: var(--text-display); line-height: var(--lh-display);
+    font-weight: var(--w-semibold); margin-top: var(--space-lg); max-width: 480px; }
+  .sub{ position: relative; z-index: 1; font-size: var(--text-h2); line-height: var(--lh-h2);
+    color: var(--text-secondary); margin-top: var(--space-md); max-width: 460px; }
+  .sub strong{ color: var(--text-primary); font-weight: var(--w-semibold); }
+
+  /* ---- Route illustration ---- */
+  .route-card{
+    margin-top: var(--space-xl); border-radius: var(--radius-lg); background: var(--surface-1);
+    border: 1px solid var(--divider); padding: var(--space-md) var(--space-md) var(--space-sm);
+    position: relative; z-index: 1;
+  }
+  .route-card svg{ width: 100%; height: auto; display: block; }
+  .rider-dot{ offset-path: path("M20,150 C 90,150 110,60 190,60 S 300,150 380,150"); offset-rotate: 0deg;
+    transform-box: fill-box; }
+  .rider-dot.lead{ animation: travel 7s linear infinite; }
+  .rider-dot.sweep{ animation: travel 7s linear infinite; animation-delay: -0.9s; }
+  .rider-dot.member{ animation: travel 7s linear infinite; animation-delay: -1.8s; }
+  @keyframes travel{ from{ offset-distance: 0%; } to{ offset-distance: 100%; } }
+  /* Throttle: a quick rev-pulse on each rider marker, staggered like they're blipping the throttle in turn */
+  .rider-dot .hub{ animation: rev 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  .rider-dot.lead .hub{ color: var(--role-lead); }
+  .rider-dot.sweep .hub{ color: var(--role-sweep); animation-delay: -0.5s; }
+  .rider-dot.member .hub{ color: var(--role-member); animation-delay: -1.05s; }
+  @keyframes rev{
+    0%, 100%{ transform: scale(1); filter: drop-shadow(0 0 0 transparent); }
+    14%{ transform: scale(1.3); filter: drop-shadow(0 0 5px currentColor); }
+    26%{ transform: scale(1); filter: drop-shadow(0 0 0 transparent); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .rider-dot{ animation: none !important; offset-distance: 12%; }
+    .rider-dot .hub{ animation: none !important; }
+  }
+  .route-caption{ display: flex; justify-content: space-between; align-items: center;
+    padding: var(--space-sm) var(--space-2xs) 0; font-size: var(--text-caption); color: var(--text-tertiary); }
+
+  /* ---- Status line ---- */
+  .status{ margin-top: var(--space-xl); display: flex; gap: var(--space-sm); align-items: flex-start;
+    padding: var(--space-md); border-radius: var(--radius-md); background: var(--surface-2); }
+  .status-dot{ width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--accent);
+    margin-top: 7px; flex: none; box-shadow: 0 0 0 4px var(--accent-glow); }
+  .status p{ font-size: var(--text-body); line-height: var(--lh-body); color: var(--text-secondary); }
+  .status strong{ color: var(--text-primary); font-weight: var(--w-medium); }
+
+  /* ---- Section label ---- */
+  .eyebrow{ font-size: var(--text-label); color: var(--text-tertiary); font-weight: var(--w-medium);
+    margin: var(--space-2xl) 0 var(--space-md); }
+
+  /* ---- Value grid ---- */
+  .grid{ display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-sm); }
+  @media (max-width: 480px){ .grid{ grid-template-columns: 1fr; } }
+  .card{ background: var(--surface-1); border: 1px solid var(--divider); border-radius: var(--radius-lg);
+    padding: var(--space-md); display: flex; flex-direction: column; gap: var(--space-sm); }
+  .icon-box{ width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--surface-3);
+    display: grid; place-items: center; box-shadow: 0 0 24px 2px var(--accent-glow); }
+  .card h3{ font-size: var(--text-h2); line-height: var(--lh-h2); font-weight: var(--w-semibold); }
+  .card p{ font-size: var(--text-label); line-height: var(--lh-label); color: var(--text-secondary); }
+
+  /* ---- Roles ---- */
+  .roles{ display: flex; gap: var(--space-sm); }
+  .role{ flex: 1; background: var(--surface-1); border: 1px solid var(--divider); border-radius: var(--radius-lg);
+    padding: var(--space-md) var(--space-sm); text-align: center; }
+  .role-swatch{ width: 28px; height: 28px; border-radius: var(--radius-full); margin: 0 auto var(--space-sm); }
+  .role h4{ font-family: var(--font-ui); font-size: var(--text-label); font-weight: var(--w-semibold); margin: 0; }
+  .role p{ font-size: var(--text-caption); line-height: var(--lh-caption); color: var(--text-tertiary); margin-top: 4px; }
+
+  /* ---- Platform note ---- */
+  .platform{ margin-top: var(--space-xl); font-size: var(--text-label); color: var(--text-tertiary);
+    display: flex; align-items: center; gap: var(--space-xs); }
+
+  /* ---- CTA ---- */
+  .cta{ margin-top: var(--space-2xl); background: var(--surface-1); border: 1px solid var(--divider);
+    border-radius: var(--radius-lg); padding: var(--space-lg); text-align: center; }
+  .cta h2{ font-size: var(--text-h1); line-height: var(--lh-h1); font-weight: var(--w-semibold); }
+  .cta p{ font-size: var(--text-body); line-height: var(--lh-body); color: var(--text-secondary);
+    margin-top: var(--space-xs); }
+  .btn{ display: inline-flex; align-items: center; justify-content: center; gap: var(--space-xs);
+    margin-top: var(--space-lg); height: 56px; padding: 0 var(--space-xl); border-radius: var(--radius-full);
+    background: var(--accent); color: var(--text-on-accent); font-family: var(--font-ui);
+    font-size: var(--text-body); font-weight: var(--w-semibold); text-decoration: none; border: none;
+    cursor: pointer; transition: background .15s ease, transform .15s ease; }
+  .btn:hover{ background: var(--accent-bright); }
+  .btn:active{ transform: scale(0.98); }
+  .cta-note{ margin-top: var(--space-sm); font-size: var(--text-caption); color: var(--text-tertiary); }
+
+  footer{ margin-top: var(--space-2xl); padding-top: var(--space-lg); border-top: 1px solid var(--divider);
+    display: flex; flex-direction: column; gap: var(--space-sm); font-size: var(--text-caption);
+    color: var(--text-tertiary); }
+  .footer-row{ display: flex; justify-content: space-between; align-items: center; }
+  .footer-copyright{ color: var(--text-tertiary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <section class="hero">
+    <div class="glow" aria-hidden="true"></div>
+    <div class="brandrow">
+      <svg width="34" height="34" viewBox="0 0 120 120" role="img" aria-label="RideInSync">
+        <polyline points="22,30 56,60 22,90" fill="none" stroke="#6B6B70" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+        <polyline points="44,30 78,60 44,90" fill="none" stroke="var(--text-primary)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+        <polyline points="66,30 100,60 66,90" fill="none" stroke="var(--accent)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark">RideInSync</span>
+    </div>
+
+    <h1 class="headline">Ride together. Never lose the pack.</h1>
+    <p class="sub">
+      A <strong>voice-first</strong> app for group motorcycle rides: live positions,
+      one-tap SOS, and hands-free signals for the whole pod, so nobody falls behind unnoticed.
+    </p>
+
+    <a class="btn" href="https://form.typeform.com/to/z2lnGuMJ" target="_blank" rel="noopener"
+       style="position: relative; z-index: 1;">Join the waitlist</a>
+
+    <div class="route-card">
+      <svg viewBox="0 0 400 200" role="img" aria-label="Illustration of three riders travelling together along a shared route">
+        <path d="M20,150 C 90,150 110,60 190,60 S 300,150 380,150" fill="none" stroke="var(--divider)" stroke-width="3"/>
+        <path d="M20,150 C 90,150 110,60 190,60 S 300,150 380,150" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round"/>
+        <circle cx="190" cy="60" r="7" fill="var(--bg)" stroke="var(--accent)" stroke-width="2.5"/>
+        <circle cx="380" cy="150" r="9" fill="var(--accent)"/>
+        <g class="rider-dot lead"><circle class="hub" r="6" fill="var(--role-lead)"/></g>
+        <g class="rider-dot sweep"><circle class="hub" r="6" fill="var(--role-sweep)"/></g>
+        <g class="rider-dot member"><circle class="hub" r="6" fill="var(--role-member)"/></g>
+      </svg>
+      <div class="route-caption">
+        <span>Live route</span>
+        <span>Shared with the whole pod</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="status">
+    <span class="status-dot" aria-hidden="true"></span>
+    <p><strong>Early development.</strong> We're building RideInSync out in the open, starting with one
+      route-based group ride: join by code or QR, share live GPS, and get a simple group status your lead
+      and sweep can actually read at a glance. Join the waitlist to ride the beta first.</p>
+  </div>
+
+  <p class="eyebrow">Why RideInSync</p>
+  <div class="grid">
+    <div class="card">
+      <div class="icon-box">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2.2"/>
+          <path d="M3.5 19c.6-3 3-4.5 5.5-4.5S14 16 14.6 19M15 15c2 .1 3.7 1.3 4.3 3.4"/>
+        </svg>
+      </div>
+      <h3>Ride together, stay together</h3>
+      <p>See every rider's live position and status on one map, so you adjust your pace without panicking or calling anyone.</p>
+    </div>
+    <div class="card">
+      <div class="icon-box">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M12 8v4M12 15h.01"/>
+        </svg>
+      </div>
+      <h3>One tap for help</h3>
+      <p>SOS alerts your group, your leader, and your emergency contact at once, with your location and medical info.</p>
+    </div>
+    <div class="card">
+      <div class="icon-box">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6"/>
+        </svg>
+      </div>
+      <h3>Eyes on the road</h3>
+      <p>Voice-first signals for stops, hazards, and route changes. Minimal touch, minimal distraction while you ride.</p>
+    </div>
+    <div class="card">
+      <div class="icon-box">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--accent)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 21V4M6 4c2-1.5 4 1.5 6 0s4-1.5 6 0v8c-2 1.5-4-1.5-6 0s-4 1.5-6 0"/>
+        </svg>
+      </div>
+      <h3>No one left behind</h3>
+      <p>Last-known location and a sweep view catch anyone who falls behind or splits off at a junction.</p>
+    </div>
+  </div>
+
+  <p class="eyebrow">Who's in your pod</p>
+  <div class="roles">
+    <div class="role">
+      <div class="role-swatch" style="background: var(--role-lead);"></div>
+      <h4>Lead</h4>
+      <p>Sets the route, calls stops and pitstops</p>
+    </div>
+    <div class="role">
+      <div class="role-swatch" style="background: var(--role-sweep);"></div>
+      <h4>Sweep</h4>
+      <p>Rides tail, makes sure nobody's left quiet</p>
+    </div>
+    <div class="role">
+      <div class="role-swatch" style="background: var(--role-member);"></div>
+      <h4>Rider</h4>
+      <p>Follows the pack, signals hands-free</p>
+    </div>
+  </div>
+
+  <p class="platform">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 18h6"/></svg>
+    Installs straight from your phone's browser. No app store needed.
+  </p>
+
+  <div class="cta" id="waitlist">
+    <h2>Join the beta waitlist</h2>
+    <p>This is an early beta, not a finished app. Expect rough edges and missing pieces. We're looking for
+      riders willing to put it through real rides and tell us what's broken, what's missing, and what to fix
+      next. Your feedback shapes what we build, not just your patience.</p>
+    <a class="btn" href="https://g0rrmenr2wr.typeform.com/to/MdrSstrh" target="_blank" rel="noopener" id="waitlist-link">Join the waitlist</a>
+    <p class="cta-note">Takes about a minute · no spam, just a heads-up when it's your turn</p>
+  </div>
+
+  <footer>
+    <div class="footer-row">
+      <span>RideInSync</span>
+      <span>Built for riders, by riders</span>
+    </div>
+    <p class="footer-copyright">&copy; 2026 RideInSync. All rights reserved.</p>
+  </footer>
+
+</div>
+</body>
+</html>

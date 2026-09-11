@@ -28,10 +28,9 @@ export type PitstopKind = "planned" | "dynamic";
 export type ConsentPolicy = "tnc" | "privacy" | "medical" | "dpdp";
 
 // Helper: a table definition with Row / Insert / Update shapes.
-// `Relationships` is required by @supabase/postgrest-js's GenericTable —
-// without it, insert/update generics silently collapse to `never` and rpc args
-// to `undefined`. This hand-authored mirror has no FK-relationship metadata, so
-// it's always `[]`; `supabase gen types` will populate it once regenerated.
+// `Relationships: []` is required by @supabase/supabase-js v2's generics — without
+// it the client infers `never` for insert/select/rpc. Regenerating with the
+// Supabase CLI produces the real relationships; this keeps the placeholder valid.
 type Table<Row, Insert = Partial<Row>, Update = Partial<Insert>> = {
   Row: Row;
   Insert: Insert;
