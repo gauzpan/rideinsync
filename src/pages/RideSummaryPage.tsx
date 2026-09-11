@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import type { FeedbackSentiment, Ride, RideMember, RideSummary, UserBadge } from "../lib/models";
+import { RideBadge } from "../components/ui/RideBadge";
 import { closeRide, loadSummaryView, markReachedHome, submitFeedback } from "../lib/ending";
 import { shareRide } from "../lib/shareCard";
 
@@ -103,18 +104,7 @@ export function RideSummaryPage() {
           <h2 style={{ fontSize: "var(--text-h2)", margin: "0 0 var(--space-sm)" }}>Badges earned</h2>
           <div style={{ display: "flex", gap: "var(--space-xs)", flexWrap: "wrap" }}>
             {badges.map((b) => (
-              <span
-                key={b.badge_key}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: "var(--radius-full)",
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-accent)",
-                  fontSize: "var(--text-label)",
-                }}
-              >
-                {b.badge_key}
-              </span>
+              <RideBadge key={b.badge_key} badgeKey={b.badge_key} />
             ))}
           </div>
         </Card>
