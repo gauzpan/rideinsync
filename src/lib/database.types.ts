@@ -28,9 +28,10 @@ export type PitstopKind = "planned" | "dynamic";
 export type ConsentPolicy = "tnc" | "privacy" | "medical" | "dpdp";
 
 // Helper: a table definition with Row / Insert / Update shapes.
-// `Relationships: []` is required for supabase-js to recognize the schema
-// (without it the client falls back to `never` for inserts and `undefined`
-// for rpc args).
+// `Relationships` is required by @supabase/postgrest-js's GenericTable —
+// without it, insert/update generics silently collapse to `never` and rpc args
+// to `undefined`. This hand-authored mirror has no FK-relationship metadata, so
+// it's always `[]`; `supabase gen types` will populate it once regenerated.
 type Table<Row, Insert = Partial<Row>, Update = Partial<Insert>> = {
   Row: Row;
   Insert: Insert;
@@ -119,6 +120,11 @@ export interface Database {
         { id: string; ride_id: string; user_id: string; status: JoinRequestStatus; requested_at: string; decided_at: string | null; decided_by: string | null },
         { ride_id: string; user_id: string; status?: JoinRequestStatus }
       >;
+      // Flow 1 ticket 06 — supabase/migrations/0004_flow1_pillion.sql
+      ride_pillion_links: Table<
+        { id: string; ride_id: string; pillion_user_id: string; rider_user_id: string; created_at: string },
+        { ride_id: string; pillion_user_id: string; rider_user_id: string }
+      >;
       user_stats: Table<
         { user_id: string; mode: TravelMode; rides_completed: number; distance_m: number; rides_led: number; xp: number; updated_at: string },
         { user_id: string; mode: TravelMode; rides_completed?: number; distance_m?: number; rides_led?: number; xp?: number }
@@ -172,8 +178,14 @@ export interface Database {
     Functions: {
       request_join_ride: { Args: { join_code: string }; Returns: string };
       approve_join_request: { Args: { request_id: string }; Returns: string };
+      // supabase/migrations/0002_flow1_ride_preview.sql — see RidePreviewJson in models.ts.
+      get_ride_preview: { Args: { p_code: string }; Returns: Json };
       is_ride_member: { Args: { rid: string }; Returns: boolean };
       is_ride_leader: { Args: { rid: string }; Returns: boolean };
+      // supabase/migrations/0003_flow1_lead_approval.sql — ticket 05.
+      decline_join_request: { Args: { p_request_id: string }; Returns: undefined };
+      assign_ride_role: { Args: { p_ride_id: string; p_user_id: string; p_role: MemberRole }; Returns: undefined };
+      // supabase/migrations/0007_ending.sql (Flow 6) — renumbered on merge; see below.
       close_ride: { Args: { p_ride_id: string }; Returns: undefined };
       reached_home: { Args: { p_ride_id: string }; Returns: undefined };
     };

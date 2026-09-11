@@ -1,5 +1,5 @@
 -- ============================================================================
--- Flow 6 — Ending Journey (Gaurav). Builds on 0001_foundation.sql.
+-- Flow 6 — Ending Journey (Gaurav) — migration 0007. Builds on 0001_foundation.sql.
 -- See flow6-plan.md for the functional requirements behind each change.
 --
 -- ⚠ Coordination: this migration reshapes user_stats and badges, which are

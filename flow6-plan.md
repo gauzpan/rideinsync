@@ -3,7 +3,7 @@
 Owner: Gaurav. The ride's terminal phase from `PRD/ridepod_solution_space_v2.md`, built on the
 data-model foundation (`supabase/migrations/0001_foundation.sql`). Settled via a full
 decision-tree interview; below is the agreed scope, the schema deltas (new migration
-`0002_ending.sql`), and the build/verification plan.
+`0007_ending.sql`), and the build/verification plan.
 
 Stack: PWA (React/Vite) + Supabase Postgres.
 
@@ -42,7 +42,7 @@ Stack: PWA (React/Vite) + Supabase Postgres.
 - **FR6 Close nudge** — all-arrived + 60 min → in-app banner to Lead/co-leaders; nudge only.
 - **FR7 Social share** — summary → share sheet image card + deep link.
 
-## Schema deltas — `supabase/migrations/0002_ending.sql`
+## Schema deltas — `supabase/migrations/0007_ending.sql`
 
 - Enums: `travel_mode('motorcycle','car','cycle')`; `feedback_sentiment('like','dislike','can_be_better')`;
   `alter type event_type add value 'badge_awarded'`.
@@ -71,7 +71,7 @@ Stack: PWA (React/Vite) + Supabase Postgres.
 
 ## Verification
 
-- Apply `0002_ending.sql` on the foundation (`supabase db reset`); regen types; `npm run build`.
+- Apply `0007_ending.sql` on the foundation (`supabase db reset`); regen types; `npm run build`.
 - `close_ride`: leader → writes summary/stats/badges/events; twice → no double count; non-leader → rejected.
 - RLS: non-leader can't read others' feedback; Lead can.
 - Home-ack stamps + roster; nudge fires on all-arrived+60min, suppressed otherwise; close blocks new joins.
