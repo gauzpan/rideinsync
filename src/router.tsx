@@ -3,6 +3,7 @@ import { AppLayout } from "./AppLayout";
 import { LandingPage } from "./pages/LandingPage";
 import { HomePage } from "./pages/HomePage";
 import { CreateRidePage } from "./pages/CreateRidePage";
+import { RideInvitePage } from "./pages/RideInvitePage";
 import { JoinRidePage } from "./pages/JoinRidePage";
 import { RiderViewPage } from "./pages/RiderViewPage";
 import { LeadViewPage } from "./pages/LeadViewPage";
@@ -17,7 +18,9 @@ export const router = createBrowserRouter([
       { index: true, element: <LandingPage /> },
       { path: "menu", element: <HomePage /> },
       { path: "create", element: <CreateRidePage /> },
+      { path: "ride/:rideId/invite", element: <RideInvitePage /> },
       { path: "join", element: <JoinRidePage /> },
+      { path: "join/:code", element: <JoinRidePage /> },
       { path: "ride/:rideId", element: <RiderViewPage /> },
       { path: "ride/:rideId/lead", element: <LeadViewPage /> },
       { path: "demo", element: <DemoControlsPage /> },
