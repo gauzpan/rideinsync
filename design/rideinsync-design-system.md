@@ -102,6 +102,7 @@ Two type roles: a **rounded geometric display face** for the brand mark, and a *
 - **Line height:** ~1.4–1.5 for body, tighter (~1.1) for large navigation metrics.
 - **Emphasis pattern:** the splash tagline mixes weights within one sentence — key phrases (*tell us*, *handles*) in bold white, connective words in muted gray. A signature Wayix tone device.
 - **Case:** sentence case everywhere; no all-caps.
+- **Punctuation:** no em dashes anywhere in in-app copy; use a period, comma, or parentheses instead.
 
 ---
 

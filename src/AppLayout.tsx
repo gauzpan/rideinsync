@@ -1,27 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
-import { SosButton } from "./components/SosButton";
 import { SosAlertCard } from "./components/SosAlertCard";
-import { HOME } from "./routes";
 import { consumePendingJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
 import { markReached, respondToSos, sosCardState, useSosAlerts, useSosResponses } from "./lib/sos";
-import { useVoiceTrigger } from "./lib/voiceTrigger";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
-const VOICE_KEY = "sos.voice";
-
-function readVoicePref(): boolean {
-  try {
-    return localStorage.getItem(VOICE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
 
 export function AppLayout() {
   const { loading, isAuthenticated, user } = useAuth();
@@ -49,6 +37,8 @@ export function AppLayout() {
   // SOS wiring (Flow 5). The fork's placeholder useSession() is superseded by
   // this branch's real useAuth — we feed its user id to the SOS hooks directly.
   // `inApp` gates every subscription so nothing opens on the public landing.
+  // Raising an SOS only happens via Signal on the Ride screen now; this stays
+  // global so an alert already in progress is never missed on another tab.
   const userId = isAuthenticated ? user?.id ?? null : null;
   const inApp = isAuthenticated && pathname !== "/";
   const { rideId } = useActiveRide(inApp ? userId : null);
@@ -60,33 +50,6 @@ export function AppLayout() {
   const visibleAlerts = alerts
     .map((a) => ({ alert: a, ...sosCardState(a, responsesByAlert[a.id] ?? []) }))
     .filter((x) => x.visible);
-
-  // Voice SOS preference (remembered), gated on an active ride + user toggle.
-  const [voiceOn, setVoiceOn] = useState<boolean>(readVoicePref);
-  function toggleVoice() {
-    setVoiceOn((v) => {
-      const next = !v;
-      try {
-        localStorage.setItem(VOICE_KEY, next ? "1" : "0");
-      } catch {
-        /* private mode / disabled storage — preference is best-effort */
-      }
-      return next;
-    });
-  }
-
-  const voice = useVoiceTrigger({
-    enabled: inApp && Boolean(rideId) && voiceOn,
-    onTrigger: () => {
-      if (pathname !== "/sos") navigate("/sos", { state: { auto: true } });
-    },
-    onCancelWord: () => {
-      // Only cancel an in-progress countdown; ignore once the SOS is sent.
-      if (pathname === "/sos" && (location.state as { auto?: boolean } | null)?.auto === true) {
-        navigate(HOME);
-      }
-    },
-  });
 
   function handleRespond(alertId: string) {
     if (!rideId || !userId) return;
@@ -130,8 +93,7 @@ export function AppLayout() {
           minHeight: "100%",
           margin: "0 auto",
           padding: "var(--space-lg) var(--gutter)",
-          // Clear the fixed TabBar. The SOS control floats in the corner and
-          // doesn't reserve layout space of its own.
+          // Clear the fixed TabBar.
           paddingBottom: isAuthenticated
             ? "calc(var(--tabbar-height) + var(--space-2xl) + env(safe-area-inset-bottom))"
             : "calc(var(--space-2xl) + env(safe-area-inset-bottom))",
@@ -141,51 +103,37 @@ export function AppLayout() {
         <Outlet />
       </div>
 
-      {inApp && (
-        <>
-          {visibleAlerts.length > 0 && (
-            <div
-              style={{
-                position: "fixed",
-                left: 0,
-                right: 0,
-                // Above the TabBar; overlays the floating SOS control (a peer's
-                // SOS outranks your own trigger button while it shows).
-                bottom:
-                  "calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-sm))",
-                zIndex: 41,
-                maxWidth: 600,
-                margin: "0 auto",
-                padding: "0 var(--gutter)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-sm)",
-              }}
-            >
-              {visibleAlerts.map(({ alert: a, still }) => (
-                <SosAlertCard
-                  key={a.id}
-                  name={a.name}
-                  triggeredAt={a.triggeredAt}
-                  responders={responsesByAlert[a.id] ?? []}
-                  selfUserId={userId}
-                  still={still}
-                  onRespond={() => handleRespond(a.id)}
-                  onReached={handleReached}
-                />
-              ))}
-            </div>
-          )}
-          <SosButton
-            disabled={!rideId}
-            showVoiceToggle={Boolean(rideId)}
-            voiceOn={voiceOn}
-            voiceSupported={voice.supported}
-            voiceListening={voice.listening}
-            voiceError={voice.error}
-            onToggleVoice={toggleVoice}
-          />
-        </>
+      {inApp && visibleAlerts.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            // Above the TabBar.
+            bottom:
+              "calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-sm))",
+            zIndex: 41,
+            maxWidth: 600,
+            margin: "0 auto",
+            padding: "0 var(--gutter)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-sm)",
+          }}
+        >
+          {visibleAlerts.map(({ alert: a, still }) => (
+            <SosAlertCard
+              key={a.id}
+              name={a.name}
+              triggeredAt={a.triggeredAt}
+              responders={responsesByAlert[a.id] ?? []}
+              selfUserId={userId}
+              still={still}
+              onRespond={() => handleRespond(a.id)}
+              onReached={handleReached}
+            />
+          ))}
+        </div>
       )}
 
       {isAuthenticated && <TabBar />}

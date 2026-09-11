@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Logo } from "./ui/Logo";
 import { Icon } from "./ui/Icon";
@@ -18,11 +17,10 @@ const menuItemStyle: CSSProperties = {
 };
 
 /** Top app bar: the RideInSync logo on the left, and a single account icon on
- *  the right. The rider's identity, profile link, and sign-out live together in
- *  the icon's menu — no separate name label or sign-out link. */
+ *  the right. The icon's menu shows the rider's identity and sign-out — Profile
+ *  lives in the bottom TabBar instead. */
 export function AccountBar() {
   const { profile, isGuest, signOut } = useAuth();
-  const navigate = useNavigate();
   const label = profile?.display_name ?? (isGuest ? "Guest" : "Rider");
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -126,17 +124,6 @@ export function AccountBar() {
               )}
             </div>
             <div style={{ height: 1, background: "var(--color-divider)", margin: "var(--space-2xs) 0" }} />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                navigate("/profile");
-              }}
-              style={menuItemStyle}
-            >
-              Profile
-            </button>
             <button
               type="button"
               role="menuitem"

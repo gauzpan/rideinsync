@@ -1,43 +1,25 @@
 // Flow 3 live-ops demo. Bootstraps an is_demo ride, runs the RLS-safe simulator
 // (each dummy rider its own guest session), and renders the Lead/Sweep ops view:
-// live map, group-status roster, SOS, a join QR for your phone, and controls to
-// trigger the behind/stopped states on cue.
-import { Link } from "react-router-dom";
+// a full-screen live map with two floating actions — "Details" (roster, each
+// rider's title + relative position, and the join QR/code) and "Signal" (hazard,
+// regroup, pit stop, or SOS — the only place SOS can be raised from).
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
-import {
-  isDemoBackend,
-  raiseAlertFrom,
-  respondAs,
-  reachAs,
-  stayLatest,
-  resolveLatest,
-  SEED_USERS,
-} from "../lib/sosDemo";
-import { useEffect, useMemo, useState } from "react";
+import { IconButton } from "../components/ui/IconButton";
+import { Icon, type IconName } from "../components/ui/Icon";
+import { RoleBadge, toBadgeRole } from "../components/ui/RoleBadge";
 import { RideMap } from "../components/liveops/RideMap";
 import { useRideChannel } from "../hooks/useRideChannel";
 import { ensureGuestSession } from "../lib/session";
 import { createDemoRide, DEMO_ROUTE, SIM_RIDER_NAMES } from "../lib/demoRide";
 import { RideSimulator } from "../lib/simulator";
-import type { SimRiderView } from "../lib/simulator";
 import { supabase } from "../lib/supabase";
 import type { GroupStatus, RiderOnMap } from "../lib/models";
 import QRCode from "qrcode";
 
-const linkStyle = {
-  color: "var(--color-text-secondary)",
-  fontSize: "var(--text-label)",
-} as const;
-
-const h1Style = {
-  fontSize: "var(--text-h1)",
-  lineHeight: "var(--lh-h1)",
-  fontWeight: "var(--weight-semibold)",
-  margin: "var(--space-sm) 0 var(--space-lg)",
-} as const;
-
-const noteStyle = { color: "var(--color-text-secondary)", margin: 0 } as const;
 // Session-level singleton so React StrictMode's double-mount (and navigation
 // back to the page) doesn't spawn a second ride or a second simulator.
 type DemoState = { rideId: string; code: string; leaderId: string; sim: RideSimulator };
@@ -60,28 +42,26 @@ const STATUS_LABEL: Record<GroupStatus, string> = {
   stale: "No signal",
 };
 const STATUS_COLOR: Record<GroupStatus, string> = {
-  intact: "#5AC8FA",
-  behind: "#FF9F0A",
-  stopped: "#FF453A",
-  stale: "#8A8A8E",
+  intact: "var(--color-role-lead)",
+  behind: "var(--color-role-sweep)",
+  stopped: "var(--color-danger)",
+  stale: "var(--color-text-tertiary)",
 };
 
 export function DemoControlsPage() {
   const [demo, setDemo] = useState<DemoState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sims, setSims] = useState<SimRiderView[]>([]);
   const [qr, setQr] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [signalOpen, setSignalOpen] = useState(false);
 
   useEffect(() => {
     getDemo()
-      .then((d) => {
-        setDemo(d);
-        setSims(d.sim.list());
-      })
+      .then((d) => setDemo(d))
       .catch((e) => setError(e.message ?? String(e)));
   }, []);
 
-  const { riders, events } = useRideChannel(demo?.rideId);
+  const { riders } = useRideChannel(demo?.rideId);
 
   useEffect(() => {
     if (!demo) return;
@@ -95,141 +75,289 @@ export function DemoControlsPage() {
     return { total, inSync };
   }, [riders]);
 
-  const activeSos = events.find((e) => e.type === "sos");
-
-  async function triggerSos() {
-    if (!demo) return;
-    await supabase.from("ride_events").insert({
-      ride_id: demo.rideId,
-      user_id: demo.leaderId,
-      type: "sos",
-      payload: { note: "Manual SOS from ops view" },
-    });
-  }
-
-  function toggleBehind(userId: string, value: boolean) {
-    demo?.sim.setBehind(userId, value);
-    setSims((prev) => prev.map((s) => (s.userId === userId ? { ...s, behind: value } : s)));
-  }
-  async function toggleStopped(userId: string, value: boolean) {
-    await demo?.sim.setStopped(userId, value);
-    setSims((prev) => prev.map((s) => (s.userId === userId ? { ...s, stopped: value } : s)));
-  }
-
   if (error) {
     return (
-      <Card style={{ borderLeft: "3px solid #FF453A" }}>
+      <Card style={{ borderLeft: "3px solid var(--color-danger)" }}>
         <strong>Couldn't start the demo.</strong>
         <p style={{ color: "var(--color-text-secondary)", marginBottom: 0 }}>{error}</p>
         <p style={{ color: "var(--color-text-tertiary)", fontSize: 13 }}>
-          Most likely the schema isn't applied yet — run <code>0001_foundation.sql</code> in the Supabase SQL editor and enable anonymous sign-ins.
+          Most likely the schema isn't applied yet. Run <code>0001_foundation.sql</code> in the Supabase SQL editor and enable anonymous sign-ins.
         </p>
       </Card>
     );
   }
 
-  return ( 
-    
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
-      <div>
-        <h1 style={{ fontFamily: "var(--font-brand)", fontSize: 24, margin: 0 }}>Lead / sweep view</h1>
-        <p style={{ color: "var(--color-text-secondary)", margin: "4px 0 0" }}>
-          RR Nagar → Jayanna Circle · live pack
-        </p>
-      </div>
-
-      <div style={{ position: "relative", height: "56vh", borderRadius: "var(--radius-lg)", overflow: "hidden", background: "var(--color-surface-2)" }}>
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 10, background: "var(--color-bg-base)" }}>
+      <div style={{ position: "absolute", inset: 0, bottom: "var(--tabbar-height)" }}>
         {demo ? <RideMap route={DEMO_ROUTE} riders={riders} /> : <Centered>Starting demo…</Centered>}
-
-        {/* roster / count pill */}
-        <div style={{ position: "absolute", left: 12, bottom: 12, right: 12, display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ background: "rgba(20,20,22,.85)", color: "#fff", padding: "8px 14px", borderRadius: 999, fontWeight: 600, fontSize: 14 }}>
-            {counts.inSync}/{counts.total} in sync
-          </span>
-          <Button fullWidth={false} onClick={triggerSos} style={{ background: activeSos ? "#FF453A" : "var(--color-surface-3)", color: "#fff", height: 40 }}>
-            SOS
-          </Button>
-        </div>
       </div>
 
-      {activeSos && (
-        <Card style={{ borderLeft: "3px solid #FF453A" }}>
-          <strong style={{ color: "#FF453A" }}>SOS raised</strong>
-          <span style={{ color: "var(--color-text-secondary)", marginLeft: 8, fontSize: 13 }}>
-            {new Date(activeSos.created_at).toLocaleTimeString()}
+      {/* Top overlay — in-sync count. An active SOS shows via the app-wide
+          alert card (AppLayout), not a page-local banner. */}
+      <div
+        style={{
+          position: "absolute",
+          left: "var(--gutter)",
+          top: "calc(env(safe-area-inset-top) + var(--space-md))",
+        }}
+      >
+        <span
+          style={{
+            background: "rgba(20,20,22,.85)",
+            color: "var(--color-text-primary)",
+            padding: "8px 14px",
+            borderRadius: "var(--radius-full)",
+            fontWeight: 600,
+            fontSize: 14,
+          }}
+        >
+          {counts.inSync}/{counts.total} in sync
+        </span>
+      </div>
+
+      {/* Bottom overlay — Details + Signal, clear of the TabBar */}
+      <div
+        style={{
+          position: "absolute",
+          left: "var(--gutter)",
+          bottom: "calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-md))",
+          display: "flex",
+          gap: "var(--space-sm)",
+        }}
+      >
+        <Button fullWidth={false} variant="secondary" onClick={() => setDetailsOpen(true)}>
+          <Icon name="users" size={20} />
+          Details
+        </Button>
+        <Button fullWidth={false} variant="secondary" onClick={() => setSignalOpen(true)}>
+          <Icon name="signal" size={20} />
+          Signal
+        </Button>
+      </div>
+
+      {/* Portalled to <body> — this page root is itself position:fixed, which
+          would trap a nested modal's z-index below the TabBar/SOS controls
+          (siblings at the AppLayout root) no matter how high it's set. */}
+      {detailsOpen && demo &&
+        createPortal(
+          <RideDetailsModal riders={riders} code={demo.code} qr={qr} onClose={() => setDetailsOpen(false)} />,
+          document.body,
+        )}
+      {signalOpen && demo &&
+        createPortal(
+          <SignalModal rideId={demo.rideId} leaderId={demo.leaderId} onClose={() => setSignalOpen(false)} />,
+          document.body,
+        )}
+    </div>
+  );
+}
+
+// FLAGGED ADDITION: the design system ships no dialog primitive, only
+// full-screen sheets (see QrScannerSheet/SignInSheet) — a real gap for a
+// quick-glance action like this that shouldn't take over the whole screen.
+// Centered card over a dim scrim; a tap on the scrim itself closes it.
+function CenterModal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 200,
+        background: "rgba(0,0,0,0.6)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "var(--gutter)",
+      }}
+    >
+      <Card
+        elevated
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          maxWidth: 360,
+          maxHeight: "80vh",
+          display: "flex",
+          flexDirection: "column",
+          padding: 0,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "var(--space-md) var(--space-md) 0",
+          }}
+        >
+          <span style={{ fontSize: "var(--text-h2)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
+            {title}
           </span>
-        </Card>
-      )}
-
-      {/* Roster */}
-      <Card elevated>
-        <RosterList riders={riders} />
+          <IconButton name="x" size={40} onClick={onClose} aria-label={`Close ${title.toLowerCase()}`} />
+        </div>
+        <div style={{ overflowY: "auto", padding: "var(--space-md)" }}>{children}</div>
       </Card>
+    </div>
+  );
+}
 
-      {/* Demo controls */}
-      <Card>
-        <div style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 8 }}>Demo controls — trigger a state on cue</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {sims.map((s) => (
-            <div key={s.userId} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ flex: 1, fontSize: 14 }}>{s.name}</span>
-              <Chip active={s.behind} color="#FF9F0A" onClick={() => toggleBehind(s.userId, !s.behind)}>behind</Chip>
-              <Chip active={s.stopped} color="#FF453A" onClick={() => void toggleStopped(s.userId, !s.stopped)}>stop</Chip>
+function RideDetailsModal({
+  riders,
+  code,
+  qr,
+  onClose,
+}: {
+  riders: RiderOnMap[];
+  code: string;
+  qr: string | null;
+  onClose: () => void;
+}) {
+  return (
+    <CenterModal title="Ride details" onClose={onClose}>
+      <p style={{ fontSize: "var(--text-label)", color: "var(--color-text-secondary)", margin: "0 0 var(--space-sm)" }}>
+        Riders
+      </p>
+      {riders.length === 0 ? (
+        <p style={{ color: "var(--color-text-tertiary)" }}>No riders yet…</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+          {riders.map((r) => (
+            <div
+              key={r.member.user_id}
+              style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}
+            >
+              <span
+                aria-hidden
+                style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS_COLOR[r.status], flex: "none" }}
+              />
+              <span style={{ flex: 1, fontSize: "var(--text-body-size)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {r.profile.display_name}
+              </span>
+              <span style={{ fontSize: "var(--text-caption)", color: STATUS_COLOR[r.status] }}>
+                {STATUS_LABEL[r.status]}
+              </span>
+              <RoleBadge role={toBadgeRole(r.member.role)} />
             </div>
           ))}
         </div>
-      </Card>
-
-      {/* Join QR for the phone */}
-      {demo && (
-        <Card glow style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Scan to join as a real rider</div>
-          {qr && <img src={qr} alt="Join QR" style={{ width: 180, height: 180, marginTop: 8, borderRadius: 12 }} />}
-          <div style={{ fontFamily: "var(--font-brand)", letterSpacing: 2, fontSize: 20, marginTop: 4 }}>{demo.code}</div>
-        </Card>
       )}
-    </div>
+
+      <Card glow style={{ textAlign: "center", marginTop: "var(--space-lg)" }}>
+        <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Scan to join as a real rider</div>
+        {qr && <img src={qr} alt="Join QR" style={{ width: 160, height: 160, marginTop: 8, borderRadius: 12 }} />}
+        <div style={{ fontFamily: "var(--font-brand)", letterSpacing: 2, fontSize: 20, marginTop: 4 }}>{code}</div>
+      </Card>
+    </CenterModal>
   );
 }
 
-function RosterList({ riders }: { riders: RiderOnMap[] }) {
-  if (riders.length === 0) return <div style={{ color: "var(--color-text-tertiary)" }}>No riders yet…</div>;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {riders.map((r) => (
-        <div key={r.member.user_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS_COLOR[r.status] }} />
-          <span style={{ flex: 1, fontSize: 15 }}>
-            {r.profile.display_name}
-            {(r.member.role === "leader" || r.member.role === "co_leader") && (
-              <span style={{ color: "#C4F82A", fontSize: 12, marginLeft: 6 }}>lead</span>
-            )}
-          </span>
-          <span style={{ fontSize: 13, color: STATUS_COLOR[r.status] }}>{STATUS_LABEL[r.status]}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
+type SignalKind = "sos" | "hazard" | "regroup" | "pitstop";
+const SIGNAL_TYPES: { kind: SignalKind; label: string; icon: IconName; color: string }[] = [
+  { kind: "sos", label: "SOS", icon: "signal", color: "var(--color-danger)" },
+  { kind: "hazard", label: "Hazard", icon: "hazard", color: "var(--color-role-sweep)" },
+  { kind: "regroup", label: "Regroup", icon: "users", color: "var(--color-accent)" },
+  { kind: "pitstop", label: "Pit stop", icon: "flag", color: "var(--color-role-member)" },
+];
 
-function Chip({ active, color, onClick, children }: { active: boolean; color: string; onClick: () => void; children: React.ReactNode }) {
+function SignalModal({
+  rideId,
+  leaderId,
+  onClose,
+}: {
+  rideId: string;
+  leaderId: string;
+  onClose: () => void;
+}) {
+  const navigate = useNavigate();
+  const [sending, setSending] = useState<SignalKind | null>(null);
+  const [sentKind, setSentKind] = useState<SignalKind | null>(null);
+
+  async function sendSignal(kind: SignalKind) {
+    // SOS is the one signal that isn't a fire-and-forget event: it opens the
+    // real confirm + location-tracking flow, so it's the only way to raise
+    // one anywhere in the app.
+    if (kind === "sos") {
+      onClose();
+      navigate("/sos");
+      return;
+    }
+    setSending(kind);
+    setSentKind(null);
+    try {
+      await supabase.from("ride_events").insert({
+        ride_id: rideId,
+        user_id: leaderId,
+        type: kind,
+        payload: { note: `Lead signalled ${kind}` },
+      });
+      setSentKind(kind);
+    } finally {
+      setSending(null);
+    }
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        border: `1px solid ${active ? color : "var(--color-divider)"}`,
-        background: active ? color : "transparent",
-        color: active ? "#0A0A0B" : "var(--color-text-secondary)",
-        borderRadius: 999,
-        padding: "4px 12px",
-        fontSize: 12,
-        fontWeight: 600,
-        cursor: "pointer",
-      }}
-    >
-      {children}
-    </button>
+    <CenterModal title="Signal" onClose={onClose}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--space-md)" }}>
+        {SIGNAL_TYPES.map(({ kind, label, icon, color }) => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => void sendSignal(kind)}
+            disabled={sending !== null}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "var(--space-xs)",
+              background: "var(--color-surface-3)",
+              border: "none",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-md) var(--space-xs)",
+              cursor: sending !== null ? "not-allowed" : "pointer",
+              fontFamily: "var(--font-ui)",
+              opacity: sending !== null && sending !== kind ? 0.5 : 1,
+            }}
+          >
+            <span
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: "var(--radius-full)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: color,
+                color: "var(--color-text-on-accent)",
+              }}
+            >
+              <Icon name={icon} size={24} />
+            </span>
+            <span style={{ fontSize: "var(--text-label)", color: "var(--color-text-primary)", fontWeight: 600 }}>
+              {sending === kind ? "Sending…" : label}
+            </span>
+          </button>
+        ))}
+      </div>
+      {sentKind && (
+        <p style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)", textAlign: "center", margin: "var(--space-md) 0 0" }}>
+          {SIGNAL_TYPES.find((s) => s.kind === sentKind)?.label} sent
+        </p>
+      )}
+    </CenterModal>
   );
 }
 
