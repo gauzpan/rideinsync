@@ -12,8 +12,6 @@ export function HomePage() {
   const { loading, activeRide, completeness, stats, pastRides, isEmpty } = useHomeData();
 
   const firstName = (profile?.display_name ?? "rider").trim().split(/\s+/)[0];
-  const avatarUrl = profile?.avatar_url ?? undefined;
-  const initials = firstName.slice(0, 1).toUpperCase();
 
   const col: CSSProperties = {
     display: "flex",
@@ -23,39 +21,13 @@ export function HomePage() {
 
   return (
     <div style={col}>
-      {/* 1. Header — greeting + avatar, no accent */}
-      <header
-        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-md)" }}
-      >
-        <h1 style={{ margin: 0, fontSize: "var(--text-h1)", lineHeight: "var(--lh-h1)", fontWeight: "var(--weight-regular)" as unknown as number }}>
-          <span style={{ color: "var(--color-text-secondary)" }}>Hey, </span>
-          <span style={{ color: "var(--color-text-primary)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
-            {firstName}
-          </span>
-        </h1>
-        <button
-          type="button"
-          aria-label="Your profile"
-          onClick={() => navigate("/profile")}
-          style={{
-            flex: "none",
-            width: 44,
-            height: 44,
-            borderRadius: "var(--radius-full)",
-            border: "1px solid var(--color-divider)",
-            background: avatarUrl ? `center / cover no-repeat url(${avatarUrl})` : "var(--color-surface-3)",
-            color: "var(--color-text-primary)",
-            fontSize: "var(--text-body-size)",
-            fontWeight: "var(--weight-semibold)" as unknown as number,
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          {!avatarUrl && initials}
-        </button>
-      </header>
+      {/* 1. Greeting — identity/avatar now live in the top AccountBar */}
+      <h1 style={{ margin: 0, fontSize: "var(--text-h1)", lineHeight: "var(--lh-h1)", fontWeight: "var(--weight-regular)" as unknown as number }}>
+        <span style={{ color: "var(--color-text-secondary)" }}>Hey, </span>
+        <span style={{ color: "var(--color-text-primary)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
+          {firstName}
+        </span>
+      </h1>
 
       {/* 2. Active-ride hero — the screen's primary job when a ride is live */}
       {activeRide && <ActiveRideHero ride={activeRide} onResume={() => navigate(resumePath(activeRide))} />}
