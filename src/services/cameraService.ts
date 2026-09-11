@@ -39,10 +39,20 @@ export function captureVideoFrame(video: HTMLVideoElement): ImageData | null {
  *  (or null if the user cancels). No `capture` attribute, so mobile browsers
  *  offer both "camera" and "gallery" in the native chooser. */
 export function pickImageFile(): Promise<File | null> {
+  return pickFile("image/*");
+}
+
+/** Opens the native file/gallery picker scoped to a driving-licence upload —
+ *  a photo or a scanned PDF. Used by the rich-profile screen (ticket 08). */
+export function pickDocumentFile(): Promise<File | null> {
+  return pickFile("image/*,application/pdf");
+}
+
+function pickFile(accept: string): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
+    input.accept = accept;
     input.style.position = "fixed";
     input.style.opacity = "0";
     input.style.pointerEvents = "none";

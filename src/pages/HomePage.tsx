@@ -6,6 +6,7 @@ const nav: { label: string; to: string; variant?: "primary" | "secondary" }[] = 
   { label: "Create ride", to: "/create", variant: "primary" },
   { label: "Join ride", to: "/join", variant: "secondary" },
   { label: "Rider view", to: "/ride/demo", variant: "secondary" },
+  { label: "Complete profile", to: "/profile", variant: "secondary" },
   { label: "Lead / sweep view", to: "/ride/demo/lead", variant: "secondary" },
   { label: "Demo controls", to: "/demo", variant: "secondary" },
 ];

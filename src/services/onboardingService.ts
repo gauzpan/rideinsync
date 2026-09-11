@@ -3,7 +3,9 @@
 // this flow should go through here (see docs/flow1-onboarding-spec.md).
 import { supabase } from "../lib/supabase";
 import type {
+  Document,
   JoinRequestStatus,
+  MedicalProfile,
   MemberRole,
   PillionLink,
   Profile,
@@ -580,4 +582,159 @@ export async function linkPillionToRider(rideId: string, pillionUserId: string, 
       { onConflict: "ride_id,pillion_user_id" }
     );
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Ticket 08 — rich profile: medical, driving licence, avatar, vehicle
+// characteristics. All of this is optional and skippable — never gates
+// joining (docs/flow1-onboarding-spec.md) — and completable here or, later,
+// from the Flow 2 dashboard. Storage buckets + owner-only policies are set
+// up in supabase/migrations/0005_flow1_rich_profile.sql.
+// ---------------------------------------------------------------------------
+
+export type MedicalProfileInput = {
+  bloodType: string;
+  allergies: string;
+  medications: string;
+  notes: string;
+};
+
+export type VehicleDetailsInput = {
+  makeModel: string;
+  color: string;
+};
+
+/** Everything the rich-profile screen shows: the latest vehicle row (created
+ *  at minimum-join with just a plate — see `submitMinimumProfile`), the
+ *  medical profile, the avatar URL, and the most recent driving-licence
+ *  document. All owner-only reads. */
+export type RichProfile = {
+  avatarUrl: string | null;
+  vehicle: Vehicle | null;
+  medical: MedicalProfile | null;
+  licence: Document | null;
+};
+
+export async function getRichProfile(userId: string): Promise<RichProfile> {
+  const [
+    { data: profile, error: profileError },
+    { data: vehicle, error: vehicleError },
+    { data: medical, error: medicalError },
+    { data: licenceRows, error: licenceError },
+  ] = await Promise.all([
+    supabase.from("profiles").select("avatar_url").eq("id", userId).maybeSingle(),
+    supabase.from("vehicles").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("medical_profiles").select("*").eq("user_id", userId).maybeSingle(),
+    supabase
+      .from("documents")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("type", "license")
+      .order("uploaded_at", { ascending: false })
+      .limit(1),
+  ]);
+  if (profileError) throw profileError;
+  if (vehicleError) throw vehicleError;
+  if (medicalError) throw medicalError;
+  if (licenceError) throw licenceError;
+
+  return {
+    avatarUrl: profile?.avatar_url ?? null,
+    vehicle: vehicle ?? null,
+    medical: medical ?? null,
+    licence: licenceRows?.[0] ?? null,
+  };
+}
+
+/** Upserts the medical profile. Every field is optional — a rider can save a
+ *  blood type alone, or nothing at all (callers just don't call this). */
+export async function submitMedicalProfile(userId: string, input: MedicalProfileInput): Promise<void> {
+  const { error } = await supabase.from("medical_profiles").upsert({
+    user_id: userId,
+    blood_type: input.bloodType.trim() || null,
+    allergies: input.allergies.trim() || null,
+    medications: input.medications.trim() || null,
+    notes: input.notes.trim() || null,
+  });
+  if (error) throw error;
+}
+
+/** Fills in make/model/colour on top of the registration number captured at
+ *  join (`submitMinimumProfile`). Updates the rider's most recent vehicle
+ *  row if one exists, otherwise creates one — mirrors the plate-only path. */
+export async function submitVehicleDetails(userId: string, input: VehicleDetailsInput): Promise<void> {
+  const makeModel = input.makeModel.trim();
+  const color = input.color.trim();
+  if (!makeModel && !color) return;
+
+  const { data: existing, error: findError } = await supabase
+    .from("vehicles")
+    .select("id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (findError) throw findError;
+
+  if (existing) {
+    const { error } = await supabase
+      .from("vehicles")
+      .update({
+        ...(makeModel ? { make_model: makeModel } : {}),
+        ...(color ? { color } : {}),
+      })
+      .eq("id", existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("vehicles").insert({
+      user_id: userId,
+      make_model: makeModel || "Not specified yet",
+      color: color || null,
+    });
+    if (error) throw error;
+  }
+}
+
+function fileExtension(file: File): string {
+  const fromName = file.name.split(".").pop();
+  if (fromName && fromName.length <= 5) return fromName.toLowerCase();
+  return file.type.split("/")[1] ?? "bin";
+}
+
+/** Uploads a new avatar image to the public `avatars` bucket and points
+ *  `profiles.avatar_url` at it. Fixed filename (upsert) so re-uploads
+ *  replace the old image instead of littering the bucket. */
+export async function uploadAvatar(userId: string, file: File): Promise<string> {
+  const path = `${userId}/avatar.${fileExtension(file)}`;
+  const { error: uploadError } = await supabase.storage
+    .from("avatars")
+    .upload(path, file, { upsert: true, contentType: file.type || undefined });
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  const url = `${data.publicUrl}?v=${Date.now()}`; // cache-bust the CDN URL on replace
+
+  const { error: profileError } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", userId);
+  if (profileError) throw profileError;
+
+  return url;
+}
+
+/** Uploads a driving-licence document to the private `documents` bucket and
+ *  records it as a `documents` row (owner-only RLS on both the bucket and
+ *  the table — see 0005_flow1_rich_profile.sql). */
+export async function uploadDrivingLicence(userId: string, file: File): Promise<Document> {
+  const path = `${userId}/license-${Date.now()}.${fileExtension(file)}`;
+  const { error: uploadError } = await supabase.storage
+    .from("documents")
+    .upload(path, file, { contentType: file.type || undefined });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("documents")
+    .insert({ user_id: userId, type: "license", storage_path: path })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }

@@ -212,6 +212,15 @@ export function RiderViewPage() {
           Manage roster & requests
         </Button>
       )}
+      {self && (
+        <Button
+          variant="secondary"
+          style={{ marginTop: "var(--space-sm)" }}
+          onClick={() => navigate(`/profile?rideId=${ride.id}`)}
+        >
+          Complete your profile (optional)
+        </Button>
+      )}
 
       <SectionTitle>Roster</SectionTitle>
       {self && !selfIsLinkedPillion && (
