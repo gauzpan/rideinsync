@@ -8,19 +8,14 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
-import { Capacitor } from "@capacitor/core";
 import { supabase } from "../lib/supabase";
 import type { Profile } from "../lib/models";
 import {
   getSession,
   onAuthStateChange,
-  sendPhoneOtp,
   signInAsGuest,
   signInWithGoogle,
   signOut as signOutService,
-  startAutoRefresh,
-  stopAutoRefresh,
-  verifyPhoneOtp,
 } from "../services/authService";
 
 type AuthState = {
@@ -33,13 +28,10 @@ type AuthState = {
   isAuthenticated: boolean;
   isGuest: boolean;
   signInWithGoogle: () => Promise<void>;
-  sendPhoneOtp: (phoneE164: string) => Promise<void>;
-  verifyPhoneOtp: (phoneE164: string, token: string) => Promise<Session | null>;
   signInAsGuest: () => Promise<void>;
   /** Local-dev only: fake session so you can explore screens without a backend. */
   signInDev: () => void;
   signOut: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -85,37 +77,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Revive token auto-refresh on foreground. A backgrounded native WebView (or
-  // a hidden browser tab) suspends supabase-js's refresh timer, so the stored
-  // access token can be expired by the time the user reopens the app — the
-  // first query then fails with PGRST303 and the ride "won't load". Restarting
-  // on resume forces an immediate refresh before any query fires.
-  useEffect(() => {
-    if (Capacitor.isNativePlatform()) {
-      const removers: Array<() => void> = [];
-      let disposed = false;
-      void import("@capacitor/app").then(({ App }) => {
-        if (disposed) return;
-        void App.addListener("resume", () => startAutoRefresh()).then((h) =>
-          removers.push(() => void h.remove())
-        );
-        void App.addListener("pause", () => stopAutoRefresh()).then((h) =>
-          removers.push(() => void h.remove())
-        );
-      });
-      return () => {
-        disposed = true;
-        removers.forEach((r) => r());
-      };
-    }
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") startAutoRefresh();
-      else stopAutoRefresh();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, []);
-
   useEffect(() => {
     const userId = session?.user?.id;
     if (!userId) {
@@ -134,13 +95,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .maybeSingle();
         if (fetchToken.current !== token) return;
         if (data) {
-          if (!data.phone && session?.user?.phone) {
-            void supabase
-              .from("profiles")
-              .update({ phone: session.user.phone })
-              .eq("id", userId);
-            data.phone = session.user.phone;
-          }
           setProfile(data);
           return;
         }
@@ -148,15 +102,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, [session?.user?.id]);
-
-  const refreshProfile = async () => {
-    const userId = session?.user?.id;
-    if (!userId) return;
-    const { data } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
-    if (data) {
-      setProfile(data);
-    }
-  };
 
   const value = useMemo<AuthState>(
     () => ({
@@ -167,8 +112,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: !!session || devAuthed,
       isGuest: !!session?.user?.is_anonymous || devAuthed,
       signInWithGoogle,
-      sendPhoneOtp,
-      verifyPhoneOtp,
       signInAsGuest: async () => {
         await signInAsGuest();
       },
@@ -190,7 +133,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDevAuthed(false);
         if (session) await signOutService();
       },
-      refreshProfile,
     }),
     [loading, session, profile, devAuthed]
   );

@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Card } from "./ui/Card";
 
 type Props = {
@@ -9,6 +10,12 @@ type Props = {
 export function PagePlaceholder({ title, note }: Props) {
   return (
     <div>
+      <Link
+        to="/"
+        style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}
+      >
+        ‹ Home
+      </Link>
       <h1
         style={{
           fontSize: "var(--text-h1)",

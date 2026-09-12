@@ -39,6 +39,3 @@ src/lib/flow6.mock.ts
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-# Supabase CLI local cache
-supabase/.temp/

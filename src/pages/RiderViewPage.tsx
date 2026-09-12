@@ -2,21 +2,15 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
-import { Icon } from "../components/ui/Icon";
 import { useAuth } from "../hooks/useAuth";
-import { LiveOps } from "../components/liveops/LiveOps";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import {
-  formatScheduleDateTime,
   getEligibleRidersForPillion,
   getRideDetail,
   leaveRide,
   linkPillionToRider,
-  STOP_ICONS,
-  STOP_LABELS,
   type PillionRiderOption,
   type RideDetail,
-  type StopKind,
 } from "../services/onboardingService";
 
 function SectionTitle({ children }: { children: ReactNode }) {
@@ -185,11 +179,7 @@ export function RiderViewPage() {
         )}
       </p>
 
-      {/* Flow 3 live map — riders see the same route + live pack as the lead
-          (lead-only controls stay hidden inside LiveOps). */}
-      <LiveOps ride={ride} />
-
-      <Card padding="var(--space-lg)" style={{ marginTop: "var(--space-lg)" }}>
+      <Card padding="var(--space-lg)">
         <p style={{ fontSize: "var(--text-label)", color: "var(--color-text-secondary)", margin: "0 0 var(--space-xs)" }}>
           Route
         </p>
@@ -203,40 +193,14 @@ export function RiderViewPage() {
               Stops
             </p>
             <ol style={{ margin: "0 0 var(--space-md)", paddingLeft: "1.25em" }}>
-              {stops.map((stop) => {
-                const kind = stop.kind as StopKind | null;
-                const iconName = kind && kind in STOP_ICONS ? STOP_ICONS[kind] : undefined;
-                const label = kind && kind in STOP_LABELS ? STOP_LABELS[kind] : stop.kind;
-                return (
-                  <li key={stop.id} style={{ marginBottom: "var(--space-2xs)" }}>
-                    <span>{stop.name}</span>
-                    {kind && (
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "var(--space-2xs)",
-                          marginLeft: "var(--space-xs)",
-                          color: "var(--color-text-tertiary)",
-                          fontSize: "var(--text-caption)",
-                          verticalAlign: "middle",
-                        }}
-                      >
-                        {iconName && (
-                          <Icon
-                            name={iconName}
-                            size={16}
-                            strokeWidth={1.75}
-                            aria-hidden="true"
-                            color="var(--color-text-tertiary)"
-                          />
-                        )}
-                        <span>{label}</span>
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
+              {stops.map((stop) => (
+                <li key={stop.id} style={{ marginBottom: "var(--space-2xs)" }}>
+                  {stop.name}
+                  {stop.kind && (
+                    <span style={{ color: "var(--color-text-tertiary)" }}> · {stop.kind}</span>
+                  )}
+                </li>
+              ))}
             </ol>
           </>
         )}
@@ -254,14 +218,7 @@ export function RiderViewPage() {
           Timings
         </p>
         <p style={{ margin: 0 }}>
-          {ride.scheduled_start ? (
-            <>
-              Departs {formatScheduleDateTime(ride.scheduled_start)}
-              {ride.scheduled_end && ` · Expected end ${formatScheduleDateTime(ride.scheduled_end)}`}
-            </>
-          ) : (
-            `Created ${new Date(ride.created_at).toLocaleString()}`
-          )}
+          Created {new Date(ride.created_at).toLocaleString()}
           {ride.member_capacity ? ` · Capacity ${roster.length} / ${ride.member_capacity}` : ` · ${roster.length} people`}
         </p>
       </Card>
@@ -273,15 +230,6 @@ export function RiderViewPage() {
           onClick={() => navigate(`/ride/${ride.id}/lead`)}
         >
           Manage roster & requests
-        </Button>
-      )}
-      {(self?.member.role === "leader" || ride.leader_id === user?.id) && ride.status === "draft" && (
-        <Button
-          variant="secondary"
-          style={{ marginTop: "var(--space-sm)" }}
-          onClick={() => navigate(`/ride/${ride.id}/edit`)}
-        >
-          Edit ride
         </Button>
       )}
       {self && (
