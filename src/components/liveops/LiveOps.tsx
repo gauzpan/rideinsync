@@ -11,6 +11,7 @@ import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
 import { SIM_RIDER_NAMES } from "../../lib/demoRide";
 import { approveJoinRequest } from "../../services/onboardingService";
+import { supabase } from "../../lib/supabase";
 import type { Ride, RiderOnMap, GroupStatus } from "../../lib/models";
 import type { LatLng } from "../../lib/geo";
 import { Button } from "../ui/Button";
@@ -57,6 +58,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const geocodingLib = useMapsLibrary("geocoding");
   const routesLib = useMapsLibrary("routes");
   const [route, setRoute] = useState<LatLng[]>([]);
+  const [stopPoints, setStopPoints] = useState<LatLng[]>([]);
   const [populating, setPopulating] = useState(false);
   const [populated, setPopulated] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -89,15 +91,34 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         pointOf(ride.destination) ?? geocode(destLabel),
       ]);
       if (cancelled || !a || !b) return;
+
+      // Route stops with coordinates become waypoints the route runs through.
+      const { data: stopRows } = await supabase
+        .from("route_stops")
+        .select("location, seq")
+        .eq("ride_id", ride.id)
+        .order("seq", { ascending: true });
+      if (cancelled) return;
+      const waypointCoords = (stopRows ?? [])
+        .map((r) => pointOf(r.location as Ride["start_point"]))
+        .filter((p): p is LatLng => !!p);
+      setStopPoints(waypointCoords);
+
       const ds = new routesLib.DirectionsService();
       ds.route(
-        { origin: a, destination: b, travelMode: google.maps.TravelMode.DRIVING },
+        {
+          origin: a,
+          destination: b,
+          waypoints: waypointCoords.map((location) => ({ location, stopover: true })),
+          optimizeWaypoints: true, // let Google reorder stops for the best route
+          travelMode: google.maps.TravelMode.DRIVING,
+        },
         (result, status) => {
           if (cancelled) return;
           if (status === "OK" && result?.routes?.[0]) {
             setRoute(result.routes[0].overview_path.map((p) => ({ lat: p.lat(), lng: p.lng() })));
           } else {
-            setRoute([a, b]); // fall back to a straight line between the endpoints
+            setRoute([a, ...waypointCoords, b]); // fall back to a straight polyline
           }
         },
       );
@@ -105,7 +126,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     return () => {
       cancelled = true;
     };
-  }, [geocodingLib, routesLib, ride.start_point, ride.destination, ride.city]);
+  }, [geocodingLib, routesLib, ride.id, ride.start_point, ride.destination, ride.city]);
 
   useEffect(() => () => void simRef.current?.stop(), []);
 
@@ -153,6 +174,11 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         >
           {route.length > 1 && <RoutePolyline path={route} />}
           {route.length > 1 && <FitToRoute path={route} />}
+          {stopPoints.map((p, i) => (
+            <AdvancedMarker key={`stop-${i}`} position={p}>
+              <StopPin index={i + 1} />
+            </AdvancedMarker>
+          ))}
           {riders.map((r) =>
             r.latest ? (
               <AdvancedMarker key={r.member.user_id} position={{ lat: r.latest.lat, lng: r.latest.lng }}>
@@ -218,6 +244,31 @@ function FitToRoute({ path }: { path: LatLng[] }) {
     map.fitBounds(bounds, 56);
   }, [map, path]);
   return null;
+}
+
+function StopPin({ index }: { index: number }) {
+  return (
+    <div
+      title={`Stop ${index}`}
+      style={{
+        width: 22,
+        height: 22,
+        borderRadius: "50%",
+        background: "#C4F82A",
+        border: "2px solid #0A0A0B",
+        color: "#0A0A0B",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 700,
+        fontSize: 12,
+        fontFamily: "system-ui, sans-serif",
+        boxShadow: "0 1px 5px rgba(0,0,0,.5)",
+      }}
+    >
+      {index}
+    </div>
+  );
 }
 
 function RiderPin({ rider }: { rider: RiderOnMap }) {

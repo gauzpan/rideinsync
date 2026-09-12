@@ -23,6 +23,9 @@ export const STOP_KINDS: StopKind[] = ["fuel", "food", "rest", "scenic"];
 export type CreateRideStopInput = {
   label: string;
   kind: StopKind;
+  /** Exact coordinates when the stop was picked via Places autocomplete. */
+  lat?: number | null;
+  lng?: number | null;
 };
 
 export type CreateRideInput = {
@@ -114,9 +117,11 @@ export async function createRide(leaderId: string, input: CreateRideInput): Prom
         ride_id: ride!.id,
         seq: idx + 1,
         name: stop.label.trim(),
-        // Text-label location, per docs/flow1-onboarding-spec.md — coordinates
-        // are backfilled by Flow 3's Google Maps integration.
-        location: { label: stop.label.trim() },
+        // Coordinates from Places autocomplete when available; label-only otherwise.
+        location: {
+          label: stop.label.trim(),
+          ...(stop.lat != null && stop.lng != null ? { lat: stop.lat, lng: stop.lng } : {}),
+        },
         kind: stop.kind,
       }))
     );

@@ -143,7 +143,7 @@ export function CreateRidePage() {
         destinationLabel,
         startPoint,
         destinationPoint,
-        stops: stops.map(({ label, kind }) => ({ label, kind })),
+        stops: stops.map(({ label, kind, lat, lng }) => ({ label, kind, lat, lng })),
         memberCapacity: capacity > 0 ? capacity : null,
         guidelines: guidelines || null,
         permits: permits || null,
@@ -230,10 +230,16 @@ export function CreateRidePage() {
             <Card key={stop.key} padding="var(--space-md)" style={{ marginBottom: "var(--space-sm)" }}>
               <div style={{ display: "flex", gap: "var(--space-sm)", alignItems: "center" }}>
                 <div style={{ flex: 1 }}>
-                  <Input
+                  <PlaceInput
                     value={stop.label}
-                    onChange={(e) => updateStop(stop.key, { label: e.target.value })}
-                    placeholder="Stop name"
+                    placeholder="Search stop address…"
+                    onChange={(v) =>
+                      updateStop(stop.key, {
+                        label: v.label,
+                        lat: v.lat ?? null,
+                        lng: v.lng ?? null,
+                      })
+                    }
                   />
                 </div>
                 <IconButton name="x" size={40} onClick={() => removeStop(stop.key)} />
