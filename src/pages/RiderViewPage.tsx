@@ -4,6 +4,7 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Icon } from "../components/ui/Icon";
 import { useAuth } from "../hooks/useAuth";
+import { LiveOps } from "../components/liveops/LiveOps";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import {
   formatScheduleDateTime,
@@ -184,7 +185,11 @@ export function RiderViewPage() {
         )}
       </p>
 
-      <Card padding="var(--space-lg)">
+      {/* Flow 3 live map — riders see the same route + live pack as the lead
+          (lead-only controls stay hidden inside LiveOps). */}
+      <LiveOps ride={ride} />
+
+      <Card padding="var(--space-lg)" style={{ marginTop: "var(--space-lg)" }}>
         <p style={{ fontSize: "var(--text-label)", color: "var(--color-text-secondary)", margin: "0 0 var(--space-xs)" }}>
           Route
         </p>

@@ -270,6 +270,7 @@ export function AppLayout() {
         </div>
       )}
 
+      {isAuthenticated && <TabBar activeRideId={rideId} />}
       <BottomNav onOpenMore={() => setMoreOpen(true)} moreOpen={moreOpen} />
       {moreOpen && <MoreSheet onClose={() => setMoreOpen(false)} />}
     </>

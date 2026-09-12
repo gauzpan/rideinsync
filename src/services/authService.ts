@@ -87,6 +87,22 @@ export async function getSession(): Promise<Session | null> {
   return data.session;
 }
 
+/** Foreground/background auto-refresh control. supabase-js keeps the access
+ *  token fresh on a JS interval, but a backgrounded Capacitor WebView (or a
+ *  hidden browser tab) suspends that interval — so after the app has been away
+ *  a while the stored token is already expired, and the first authenticated
+ *  query fails with PGRST303 (surfacing as a generic "couldn't load the
+ *  ride"). Restarting on resume runs an immediate refresh tick that renews an
+ *  expired token before any query runs, then revives the interval. Both calls
+ *  are safe to invoke repeatedly. */
+export function startAutoRefresh(): void {
+  void supabase.auth.startAutoRefresh();
+}
+
+export function stopAutoRefresh(): void {
+  void supabase.auth.stopAutoRefresh();
+}
+
 export function getUser(session: Session | null): User | null {
   return session?.user ?? null;
 }

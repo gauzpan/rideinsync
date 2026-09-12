@@ -14,6 +14,10 @@ export type ActiveRide = {
   code: string;
   role: MemberRole;
   riderCount: number;
+  /** 'active' = ride underway; 'draft' = created but not started yet. Drafts
+   *  are surfaced too so a lead can reopen (and start) a ride they made,
+   *  instead of it being stranded with no Home entry point. */
+  status: "active" | "draft";
 };
 
 export type PastRide = {
@@ -82,20 +86,28 @@ export function useHomeData(): HomeData {
 
       if (rideIds.length) {
         const rides = await safe(() =>
-          supabase.from("rides").select("id, name, code, status, ended_at").in("id", rideIds)
+          supabase.from("rides").select("id, name, code, status, ended_at, created_at").in("id", rideIds)
         );
+        // Prefer a live ride; otherwise fall back to the most recent draft the
+        // user is in, so a created-but-unstarted ride (e.g. one just made or
+        // just joined pre-start) is reachable from Home instead of stranded.
         const active = rides.find((r) => r.status === "active");
-        if (active) {
-          const roleRow = memberships.find((m) => m.ride_id === active.id);
+        const latestDraft = rides
+          .filter((r) => r.status === "draft")
+          .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))[0];
+        const hero = active ?? latestDraft;
+        if (hero) {
+          const roleRow = memberships.find((m) => m.ride_id === hero.id);
           const members = await safe(() =>
-            supabase.from("ride_members").select("id").eq("ride_id", active.id)
+            supabase.from("ride_members").select("id").eq("ride_id", hero.id)
           );
           activeRide = {
-            id: active.id,
-            name: active.name,
-            code: active.code,
+            id: hero.id,
+            name: hero.name,
+            code: hero.code,
             role: (roleRow?.role as MemberRole) ?? "rider",
             riderCount: members.length,
+            status: hero.status === "active" ? "active" : "draft",
           };
         }
 
