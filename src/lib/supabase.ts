@@ -16,12 +16,10 @@ if (!url || !anonKey) {
 export const supabaseConfigured = Boolean(url && anonKey);
 
 // Typed against the schema in supabase/migrations/0001_foundation.sql.
-// PKCE flow: OAuth returns a short-lived `?code=` (query, not a hash token),
-// which supabase-js auto-exchanges and strips from the URL. Avoids the
-// implicit-flow trap where a leftover `#access_token` lingers in the URL and
-// poisons the next sign-in (see authService.signInWithGoogle's stable redirect).
-// Placeholder URL/key fall-backs keep createClient from throwing (and blanking
-// the app) before real keys land in .env.local.
+// createClient THROWS on an empty url, which would blank the whole app before
+// any keys are set. Fall back to a valid placeholder so the app still renders;
+// queries fail at runtime (or the keyless demo backend takes over) until real
+// keys land in .env.local.
 export const supabase = createClient<Database>(
   url || "https://placeholder.supabase.co",
   anonKey || "placeholder-anon-key",

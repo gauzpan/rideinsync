@@ -73,23 +73,6 @@ export async function loadSummaryView(rideId: string): Promise<SummaryView> {
   return { me, ride, members, summary, badges, vehicle, unlockedLevel };
 }
 
-/** Leader starts the ride: draft → active, which turns on live tracking, the
- *  SOS surface, and the active-ride hero. Direct update is allowed by the
- *  `rides_update` RLS policy (leader_id = auth.uid()). Idempotent: re-running on
- *  an already-active ride is a no-op. */
-export async function startRide(rideId: string): Promise<void> {
-  if (mockView) {
-    if (mockView.ride) mockView.ride.status = "active";
-    return;
-  }
-  const { error } = await supabase
-    .from("rides")
-    .update({ status: "active" })
-    .eq("id", rideId)
-    .eq("status", "draft");
-  if (error) throw error;
-}
-
 /** Leader/co-leader finalizes the ride (idempotent server-side). */
 export async function closeRide(rideId: string): Promise<void> {
   if (mockView) {

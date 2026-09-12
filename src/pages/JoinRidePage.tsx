@@ -8,7 +8,6 @@ import { QrScannerSheet } from "../components/QrScannerSheet";
 import { useAuth } from "../hooks/useAuth";
 import {
   extractJoinCode,
-  formatScheduleDateTime,
   getEligibleRidersForPillion,
   getJoinRequestStatus,
   getMinimumProfileStatus,
@@ -30,17 +29,7 @@ const MODE_OPTIONS = ["Riding my own bike", "Riding pillion"] as const;
 
 const STATUS_POLL_MS = 5000;
 
-function Field({
-  label,
-  required,
-  error,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  error?: string;
-  children: ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div style={{ marginBottom: "var(--space-md)" }}>
       <label
@@ -52,30 +41,8 @@ function Field({
         }}
       >
         {label}
-        {required && (
-          <span
-            style={{
-              color: "var(--color-role-sweep)",
-              marginLeft: "var(--space-2xs)",
-            }}
-            aria-hidden="true"
-          >
-            *
-          </span>
-        )}
       </label>
       {children}
-      {error && (
-        <p
-          style={{
-            fontSize: "var(--text-caption)",
-            color: "var(--color-role-sweep)",
-            margin: "var(--space-2xs) 0 0",
-          }}
-        >
-          {error}
-        </p>
-      )}
     </div>
   );
 }
@@ -99,7 +66,7 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
 
 export function JoinRidePage() {
   const { code: codeParam } = useParams<{ code?: string }>();
-  const { user, refreshProfile } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>("code");
@@ -108,8 +75,7 @@ export function JoinRidePage() {
   const [profileStatus, setProfileStatus] = useState<MinimumProfileStatus | null>(null);
   const [mode, setMode] = useState<JoinMode>("own");
 
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [vehiclePlate, setVehiclePlate] = useState("");
@@ -190,15 +156,14 @@ export function JoinRidePage() {
     try {
       const status = await getMinimumProfileStatus(user.id);
       setProfileStatus(status);
-      setFirstName(status.firstName);
-      setLastName(status.lastName);
+      setDisplayName(status.displayName);
       setContactName(status.emergencyContactName);
       setContactPhone(status.emergencyContactPhone);
       setVehiclePlate(status.vehiclePlate);
       setConsentChecked(status.hasConsent);
       const complete =
         mode === "pillion"
-          ? !!status.firstName && status.hasEmergencyContact && status.hasConsent
+          ? !!status.displayName && status.hasEmergencyContact && status.hasConsent
           : status.isComplete;
       if (complete) {
         await completeJoin();
@@ -306,15 +271,13 @@ export function JoinRidePage() {
       // policies this build tracks (docs/flow1-onboarding-spec.md).
       await grantConsent(user.id);
       await submitMinimumProfile(user.id, {
-        firstName,
-        lastName: lastName.trim() || undefined,
+        displayName,
         emergencyContactName: contactName,
         emergencyContactPhone: contactPhone,
         // Pillions have no vehicle — the minimum profile is name + one
         // emergency contact only (docs/flow1-onboarding-spec.md).
         vehiclePlate: mode === "pillion" ? "" : vehiclePlate,
       });
-      await refreshProfile();
       await completeJoin();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't join the ride. Try again.");
@@ -325,8 +288,8 @@ export function JoinRidePage() {
 
   const profileIncomplete =
     mode === "pillion"
-      ? !firstName.trim() || !contactName.trim() || !contactPhone.trim()
-      : !firstName.trim() || !contactName.trim() || !contactPhone.trim() || !vehiclePlate.trim();
+      ? !displayName.trim() || !contactName.trim() || !contactPhone.trim()
+      : !displayName.trim() || !contactName.trim() || !contactPhone.trim() || !vehiclePlate.trim();
 
   async function handleWithdraw() {
     if (!pendingRideId || !user) return;
@@ -438,18 +401,6 @@ export function JoinRidePage() {
             {preview.stopLabels.length > 0 && (
               <SummaryRow label="Stops" value={preview.stopLabels.join(", ")} />
             )}
-            {preview.scheduledStart && (
-              <SummaryRow
-                label="Departure"
-                value={formatScheduleDateTime(preview.scheduledStart)}
-              />
-            )}
-            {preview.scheduledEnd && (
-              <SummaryRow
-                label="Expected end"
-                value={formatScheduleDateTime(preview.scheduledEnd)}
-              />
-            )}
             <SummaryRow label="Status" value={preview.status === "draft" ? "Not started yet" : "Active"} />
             <SummaryRow
               label="Capacity"
@@ -507,67 +458,37 @@ export function JoinRidePage() {
 
       {step === "profile" && (
         <div>
-          <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-sm)" }}>
+          <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-lg)" }}>
             {mode === "pillion"
               ? "Before you join as pillion, the group needs a name and an emergency contact."
               : "Before you join, the group needs a name, an emergency contact and your vehicle's registration number."}
           </p>
-          <p
-            style={{
-              fontSize: "var(--text-caption)",
-              color: "var(--color-text-tertiary)",
-              margin: "0 0 var(--space-md)",
-            }}
-          >
-            * required
-          </p>
-          <Field
-            label="First name"
-            required
-            error={!firstName.trim() ? "First name is required." : undefined}
-          >
-            <Input
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              placeholder="Your first name"
-              autoComplete="given-name"
-              aria-required="true"
-            />
+          <Field label="Display name">
+            <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
           </Field>
-          <Field label="Last name (optional)">
-            <Input
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              placeholder="Your last name"
-              autoComplete="family-name"
-            />
-          </Field>
-          <Field label="Emergency contact name" required>
+          <Field label="Emergency contact name">
             <Input
               value={contactName}
               onChange={(e) => setContactName(e.target.value)}
               placeholder="Who to call"
-              aria-required="true"
             />
           </Field>
-          <Field label="Emergency contact phone" required>
+          <Field label="Emergency contact phone">
             <Input
               type="tel"
               inputMode="tel"
               value={contactPhone}
               onChange={(e) => setContactPhone(e.target.value)}
               placeholder="Phone number"
-              aria-required="true"
             />
           </Field>
           {mode === "own" && (
-            <Field label="Vehicle registration number" required>
+            <Field label="Vehicle registration number">
               <Input
                 value={vehiclePlate}
                 onChange={(e) => setVehiclePlate(e.target.value.toUpperCase())}
                 placeholder="e.g. KA01AB1234"
                 autoCapitalize="characters"
-                aria-required="true"
               />
             </Field>
           )}
@@ -578,7 +499,7 @@ export function JoinRidePage() {
               them for now and finish your profile later.
             </p>
           )}
-          {profileStatus && (profileStatus.hasEmergencyContact || profileStatus.hasVehicle || profileStatus.firstName) && (
+          {profileStatus && (profileStatus.hasEmergencyContact || profileStatus.hasVehicle) && (
             <p style={{ color: "var(--color-text-tertiary)", margin: "0 0 var(--space-md)", fontSize: "var(--text-caption)" }}>
               We reused details already on file for you.
             </p>
@@ -605,31 +526,17 @@ export function JoinRidePage() {
                 flexShrink: 0,
                 accentColor: "var(--color-accent)",
               }}
-              aria-required="true"
             />
             <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-body-size)" }}>
               I agree to RideInSync handling my data (including for emergencies) per its terms and
               privacy policy.
-              <span
-                style={{
-                  color: "var(--color-role-sweep)",
-                  marginLeft: "var(--space-2xs)",
-                }}
-                aria-hidden="true"
-              >
-                *
-              </span>
             </span>
           </label>
 
           {error && (
             <p style={{ color: "var(--color-role-sweep)", marginBottom: "var(--space-md)" }}>{error}</p>
           )}
-          <Button
-            onClick={() => void handleJoinFromProfile()}
-            loading={loading}
-            disabled={!consentChecked || !firstName.trim()}
-          >
+          <Button onClick={() => void handleJoinFromProfile()} loading={loading} disabled={!consentChecked}>
             {profileIncomplete ? "Join anyway" : mode === "pillion" ? "Continue" : "Join ride"}
           </Button>
         </div>
@@ -637,15 +544,6 @@ export function JoinRidePage() {
 
       {step === "linkRider" && (
         <div>
-          <p
-            style={{
-              fontSize: "var(--text-caption)",
-              color: "var(--color-text-tertiary)",
-              margin: "0 0 var(--space-md)",
-            }}
-          >
-            * required
-          </p>
           {eligibleRiders.length === 0 ? (
             <Card padding="var(--space-lg)" style={{ textAlign: "center" }}>
               <p style={{ margin: "0 0 var(--space-sm)", fontSize: "var(--text-body-size)" }}>
@@ -659,15 +557,6 @@ export function JoinRidePage() {
             <>
               <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-md)" }}>
                 Whose bike are you riding on?
-                <span
-                  style={{
-                    color: "var(--color-role-sweep)",
-                    marginLeft: "var(--space-2xs)",
-                  }}
-                  aria-hidden="true"
-                >
-                  *
-                </span>
               </p>
               {eligibleRiders.map((r) => {
                 const active = r.userId === selectedRiderId;

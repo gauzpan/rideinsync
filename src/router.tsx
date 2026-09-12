@@ -25,7 +25,6 @@ export const router = createBrowserRouter([
       // Legacy alias — earlier links pointed at /menu.
       { path: "menu", element: <Navigate to="/home" replace /> },
       { path: "create", element: <CreateRidePage /> },
-      { path: "ride/:rideId/edit", element: <CreateRidePage /> },
       { path: "ride/:rideId/invite", element: <RideInvitePage /> },
       { path: "join", element: <JoinRidePage /> },
       { path: "join/:code", element: <JoinRidePage /> },
