@@ -1,0 +1,18 @@
+ROADSPUR DISPLAY — LICENSE / ATTRIBUTION
+
+Roadspur Display is a modified derivative of Noto Serif Display.
+The source typeface is distributed under the SIL Open Font License, Version 1.1 (OFL-1.1).
+
+This derivative is intended to remain under the OFL-1.1. You may use, embed, modify and
+redistribute the font subject to the terms of the OFL-1.1.
+
+Source family:
+Noto Serif Display
+License:
+SIL Open Font License 1.1
+License text:
+https://openfontlicense.org
+
+Important:
+Roadspur Display is an original modification for a rugged western / biker display character.
+It is NOT the Dusty Boots typeface and is not intended to reproduce that typeface exactly.

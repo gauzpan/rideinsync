@@ -2,6 +2,7 @@
 // screen needs, so components never build query shapes inline. Tests for
 // this flow should go through here (see docs/flow1-onboarding-spec.md).
 import { supabase } from "../lib/supabase";
+import { demoHomeData } from "../hooks/useHomeData";
 import type {
   AgeBand,
   Document,
@@ -773,12 +774,41 @@ export type MyRideSummary = {
   scheduledEnd: string | null;
 };
 
+// Demo mode: no Supabase keys. lib/activeRide short-circuits to the seed ride
+// and Home (useHomeData) renders it; the landing page's "Your rides" must match
+// so `/` shows the ride card instead of hanging on "Loading your rides…".
+const DEMO = import.meta.env.VITE_DEMO_SESSION === "1";
+
+/** The one seed ride shaped as a MyRideSummary for demo mode. Reuses
+ *  demoHomeData() so id/name/role/rider-count never drift from Home; start and
+ *  destination labels are the seed's (supabase/seed.sql). Exported as a pure
+ *  seam so it can be asserted without a live backend or env override. */
+export function demoMyRides(): MyRideSummary[] {
+  const { activeRide } = demoHomeData();
+  const ride = activeRide!; // demoHomeData always resolves to the seed ride
+  return [
+    {
+      rideId: ride.id,
+      name: ride.name,
+      status: "active",
+      role: ride.role,
+      startLabel: "MG Road",
+      destinationLabel: "Nandi Hills",
+      memberCount: ride.riderCount,
+      createdAt: "2026-09-13T00:00:00.000Z",
+      scheduledStart: null,
+      scheduledEnd: null,
+    },
+  ];
+}
+
 /** Fetches the rides the user belongs to (leader or joined), newest first,
  *  for the landing page's "Your rides" section. Two round-trips: the user's
  *  own `ride_members` rows (own-row RLS, always readable), then the matching
  *  `rides` (readable via `rides_select` once membership exists) plus a
  *  member-count per ride. */
 export async function getMyRides(userId: string): Promise<MyRideSummary[]> {
+  if (DEMO) return demoMyRides();
   const { data: memberships, error: membersError } = await supabase
     .from("ride_members")
     .select("ride_id, role")

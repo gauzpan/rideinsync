@@ -90,7 +90,7 @@ function YourRides() {
           style={{ cursor: "pointer", marginBottom: "var(--space-sm)", minHeight: 56 }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontWeight: "var(--weight-semibold)" as unknown as number }}>{ride.name}</span>
+            <span style={{ fontFamily: "var(--font-brand)", fontSize: 18, fontWeight: "var(--weight-semibold)" as unknown as number }}>{ride.name}</span>
             <span
               style={{
                 color: ROLE_COLOR[ride.role],

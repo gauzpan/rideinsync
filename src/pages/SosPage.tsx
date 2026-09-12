@@ -193,7 +193,7 @@ export function SosPage() {
               Close SOS
             </Button>
             <Button
-              variant="ghost"
+              variant="secondary"
               onClick={() => {
                 // Hide the local prompt immediately; a later reach re-prompts.
                 setStayedIds((prev) => new Set(prev).add(prompt.id));
@@ -209,7 +209,7 @@ export function SosPage() {
           </Card>
         )}
 
-        <Button variant="ghost" onClick={goHome}>
+        <Button variant="secondary" onClick={goHome}>
           Back to home
         </Button>
       </Card>
@@ -225,7 +225,7 @@ export function SosPage() {
           <Button variant="danger" onClick={() => void onConfirm()}>
             Try again
           </Button>
-          <Button variant="ghost" onClick={goHome}>
+          <Button variant="secondary" onClick={goHome}>
             Cancel
           </Button>
         </div>

@@ -31,7 +31,11 @@ export function BottomNav({ onOpenMore, moreOpen }: Props) {
   ];
 
   return (
-    <nav className="bottom-nav" aria-label="Primary">
+    <nav
+      className="bottom-nav"
+      aria-label="Primary"
+      style={{ boxShadow: "var(--shadow-nav, 0 -6px 18px rgba(0,0,0,.45))" }}
+    >
       {tabs.map((tab) => {
         const isActive = tab.path
           ? (tab.match ? tab.match(location.pathname) : location.pathname === tab.path)
@@ -45,7 +49,13 @@ export function BottomNav({ onOpenMore, moreOpen }: Props) {
             onClick={() => (tab.path ? navigate(tab.path) : tab.onSelect?.())}
           >
             {isActive && <span className="bottom-nav__indicator" aria-hidden />}
-            <Icon name={tab.icon} size={22} strokeWidth={1.75} />
+            <Icon
+              name={tab.icon}
+              size={22}
+              strokeWidth={2}
+              fill={isActive ? "rgba(201,255,61,.18)" : "rgba(255,255,255,.08)"}
+              style={isActive ? { filter: "drop-shadow(0 0 8px rgba(201,255,61,.55))" } : undefined}
+            />
             <span className="bottom-nav__label">{tab.label}</span>
           </button>
         );
