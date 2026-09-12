@@ -41,7 +41,6 @@ export type CreateRideInput = {
   memberCapacity?: number | null;
   guidelines?: string | null;
   permits?: string | null;
-  feeAmount?: number | null;
 };
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I — easy to read aloud
@@ -80,7 +79,6 @@ export async function createRide(leaderId: string, input: CreateRideInput): Prom
     guidelines: input.guidelines?.trim() || null,
     permits: input.permits?.trim() ? { note: input.permits.trim() } : null,
     member_capacity: input.memberCapacity ?? null,
-    fee_amount: input.feeAmount ?? null,
     status: "draft",
   };
 
@@ -130,6 +128,110 @@ export async function createRide(leaderId: string, input: CreateRideInput): Prom
   }
 
   return ride;
+}
+
+export type UpdateRideInput = CreateRideInput;
+
+/**
+ * Updates a draft ride's details (name, start point, destination, stops, capacity,
+ * guidelines, permits).
+ *
+ * Guarded: only the ride's leader can update it, and only while the ride is still
+ * in "draft" status. Join code, leader_id, status, members, and created_at remain untouched.
+ * Route stops are replaced wholesale to reflect the edited list and order.
+ */
+export async function updateRide(
+  rideId: string,
+  input: CreateRideInput,
+  leaderId?: string
+): Promise<Ride> {
+  const { data: ride, error: fetchError } = await supabase
+    .from("rides")
+    .select("*")
+    .eq("id", rideId)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (!ride) throw new Error("Ride not found.");
+
+  const currentUserId = leaderId ?? (await supabase.auth.getUser()).data.user?.id;
+  if (!currentUserId || ride.leader_id !== currentUserId) {
+    throw new Error("Only the ride's leader can edit this ride.");
+  }
+  if (ride.status !== "draft") {
+    throw new Error("Only draft rides can be edited.");
+  }
+
+  const name = input.name.trim();
+  const startPt = extractPoint(input.start, input.startLabel);
+  const destPt = extractPoint(input.destination, input.destinationLabel);
+  if (!name) throw new Error("Ride name is required.");
+  if (!input.scheduledStart) throw new Error("Departure date and time is required.");
+  if (!startPt || !startPt.label) throw new Error("Start point is required.");
+  if (!destPt || !destPt.label) throw new Error("Destination is required.");
+
+  const updatePayload: {
+    name: string;
+    scheduled_start: string;
+    scheduled_end: string | null;
+    start_point: ReturnType<typeof toLocationJson>;
+    destination: ReturnType<typeof toLocationJson>;
+    guidelines: string | null;
+    permits: { note: string } | null;
+    member_capacity: number | null;
+  } = {
+    name,
+    scheduled_start: input.scheduledStart,
+    scheduled_end: input.scheduledEnd ?? null,
+    start_point: toLocationJson(startPt),
+    destination: toLocationJson(destPt),
+    guidelines: input.guidelines?.trim() || null,
+    permits: input.permits?.trim() ? { note: input.permits.trim() } : null,
+    member_capacity: input.memberCapacity ?? null,
+  };
+
+  const { data: updatedRide, error: updateError } = await supabase
+    .from("rides")
+    .update(updatePayload)
+    .eq("id", rideId)
+    .select()
+    .single();
+
+  if (updateError) throw updateError;
+
+  // Stops = REPLACE-ALL: delete existing route_stops for this ride, then insert the edited list
+  const { error: deleteStopsError } = await supabase
+    .from("route_stops")
+    .delete()
+    .eq("ride_id", rideId);
+
+  if (deleteStopsError) throw deleteStopsError;
+
+  const stops = input.stops
+    .map((stop) => {
+      const pt = extractPoint(stop.point, stop.label);
+      if (!pt || !pt.label) return null;
+      return {
+        kind: stop.kind,
+        ...pt,
+      };
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null);
+
+  if (stops.length > 0) {
+    const { error: stopsError } = await supabase.from("route_stops").insert(
+      stops.map((stop, idx) => ({
+        ride_id: rideId,
+        seq: idx + 1,
+        name: stop.label,
+        location: toLocationJson(stop),
+        kind: stop.kind,
+      }))
+    );
+    if (stopsError) throw stopsError;
+  }
+
+  return updatedRide;
 }
 
 /** Fetches a ride by id — used by the invite screen on a hard refresh, when
