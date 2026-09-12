@@ -147,7 +147,7 @@ export function LeadViewPage() {
 
   async function handleApprove(requestId: string) {
     if (isFull) {
-      setActionError(`This ride is full (${memberCount}/${capacity}). Free up a spot before approving.`);
+      setActionError("This ride is full. Raise the capacity to admit more riders.");
       return;
     }
     setActionError(null);
@@ -156,7 +156,11 @@ export function LeadViewPage() {
       await approveJoinRequest(requestId);
       await refresh();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Couldn't approve that request.");
+      if (e instanceof Error && e.message.includes("This ride is full")) {
+        setActionError("This ride is full. Raise the capacity to admit more riders.");
+      } else {
+        setActionError(e instanceof Error ? e.message : "Couldn't approve that request.");
+      }
     } finally {
       setBusyId(null);
     }

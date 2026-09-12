@@ -210,7 +210,11 @@ export function JoinRidePage() {
         setStep("profile");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't check your profile.");
+      if (e instanceof Error && e.message.includes("This ride is full")) {
+        setError("This ride is full. Ask the lead to raise the capacity, or try another ride.");
+      } else {
+        setError(e instanceof Error ? e.message : "Couldn't check your profile.");
+      }
     } finally {
       setLoading(false);
     }
@@ -233,27 +237,35 @@ export function JoinRidePage() {
 
   async function completeJoin() {
     if (!preview || !user) return;
-    const joined = await joinRideByCode(preview.code, user.id);
-    if (joined.member) {
-      // Demo ride (or already-approved): membership materialised immediately.
-      if (mode === "pillion") {
-        // Now a ride member, so the roster is readable under RLS — move to
-        // picking which rider's bike they're on.
-        setJoinedRideId(joined.rideId);
-        await loadEligibleRiders(joined.rideId);
-        setStep("linkRider");
+    try {
+      const joined = await joinRideByCode(preview.code, user.id);
+      if (joined.member) {
+        // Demo ride (or already-approved): membership materialised immediately.
+        if (mode === "pillion") {
+          // Now a ride member, so the roster is readable under RLS — move to
+          // picking which rider's bike they're on.
+          setJoinedRideId(joined.rideId);
+          await loadEligibleRiders(joined.rideId);
+          setStep("linkRider");
+          return;
+        }
+        navigate(`/ride/${joined.rideId}`);
         return;
       }
-      navigate(`/ride/${joined.rideId}`);
-      return;
+      // Non-demo ride: a `ride_join_requests` row was created, pending the
+      // lead's approval — wait here rather than navigating to a ride-detail
+      // fetch that RLS would block for a non-member. (A pillion whose join is
+      // pending links their rider once approved, from ride detail.)
+      setPendingRideId(joined.rideId);
+      setRequestStatus("pending");
+      setStep("pending");
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("This ride is full")) {
+        setError("This ride is full. Ask the lead to raise the capacity, or try another ride.");
+        return;
+      }
+      throw e;
     }
-    // Non-demo ride: a `ride_join_requests` row was created, pending the
-    // lead's approval — wait here rather than navigating to a ride-detail
-    // fetch that RLS would block for a non-member. (A pillion whose join is
-    // pending links their rider once approved, from ride detail.)
-    setPendingRideId(joined.rideId);
-    setRequestStatus("pending");
-    setStep("pending");
   }
 
   async function handleConfirmLink() {
@@ -321,7 +333,11 @@ export function JoinRidePage() {
       await refreshProfile();
       await completeJoin();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't join the ride. Try again.");
+      if (e instanceof Error && e.message.includes("This ride is full")) {
+        setError("This ride is full. Ask the lead to raise the capacity, or try another ride.");
+      } else {
+        setError(e instanceof Error ? e.message : "Couldn't join the ride. Try again.");
+      }
     } finally {
       setLoading(false);
     }
