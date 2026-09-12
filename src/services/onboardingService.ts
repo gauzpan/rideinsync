@@ -352,6 +352,9 @@ export async function leaveRide(rideId: string, userId: string): Promise<void> {
 
 export type MinimumProfileInput = {
   displayName: string;
+  /** The rider's own phone number (distinct from the emergency contact's).
+   *  Optional — join-time callers don't collect it. */
+  phone?: string;
   emergencyContactName: string;
   emergencyContactPhone: string;
   vehiclePlate: string;
@@ -363,12 +366,16 @@ export type MinimumProfileInput = {
  *  callers show a warning instead of blocking. */
 export async function submitMinimumProfile(userId: string, input: MinimumProfileInput): Promise<void> {
   const displayName = input.displayName.trim();
+  const phone = input.phone?.trim() ?? "";
   const contactName = input.emergencyContactName.trim();
   const contactPhone = input.emergencyContactPhone.trim();
   const plate = input.vehiclePlate.trim();
 
-  if (displayName) {
-    const { error } = await supabase.from("profiles").update({ display_name: displayName }).eq("id", userId);
+  if (displayName || phone) {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ ...(displayName ? { display_name: displayName } : {}), ...(phone ? { phone } : {}) })
+      .eq("id", userId);
     if (error) throw error;
   }
 
@@ -696,6 +703,7 @@ export type VehicleDetailsInput = {
  *  All owner-only reads. */
 export type RichProfile = {
   displayName: string;
+  phone: string;
   avatarUrl: string | null;
   vehicle: Vehicle | null;
   emergencyContact: EmergencyContact | null;
@@ -711,7 +719,7 @@ export async function getRichProfile(userId: string): Promise<RichProfile> {
     { data: medical, error: medicalError },
     { data: licenceRows, error: licenceError },
   ] = await Promise.all([
-    supabase.from("profiles").select("display_name, avatar_url").eq("id", userId).maybeSingle(),
+    supabase.from("profiles").select("display_name, phone, avatar_url").eq("id", userId).maybeSingle(),
     supabase.from("vehicles").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("emergency_contacts").select("*").eq("user_id", userId).eq("ordinal", 1).maybeSingle(),
     supabase.from("medical_profiles").select("*").eq("user_id", userId).maybeSingle(),
@@ -731,6 +739,7 @@ export async function getRichProfile(userId: string): Promise<RichProfile> {
 
   return {
     displayName: profile?.display_name && profile.display_name !== "Rider" ? profile.display_name : "",
+    phone: profile?.phone ?? "",
     avatarUrl: profile?.avatar_url ?? null,
     vehicle: vehicle ?? null,
     emergencyContact: emergencyContact ?? null,

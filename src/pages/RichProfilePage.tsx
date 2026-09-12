@@ -86,6 +86,7 @@ export function RichProfilePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [displayName, setDisplayName] = useState("");
+  const [phone, setPhone] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [basicSaving, setBasicSaving] = useState(false);
@@ -116,6 +117,7 @@ export function RichProfilePage() {
         if (cancelled) return;
         setProfile(p);
         setDisplayName(p.displayName);
+        setPhone(p.phone);
         setContactName(p.emergencyContact?.name ?? "");
         setContactPhone(p.emergencyContact?.phone ?? "");
         setMakeModel(p.vehicle?.make_model && p.vehicle.make_model !== "Not specified yet" ? p.vehicle.make_model : "");
@@ -159,6 +161,7 @@ export function RichProfilePage() {
       // the Vehicle characteristics section below owns the plate field.
       await submitMinimumProfile(user.id, {
         displayName,
+        phone,
         emergencyContactName: contactName,
         emergencyContactPhone: contactPhone,
         vehiclePlate: "",
@@ -279,6 +282,14 @@ export function RichProfilePage() {
           <SectionCard title="Your details" hint="Shown to the rest of your ride, and used to reach your emergency contact if needed.">
             <Field label="Name">
               <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
+            </Field>
+            <Field label="Email address">
+              <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-body-size)" }}>
+                {user?.email ?? "Not signed in with an email"}
+              </p>
+            </Field>
+            <Field label="Phone number">
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 98765 43210" />
             </Field>
             <Field label="Emergency contact name">
               <Input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="e.g. Priya Sharma" />
