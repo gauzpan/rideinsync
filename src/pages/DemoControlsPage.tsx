@@ -17,7 +17,8 @@ import { ensureGuestSession } from "../lib/session";
 import { createDemoRide, DEMO_ROUTE, SIM_RIDER_NAMES } from "../lib/demoRide";
 import { RideSimulator } from "../lib/simulator";
 import { supabase } from "../lib/supabase";
-import { SIGNAL_LABEL, SIGNAL_TYPES, sendRideSignal, type SignalKind } from "../lib/signals";
+import { SIGNAL_LABEL, SIGNAL_TIER, SIGNAL_TYPES, sendRideSignal, type SignalKind } from "../lib/signals";
+import { playSignalTone } from "../lib/earcon";
 import {
   useVoiceHeardPulse,
   useVoiceActivateListener,
@@ -518,6 +519,10 @@ function SignalModal({
     try {
       await sendRideSignal(rideId, leaderId, kind, `Lead signalled ${kind}`);
       setSentKind(kind);
+      // Send-confirmation tone — lets the sender know it actually went out,
+      // distinct from useRideSignalListener's receive-side tone in AppLayout
+      // (which every *other* rider hears, tier-matched the same way).
+      playSignalTone(SIGNAL_TIER[kind]);
     } finally {
       setSending(null);
     }

@@ -126,6 +126,8 @@ export function AppLayout() {
     }
     void sendRideSignal(rideId, userId, kind, `Voice-signalled ${kind}`).then(() => {
       showVoiceFeedback(`${SIGNAL_LABEL[kind]} signalled`);
+      // Send-confirmation tone, same as the SignalModal tap-to-send path.
+      playSignalTone(SIGNAL_TIER[kind]);
     });
   }
 

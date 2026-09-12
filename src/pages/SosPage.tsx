@@ -13,6 +13,7 @@ import {
   stopSosTracking,
   useSosResponses,
 } from "../lib/sos";
+import { playSignalTone } from "../lib/earcon";
 
 type Phase = "no-ride" | "confirm" | "countdown" | "sending" | "sent" | "error";
 
@@ -81,6 +82,9 @@ export function SosPage() {
       setAlertId(res.alertId);
       setHasLocation(res.hasLocation);
       setPhase("sent");
+      // Send-confirmation tone — critical tier, same 3-beep tone every other
+      // rider hears on the receive side (AppLayout's tonedAlertIds effect).
+      playSignalTone("critical");
     } catch {
       setPhase("error");
     }
