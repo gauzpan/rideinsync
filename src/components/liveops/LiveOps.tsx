@@ -12,6 +12,7 @@ import { RideSimulator } from "../../lib/simulator";
 import { SIM_RIDER_NAMES } from "../../lib/demoRide";
 import { approveJoinRequest, buildJoinUrl } from "../../services/onboardingService";
 import { closeRide } from "../../lib/ending";
+import { sendSos, useSosAlerts } from "../../lib/sos";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import { supabase } from "../../lib/supabase";
@@ -74,8 +75,10 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const { user } = useAuth();
   const { riders, rideStatus } = useRideChannel(ride.id);
   const [ending, setEnding] = useState(false);
+  const [sosSending, setSosSending] = useState(false);
   const isLeader = user?.id === ride.leader_id;
   const ended = rideStatus === "ended";
+  const activeSos = useSosAlerts(ride.id, user?.id ?? null).filter((a) => !a.resolved);
 
   // Geocode the form's start/destination labels → a driving route polyline.
   useEffect(() => {
@@ -177,6 +180,20 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     }
   }
 
+  async function raiseSos() {
+    if (!user) return;
+    setSosSending(true);
+    setNote(null);
+    try {
+      await sendSos(ride.id, user.id);
+      setNote("SOS sent to the group.");
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Couldn't send SOS.");
+    } finally {
+      setSosSending(false);
+    }
+  }
+
   async function endRide() {
     setEnding(true);
     setNote(null);
@@ -211,6 +228,14 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           <strong style={{ color: "#FF453A" }}>Ride ended</strong>
           <span style={{ color: "var(--color-text-secondary)", marginLeft: 8, fontSize: 13 }}>
             The lead has ended this ride.
+          </span>
+        </Card>
+      )}
+      {activeSos.length > 0 && (
+        <Card style={{ borderLeft: "3px solid #FF453A" }}>
+          <strong style={{ color: "#FF453A" }}>SOS</strong>
+          <span style={{ color: "var(--color-text-secondary)", marginLeft: 8, fontSize: 13 }}>
+            {activeSos.map((a) => a.name).join(", ")} need{activeSos.length === 1 ? "s" : ""} help
           </span>
         </Card>
       )}
@@ -303,12 +328,23 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         </Card>
       )}
 
+      {!ended && (
+        <Button
+          fullWidth={false}
+          loading={sosSending}
+          onClick={() => void raiseSos()}
+          style={{ background: "#FF453A", color: "#fff", marginTop: "var(--space-xs)" }}
+        >
+          SOS
+        </Button>
+      )}
+
       {isLeader && !ended && (
         <Button
+          variant="secondary"
           fullWidth={false}
           loading={ending}
           onClick={() => void endRide()}
-          style={{ background: "#FF453A", color: "#fff", marginTop: "var(--space-xs)" }}
         >
           End ride
         </Button>
