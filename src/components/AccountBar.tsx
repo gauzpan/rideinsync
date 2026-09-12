@@ -1,27 +1,14 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { Logo } from "./ui/Logo";
 import { Icon } from "./ui/Icon";
 import { useVoiceListening } from "../lib/voiceActivity";
 
-const menuItemStyle: CSSProperties = {
-  width: "100%",
-  textAlign: "left",
-  background: "transparent",
-  border: "none",
-  borderRadius: "var(--radius-sm)",
-  color: "var(--color-text-primary)",
-  fontSize: "var(--text-label)",
-  fontFamily: "var(--font-ui)",
-  cursor: "pointer",
-  padding: "var(--space-sm)",
-};
-
 /** Top app bar: the RideInSync logo on the left, and a single account icon on
- *  the right. The icon's menu shows the rider's identity and sign-out — Profile
- *  lives in the bottom TabBar instead. */
+ *  the right. The icon's menu shows the rider's identity — Profile (and
+ *  sign-out, as its last item) lives in the bottom TabBar instead. */
 export function AccountBar() {
-  const { profile, isGuest, signOut } = useAuth();
+  const { profile, isGuest } = useAuth();
   const label = profile?.display_name ?? (isGuest ? "Guest" : "Rider");
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -149,18 +136,6 @@ export function AccountBar() {
                 </span>
               )}
             </div>
-            <div style={{ height: 1, background: "var(--color-divider)", margin: "var(--space-2xs) 0" }} />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                void signOut();
-              }}
-              style={menuItemStyle}
-            >
-              Sign out
-            </button>
           </div>
         )}
         </div>
