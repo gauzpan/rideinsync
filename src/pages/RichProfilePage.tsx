@@ -72,7 +72,7 @@ function SectionCard({
  *  joining a ride; it's reachable from ride detail during onboarding, or
  *  later from the Flow 2 dashboard. Each section saves independently. */
 export function RichProfilePage() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const [voiceOn, setVoiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
   const install = useInstallPrompt();
   const [installing, setInstalling] = useState(false);
@@ -339,6 +339,12 @@ export function RichProfilePage() {
           <Link to={backTo}>
             <Button>Done</Button>
           </Link>
+
+          {/* Last item on the page, per design — sign-out used to live in
+              AccountBar's top-right menu; moved here instead. */}
+          <Button variant="ghost" onClick={() => void signOut()} style={{ marginTop: "var(--space-md)" }}>
+            Sign out
+          </Button>
         </>
       )}
     </div>
