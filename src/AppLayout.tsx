@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import { SignInSheet } from "./components/SignInSheet";
-import { AccountBar } from "./components/AccountBar";
-import { TabBar } from "./components/ui/TabBar";
+import { BottomNav } from "./components/BottomNav";
+import { MoreSheet } from "./components/MoreSheet";
 import { SosAlertCard } from "./components/SosAlertCard";
 import { consumePendingJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
@@ -33,6 +33,7 @@ export function AppLayout() {
   const { pathname } = location;
   const navigate = useNavigate();
   const resumedRef = useRef(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const joinCodeFromPath = pathname.match(JOIN_PATH_RE)?.[1];
 
@@ -56,12 +57,12 @@ export function AppLayout() {
   // Raising an SOS only happens via Signal on the Ride screen now; this stays
   // global so an alert already in progress is never missed on another tab.
   const userId = isAuthenticated ? user?.id ?? null : null;
-  const inApp = isAuthenticated && pathname !== "/";
+  const inApp = isAuthenticated;
   const { rideId } = useActiveRide(inApp ? userId : null);
   const alerts = useSosAlerts(inApp ? rideId : null, userId);
   const responsesByAlert = useSosResponses(inApp ? rideId : null);
 
-  // A card is shown until any responder reaches the rider; it returns only if the
+  // A card shows until any responder reaches the rider; it returns only if the
   // rider taps Stay (stay_requested_at > that reach). No local hide state.
   const visibleAlerts = alerts
     .map((a) => ({ alert: a, ...sosCardState(a, responsesByAlert[a.id] ?? []) }))
@@ -179,23 +180,12 @@ export function AppLayout() {
 
   if (loading) {
     // Brief, unstyled beat while the initial session check resolves — avoids
-    // flashing the landing/login for an already-authenticated user.
+    // flashing the sign-in sheet for an already-authenticated user.
     return null;
   }
 
-  const onLanding = pathname === "/";
-
-  // Landing ("/") is the public login entry. Signed-in users skip it and go
-  // straight to the home screen.
-  if (isAuthenticated && onLanding) {
-    return <Navigate to="/home" replace />;
-  }
-  // A protected route without a session: keep the join deep-link's sign-in
-  // sheet (it stashes the code across the Google redirect); everything else
-  // bounces to the landing to log in.
-  if (!isAuthenticated && !onLanding) {
-    if (joinCodeFromPath) return <SignInSheet joinCode={joinCodeFromPath} />;
-    return <Navigate to="/" replace />;
+  if (!isAuthenticated) {
+    return <SignInSheet joinCode={joinCodeFromPath} />;
   }
   // One-time, right after sign-in: ask for mic access up front so it's already
   // granted by the time a rider wants hands-free voice commands mid-ride.
@@ -211,13 +201,11 @@ export function AppLayout() {
           minHeight: "100%",
           margin: "0 auto",
           padding: "var(--space-lg) var(--gutter)",
-          // Clear the fixed TabBar.
-          paddingBottom: isAuthenticated
-            ? "calc(var(--tabbar-height) + var(--space-2xl) + env(safe-area-inset-bottom))"
-            : "calc(var(--space-2xl) + env(safe-area-inset-bottom))",
+          // Clear the fixed bottom nav plus the home-indicator safe area.
+          paddingBottom:
+            "calc(var(--tabbar-height) + var(--space-lg) + env(safe-area-inset-bottom))",
         }}
       >
-        {isAuthenticated && <AccountBar />}
         <Outlet />
       </div>
 
@@ -227,7 +215,7 @@ export function AppLayout() {
             position: "fixed",
             left: 0,
             right: 0,
-            // Above the TabBar.
+            // Above the bottom nav.
             bottom:
               "calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-sm))",
             zIndex: 41,
@@ -282,7 +270,8 @@ export function AppLayout() {
         </div>
       )}
 
-      {isAuthenticated && <TabBar />}
+      <BottomNav onOpenMore={() => setMoreOpen(true)} moreOpen={moreOpen} />
+      {moreOpen && <MoreSheet onClose={() => setMoreOpen(false)} />}
     </>
   );
 }
