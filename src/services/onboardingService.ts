@@ -3,10 +3,8 @@
 // this flow should go through here (see docs/flow1-onboarding-spec.md).
 import { supabase } from "../lib/supabase";
 import type {
-  AgeBand,
   Document,
   EmergencyContact,
-  Gender,
   JoinRequestStatus,
   MedicalProfile,
   MemberRole,
@@ -17,52 +15,27 @@ import type {
   RideMember,
   RouteStop,
   Vehicle,
-  PlacePoint,
 } from "../lib/models";
-
-import type { IconName } from "../components/ui/Icon";
-
-export type { PlacePoint };
 
 export type StopKind = "fuel" | "food" | "rest" | "scenic";
 
 export const STOP_KINDS: StopKind[] = ["fuel", "food", "rest", "scenic"];
 
-export const STOP_LABELS: Record<StopKind, string> = {
-  fuel: "Fuel",
-  food: "Food",
-  rest: "Rest",
-  scenic: "Scenic",
-};
-
-export const STOP_ICONS: Record<StopKind, IconName> = {
-  fuel: "fuel",
-  food: "food",
-  rest: "rest",
-  scenic: "scenic",
-};
-
 export type CreateRideStopInput = {
-  kind: StopKind;
   label: string;
-  lat?: number;
-  lng?: number;
-  placeId?: string;
-  point?: PlacePoint | null;
+  kind: StopKind;
+  /** Exact coordinates when the stop was picked via Places autocomplete. */
+  lat?: number | null;
+  lng?: number | null;
 };
 
 export type CreateRideInput = {
   name: string;
-  /** Scheduled departure date-time (ISO string) */
-  scheduledStart: string;
-  /** Optional scheduled end date-time (ISO string | null) */
-  scheduledEnd?: string | null;
-  /** Full point (lat/lng/placeId/label) or plain label */
-  start?: PlacePoint | string;
-  destination?: PlacePoint | string;
-  /** For backwards compatibility */
-  startLabel?: string;
-  destinationLabel?: string;
+  startLabel: string;
+  destinationLabel: string;
+  /** Exact coordinates when the label was picked via Places autocomplete. */
+  startPoint?: { lat: number; lng: number } | null;
+  destinationPoint?: { lat: number; lng: number } | null;
   stops: CreateRideStopInput[];
   /** null/omitted = no capacity limit set. */
   memberCapacity?: number | null;
@@ -83,58 +56,6 @@ function generateJoinCode(): string {
   return out;
 }
 
-function extractPoint(
-  pointOrString?: PlacePoint | string | null,
-  fallbackLabel?: string
-): PlacePoint | null {
-  if (pointOrString && typeof pointOrString === "object") {
-    const label = pointOrString.label?.trim() ?? "";
-    if (!label) return null;
-    return {
-      label,
-      ...(typeof pointOrString.lat === "number" && typeof pointOrString.lng === "number"
-        ? { lat: pointOrString.lat, lng: pointOrString.lng }
-        : {}),
-      ...(pointOrString.placeId ? { placeId: pointOrString.placeId } : {}),
-    };
-  }
-  const str = (typeof pointOrString === "string" ? pointOrString : fallbackLabel)?.trim();
-  if (!str) return null;
-  return { label: str };
-}
-
-function toLocationJson(pt: PlacePoint): {
-  label: string;
-  lat?: number;
-  lng?: number;
-  placeId?: string;
-} {
-  const loc: { label: string; lat?: number; lng?: number; placeId?: string } = {
-    label: pt.label,
-  };
-  if (typeof pt.lat === "number" && typeof pt.lng === "number") {
-    loc.lat = pt.lat;
-    loc.lng = pt.lng;
-  }
-  if (pt.placeId) {
-    loc.placeId = pt.placeId;
-  }
-  return loc;
-}
-
-/** Parses stored jsonb location back into a typed PlacePoint */
-export function parseJsonPoint(json: unknown): PlacePoint | null {
-  if (!json || typeof json !== "object") return null;
-  const obj = json as { label?: string; lat?: number; lng?: number; placeId?: string };
-  const label = typeof obj.label === "string" ? obj.label.trim() : "";
-  if (!label) return null;
-  return {
-    label,
-    ...(typeof obj.lat === "number" && typeof obj.lng === "number" ? { lat: obj.lat, lng: obj.lng } : {}),
-    ...(typeof obj.placeId === "string" && obj.placeId ? { placeId: obj.placeId } : {}),
-  };
-}
-
 /**
  * Creates a route-based ride: the `rides` row (leader = `leaderId`, status
  * `draft`, a unique generated join code), the leader's own `ride_members`
@@ -144,20 +65,17 @@ export function parseJsonPoint(json: unknown): PlacePoint | null {
  */
 export async function createRide(leaderId: string, input: CreateRideInput): Promise<Ride> {
   const name = input.name.trim();
-  const startPt = extractPoint(input.start, input.startLabel);
-  const destPt = extractPoint(input.destination, input.destinationLabel);
+  const startLabel = input.startLabel.trim();
+  const destinationLabel = input.destinationLabel.trim();
   if (!name) throw new Error("Ride name is required.");
-  if (!input.scheduledStart) throw new Error("Departure date and time is required.");
-  if (!startPt || !startPt.label) throw new Error("Start point is required.");
-  if (!destPt || !destPt.label) throw new Error("Destination is required.");
+  if (!startLabel) throw new Error("Start point is required.");
+  if (!destinationLabel) throw new Error("Destination is required.");
 
   const base: Omit<RideInsert, "code"> = {
     name,
     leader_id: leaderId,
-    scheduled_start: input.scheduledStart,
-    scheduled_end: input.scheduledEnd ?? null,
-    start_point: toLocationJson(startPt),
-    destination: toLocationJson(destPt),
+    start_point: { label: startLabel, ...(input.startPoint ?? {}) },
+    destination: { label: destinationLabel, ...(input.destinationPoint ?? {}) },
     guidelines: input.guidelines?.trim() || null,
     permits: input.permits?.trim() ? { note: input.permits.trim() } : null,
     member_capacity: input.memberCapacity ?? null,
@@ -191,24 +109,18 @@ export async function createRide(leaderId: string, input: CreateRideInput): Prom
   });
   if (memberError) throw memberError;
 
-  const stops = input.stops
-    .map((stop) => {
-      const pt = extractPoint(stop.point, stop.label);
-      if (!pt || !pt.label) return null;
-      return {
-        kind: stop.kind,
-        ...pt,
-      };
-    })
-    .filter((s): s is NonNullable<typeof s> => s !== null);
-
+  const stops = input.stops.filter((s) => s.label.trim().length > 0);
   if (stops.length > 0) {
     const { error: stopsError } = await supabase.from("route_stops").insert(
       stops.map((stop, idx) => ({
         ride_id: ride!.id,
         seq: idx + 1,
-        name: stop.label,
-        location: toLocationJson(stop),
+        name: stop.label.trim(),
+        // Coordinates from Places autocomplete when available; label-only otherwise.
+        location: {
+          label: stop.label.trim(),
+          ...(stop.lat != null && stop.lng != null ? { lat: stop.lat, lng: stop.lng } : {}),
+        },
         kind: stop.kind,
       }))
     );
@@ -368,8 +280,6 @@ export type RidePreview = {
   status: Ride["status"];
   isDemo: boolean;
   createdAt: string;
-  scheduledStart: string | null;
-  scheduledEnd: string | null;
   leaderName: string | null;
   startLabel: string | null;
   destinationLabel: string | null;
@@ -388,8 +298,6 @@ type RidePreviewJson = {
   status: Ride["status"];
   is_demo: boolean;
   created_at: string;
-  scheduled_start: string | null;
-  scheduled_end: string | null;
   leader_name: string | null;
   start_label: string | null;
   destination_label: string | null;
@@ -416,8 +324,6 @@ export async function getRidePreview(code: string): Promise<RidePreview | null> 
     status: j.status,
     isDemo: j.is_demo,
     createdAt: j.created_at,
-    scheduledStart: j.scheduled_start,
-    scheduledEnd: j.scheduled_end,
     leaderName: j.leader_name,
     startLabel: j.start_label,
     destinationLabel: j.destination_label,
@@ -429,25 +335,10 @@ export async function getRidePreview(code: string): Promise<RidePreview | null> 
   };
 }
 
-/**
- * Derives the public display name from first and optional last name.
- * Returns `First L.` when a last name exists, else `First`.
- */
-export function deriveDisplayName(firstName: string, lastName?: string | null): string {
-  const f = firstName.trim();
-  const l = lastName?.trim();
-  if (f && l) {
-    return `${f} ${l.charAt(0).toUpperCase()}.`;
-  }
-  return f;
-}
-
 /** The minimum rider profile fields gated at join time (per the spec's
- *  progressive-profiling decision): first name, one emergency contact,
- *  vehicle registration number (last name optional). */
+ *  progressive-profiling decision): display name, one emergency contact,
+ *  vehicle registration number. */
 export type MinimumProfileStatus = {
-  firstName: string;
-  lastName: string;
   displayName: string;
   hasEmergencyContact: boolean;
   emergencyContactName: string;
@@ -457,7 +348,7 @@ export type MinimumProfileStatus = {
   /** Whether the current consent version has already been granted — see
    *  `grantConsent`/`CONSENT_VERSION` below. */
   hasConsent: boolean;
-  /** True once all minimum fields are present (first name present, emergency contact, vehicle, consent). */
+  /** True once all three minimum fields are present — a returning rider. */
   isComplete: boolean;
 };
 
@@ -479,14 +370,10 @@ export async function getMinimumProfileStatus(userId: string): Promise<MinimumPr
   if (contactError) throw contactError;
   if (vehicleError) throw vehicleError;
 
-  const firstName = profile?.first_name?.trim() ?? "";
-  const lastName = profile?.last_name?.trim() ?? "";
   const displayName = profile?.display_name && profile.display_name !== "Rider" ? profile.display_name : "";
   const hasEmergencyContact = !!contact;
   const hasVehicle = !!vehicle?.plate;
   return {
-    firstName,
-    lastName,
     displayName,
     hasEmergencyContact,
     emergencyContactName: contact?.name ?? "",
@@ -494,7 +381,7 @@ export async function getMinimumProfileStatus(userId: string): Promise<MinimumPr
     hasVehicle,
     vehiclePlate: vehicle?.plate ?? "",
     hasConsent,
-    isComplete: !!firstName && hasEmergencyContact && hasVehicle && hasConsent,
+    isComplete: !!displayName && hasEmergencyContact && hasVehicle && hasConsent,
   };
 }
 
@@ -566,12 +453,7 @@ export async function leaveRide(rideId: string, userId: string): Promise<void> {
 }
 
 export type MinimumProfileInput = {
-  /** First/last name model (join-time flow). When present, display_name is
-   *  derived as 'First L.' / 'First'. */
-  firstName?: string;
-  lastName?: string;
-  /** Pre-derived display name (profile-edit flow that doesn't split the name). */
-  displayName?: string;
+  displayName: string;
   /** The rider's own phone number (distinct from the emergency contact's).
    *  Optional — join-time callers don't collect it. */
   phone?: string;
@@ -583,36 +465,19 @@ export type MinimumProfileInput = {
 /** Writes whatever minimum-profile fields the rider filled in. This is a soft
  *  gate for the demo (see docs/flow1-onboarding-spec.md): each field is
  *  written only if non-empty, so a partial/skipped submission never fails —
- *  callers show a warning instead of blocking. First name is required to complete,
- *  last name is optional. display_name is derived as 'First L.' or 'First'. */
+ *  callers show a warning instead of blocking. */
 export async function submitMinimumProfile(userId: string, input: MinimumProfileInput): Promise<void> {
-  const firstName = input.firstName?.trim() ?? "";
-  const lastName = input.lastName?.trim() || null;
-  const displayName = input.displayName?.trim() ?? "";
+  const displayName = input.displayName.trim();
   const phone = input.phone?.trim() ?? "";
   const contactName = input.emergencyContactName.trim();
   const contactPhone = input.emergencyContactPhone.trim();
   const plate = input.vehiclePlate.trim();
 
-  // Accept either name model: first/last (derive display_name) or a pre-derived
-  // displayName. Only the fields the caller actually supplied are written.
-  const profileUpdate: {
-    first_name?: string;
-    last_name?: string | null;
-    display_name?: string;
-    phone?: string;
-  } = {};
-  if (firstName) {
-    profileUpdate.first_name = firstName;
-    profileUpdate.last_name = lastName;
-    profileUpdate.display_name = deriveDisplayName(firstName, lastName);
-  } else if (displayName) {
-    profileUpdate.display_name = displayName;
-  }
-  if (phone) profileUpdate.phone = phone;
-
-  if (Object.keys(profileUpdate).length > 0) {
-    const { error } = await supabase.from("profiles").update(profileUpdate).eq("id", userId);
+  if (displayName || phone) {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ ...(displayName ? { display_name: displayName } : {}), ...(phone ? { phone } : {}) })
+      .eq("id", userId);
     if (error) throw error;
   }
 
@@ -750,97 +615,6 @@ export async function getJoinRequestStatus(rideId: string, userId: string): Prom
 }
 
 // ---------------------------------------------------------------------------
-// Flow 2 — "Your rides" dashboard section
-// ---------------------------------------------------------------------------
-
-/** One row for the "Your rides" list on the landing page — a ride the user
- *  is (or was) a member of, plus their role and enough of the ride to render
- *  a card without a second round-trip per ride. */
-export type MyRideSummary = {
-  rideId: string;
-  name: string;
-  status: Ride["status"];
-  role: MemberRole;
-  startLabel: string | null;
-  destinationLabel: string | null;
-  memberCount: number;
-  createdAt: string;
-  scheduledStart: string | null;
-  scheduledEnd: string | null;
-};
-
-/** Fetches the rides the user belongs to (leader or joined), newest first,
- *  for the landing page's "Your rides" section. Two round-trips: the user's
- *  own `ride_members` rows (own-row RLS, always readable), then the matching
- *  `rides` (readable via `rides_select` once membership exists) plus a
- *  member-count per ride. */
-export async function getMyRides(userId: string): Promise<MyRideSummary[]> {
-  const { data: memberships, error: membersError } = await supabase
-    .from("ride_members")
-    .select("ride_id, role")
-    .eq("user_id", userId);
-  if (membersError) throw membersError;
-  if (!memberships || memberships.length === 0) return [];
-
-  const rideIds = memberships.map((m) => m.ride_id);
-  const roleByRideId = new Map(memberships.map((m) => [m.ride_id, m.role]));
-
-  const [{ data: rides, error: ridesError }, { data: allMembers, error: countError }] = await Promise.all([
-    supabase.from("rides").select("*").in("id", rideIds).order("created_at", { ascending: false }),
-    supabase.from("ride_members").select("ride_id").in("ride_id", rideIds),
-  ]);
-  if (ridesError) throw ridesError;
-  if (countError) throw countError;
-
-  const countByRideId = new Map<string, number>();
-  for (const m of allMembers ?? []) {
-    countByRideId.set(m.ride_id, (countByRideId.get(m.ride_id) ?? 0) + 1);
-  }
-
-  return (rides ?? []).map((ride) => ({
-    rideId: ride.id,
-    name: ride.name,
-    status: ride.status,
-    role: roleByRideId.get(ride.id) ?? "rider",
-    startLabel: (ride.start_point as { label?: string } | null)?.label ?? null,
-    destinationLabel: (ride.destination as { label?: string } | null)?.label ?? null,
-    memberCount: countByRideId.get(ride.id) ?? 0,
-    createdAt: ride.created_at,
-    scheduledStart: ride.scheduled_start,
-    scheduledEnd: ride.scheduled_end,
-  }));
-}
-
-/** Formats an ISO string in user's local time (e.g. "Sat, Sep 12, 2:30 PM") */
-export function formatScheduleDateTime(iso?: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-/** Formats departure and optional end date-time in user's local time */
-export function formatScheduleRange(startIso?: string | null, endIso?: string | null): string {
-  if (!startIso) return "";
-  const startStr = formatScheduleDateTime(startIso);
-  if (!endIso) return startStr;
-  const endDate = new Date(endIso);
-  if (isNaN(endDate.getTime())) return startStr;
-  const startDate = new Date(startIso);
-  const sameDay = startDate.toDateString() === endDate.toDateString();
-  const endStr = sameDay
-    ? endDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
-    : formatScheduleDateTime(endIso);
-  return `${startStr} – ${endStr}`;
-}
-
-// ---------------------------------------------------------------------------
 // Ticket 05 — lead approval, roster & role assignment
 // ---------------------------------------------------------------------------
 
@@ -939,19 +713,6 @@ export async function assignRideRole(rideId: string, userId: string, role: Assig
   if (error) throw error;
 }
 
-/**
- * Leader removes another member from a draft ride via the `remove_ride_member` RPC.
- * Only the ride leader can perform this, only while the ride is in draft, and
- * the leader cannot be removed. Cleans up dangling pillion links and membership.
- */
-export async function removeMember(rideId: string, userId: string): Promise<void> {
-  const { error } = await supabase.rpc("remove_ride_member", {
-    p_ride_id: rideId,
-    p_user_id: userId,
-  });
-  if (error) throw error;
-}
-
 // ---------------------------------------------------------------------------
 // Ticket 06 — pillion join, linked to rider
 // ---------------------------------------------------------------------------
@@ -1034,28 +795,17 @@ export type MedicalProfileInput = {
 export type VehicleDetailsInput = {
   makeModel: string;
   color: string;
-  plate?: string;
+  plate: string;
 };
 
-export type PersonalDetailsInput = {
-  firstName: string;
-  lastName?: string;
-  gender?: Gender | null;
-  ageBand?: AgeBand | null;
-};
-
-/** Everything the rich-profile screen shows: personal details (first/last name,
- *  gender, age band), the rider's own phone and derived display name, the latest
- *  vehicle row, the primary emergency contact, the medical profile, the avatar
- *  URL, and the most recent driving-licence document. All owner-only reads. */
+/** Everything the rich-profile screen shows: display name, the latest
+ *  vehicle row (created at minimum-join with just a plate — see
+ *  `submitMinimumProfile`), the primary emergency contact, the medical
+ *  profile, the avatar URL, and the most recent driving-licence document.
+ *  All owner-only reads. */
 export type RichProfile = {
-  firstName: string | null;
-  lastName: string | null;
-  gender: Gender | null;
-  ageBand: AgeBand | null;
   displayName: string;
   phone: string;
-  plate: string | null;
   avatarUrl: string | null;
   vehicle: Vehicle | null;
   emergencyContact: EmergencyContact | null;
@@ -1071,11 +821,7 @@ export async function getRichProfile(userId: string): Promise<RichProfile> {
     { data: medical, error: medicalError },
     { data: licenceRows, error: licenceError },
   ] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("display_name, phone, avatar_url, first_name, last_name, gender, age_band")
-      .eq("id", userId)
-      .maybeSingle(),
+    supabase.from("profiles").select("display_name, phone, avatar_url").eq("id", userId).maybeSingle(),
     supabase.from("vehicles").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("emergency_contacts").select("*").eq("user_id", userId).eq("ordinal", 1).maybeSingle(),
     supabase.from("medical_profiles").select("*").eq("user_id", userId).maybeSingle(),
@@ -1094,40 +840,14 @@ export async function getRichProfile(userId: string): Promise<RichProfile> {
   if (licenceError) throw licenceError;
 
   return {
-    firstName: profile?.first_name ?? null,
-    lastName: profile?.last_name ?? null,
-    gender: (profile?.gender as Gender | null) ?? null,
-    ageBand: (profile?.age_band as AgeBand | null) ?? null,
     displayName: profile?.display_name && profile.display_name !== "Rider" ? profile.display_name : "",
     phone: profile?.phone ?? "",
-    plate: vehicle?.plate ?? null,
     avatarUrl: profile?.avatar_url ?? null,
     vehicle: vehicle ?? null,
     emergencyContact: emergencyContact ?? null,
     medical: medical ?? null,
     licence: licenceRows?.[0] ?? null,
   };
-}
-
-/** Updates the rider's personal details (demographics) and keeps display_name derived. */
-export async function submitPersonalDetails(userId: string, input: PersonalDetailsInput): Promise<void> {
-  const firstName = input.firstName.trim();
-  const lastName = input.lastName?.trim() || null;
-  if (!firstName) {
-    throw new Error("First name is required.");
-  }
-  const derived = deriveDisplayName(firstName, lastName);
-  const { error } = await supabase
-    .from("profiles")
-    .update({
-      first_name: firstName,
-      last_name: lastName,
-      gender: input.gender ?? null,
-      age_band: input.ageBand ?? null,
-      display_name: derived,
-    })
-    .eq("id", userId);
-  if (error) throw error;
 }
 
 /** Upserts the medical profile. Every field is optional — a rider can save a
@@ -1143,14 +863,15 @@ export async function submitMedicalProfile(userId: string, input: MedicalProfile
   if (error) throw error;
 }
 
-/** Fills in make/model/colour/plate. Updates the rider's most recent vehicle
- *  row if one exists (the row created at minimum-join with just a plate — see
- *  `submitMinimumProfile` — or an earlier full save), otherwise creates one. */
+/** Fills in make/model/colour/registration. Updates the rider's most recent
+ *  vehicle row if one exists (the row created at minimum-join with just a
+ *  plate — see `submitMinimumProfile` — or an earlier full save), otherwise
+ *  creates one. */
 export async function submitVehicleDetails(userId: string, input: VehicleDetailsInput): Promise<void> {
   const makeModel = input.makeModel.trim();
   const color = input.color.trim();
-  const plate = input.plate !== undefined ? input.plate.trim() : undefined;
-  if (!makeModel && !color && (plate === undefined || !plate)) return;
+  const plate = input.plate.trim();
+  if (!makeModel && !color && !plate) return;
 
   const { data: existing, error: findError } = await supabase
     .from("vehicles")
@@ -1162,15 +883,15 @@ export async function submitVehicleDetails(userId: string, input: VehicleDetails
   if (findError) throw findError;
 
   if (existing) {
-    const updatePayload: { make_model?: string; color?: string | null; plate?: string | null } = {};
-    if (makeModel) updatePayload.make_model = makeModel;
-    if (color !== undefined) updatePayload.color = color || null;
-    if (plate !== undefined) updatePayload.plate = plate || null;
-
-    if (Object.keys(updatePayload).length > 0) {
-      const { error } = await supabase.from("vehicles").update(updatePayload).eq("id", existing.id);
-      if (error) throw error;
-    }
+    const { error } = await supabase
+      .from("vehicles")
+      .update({
+        ...(makeModel ? { make_model: makeModel } : {}),
+        ...(color ? { color } : {}),
+        ...(plate ? { plate } : {}),
+      })
+      .eq("id", existing.id);
+    if (error) throw error;
   } else {
     const { error } = await supabase.from("vehicles").insert({
       user_id: userId,

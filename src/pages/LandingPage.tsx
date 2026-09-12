@@ -1,122 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, type ReactNode } from "react";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Carousel } from "../components/ui/Carousel";
 import { Mark } from "../components/ui/Logo";
 import { useAuth } from "../hooks/useAuth";
-import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
-import { formatScheduleDateTime, getMyRides, type MyRideSummary } from "../services/onboardingService";
-
-const STATUS_LABEL: Record<MyRideSummary["status"], string> = {
-  draft: "Not started",
-  active: "In progress",
-  ended: "Ended",
-};
-
-/** Where tapping a ride card should go: the leader of a still-draft ride
- *  lands back on the invite screen (they're likely still gathering riders);
- *  the leader of an active/ended ride goes to the lead view; everyone else
- *  goes to plain ride detail. */
-function rideDestination(ride: MyRideSummary): string {
-  const isLeader = ride.role === "leader";
-  if (isLeader && ride.status === "draft") return `/ride/${ride.rideId}/invite`;
-  if (isLeader) return `/ride/${ride.rideId}/lead`;
-  return `/ride/${ride.rideId}`;
-}
-
-function YourRides() {
-  const { user, isAuthenticated } = useAuth();
-  const navigate = useNavigate();
-  const [rides, setRides] = useState<MyRideSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    getMyRides(user.id)
-      .then((r) => !cancelled && setRides(r))
-      .catch(() => !cancelled && setError("Couldn't load your rides right now."));
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
-
-  if (!isAuthenticated || !user) return null;
-
-  const loading = rides === null && !error;
-  if (loading) {
-    return (
-      <section style={{ marginTop: "var(--space-2xl)" }}>
-        <p style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>Loading your rides…</p>
-      </section>
-    );
-  }
-
-  if (error) {
-    return (
-      <section style={{ marginTop: "var(--space-2xl)" }}>
-        <p style={{ color: "var(--color-text-tertiary)", fontSize: "var(--text-label)" }}>{error}</p>
-      </section>
-    );
-  }
-
-  if (!rides || rides.length === 0) {
-    return (
-      <section style={{ marginTop: "var(--space-2xl)" }}>
-        <p style={{ color: "var(--color-text-secondary)", margin: 0 }}>
-          No rides yet — create one, or join with a code.
-        </p>
-      </section>
-    );
-  }
-
-  return (
-    <section style={{ marginTop: "var(--space-2xl)" }}>
-      <p
-        style={{
-          fontSize: "var(--text-label)",
-          color: "var(--color-text-secondary)",
-          margin: "0 0 var(--space-md)",
-        }}
-      >
-        Your rides
-      </p>
-      {rides.map((ride) => (
-        <Card
-          key={ride.rideId}
-          padding="var(--space-md)"
-          onClick={() => navigate(rideDestination(ride))}
-          style={{ cursor: "pointer", marginBottom: "var(--space-sm)", minHeight: 56 }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontWeight: "var(--weight-semibold)" as unknown as number }}>{ride.name}</span>
-            <span
-              style={{
-                color: ROLE_COLOR[ride.role],
-                fontSize: "var(--text-label)",
-                fontWeight: "var(--weight-semibold)" as unknown as number,
-              }}
-            >
-              {ROLE_LABEL[ride.role]}
-            </span>
-          </div>
-          <p style={{ margin: "var(--space-2xs) 0 0", color: "var(--color-text-secondary)", fontSize: "var(--text-body-size)" }}>
-            {ride.startLabel ?? "—"} → {ride.destinationLabel ?? "—"}
-          </p>
-          {ride.scheduledStart && (
-            <p style={{ margin: "var(--space-2xs) 0 0", color: "var(--color-text-secondary)", fontSize: "var(--text-caption)" }}>
-              Departs {formatScheduleDateTime(ride.scheduledStart)}
-            </p>
-          )}
-          <p style={{ margin: "var(--space-2xs) 0 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption)" }}>
-            {STATUS_LABEL[ride.status]} · {ride.memberCount} {ride.memberCount === 1 ? "person" : "people"}
-          </p>
-        </Card>
-      ))}
-    </section>
-  );
-}
 
 type Value = { icon: ReactNode; title: string; body: string };
 
@@ -184,160 +71,149 @@ const values: Value[] = [
 ];
 
 export function LandingPage() {
-  const navigate = useNavigate();
-  const { loading, isAuthenticated, isGuest, profile } = useAuth();
+  const { signInWithGoogle, signInAsGuest, signInDev } = useAuth();
+  const [pending, setPending] = useState<"google" | "guest" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const isDev = import.meta.env.DEV;
 
-  // Avoid a marketing→dashboard flicker for an already-signed-in user: render
-  // nothing until the initial session check resolves.
-  if (loading) return null;
+  async function handleGoogle() {
+    setError(null);
+    setPending("google");
+    try {
+      await signInWithGoogle(); // redirects away for the OAuth round-trip
+    } catch (e) {
+      setPending(null);
+      setError(e instanceof Error ? e.message : "Couldn't start Google sign-in.");
+    }
+  }
 
-  const greeting = isGuest
-    ? "Riding as guest"
-    : `Welcome back${profile?.display_name ? `, ${profile.display_name}` : ""}`;
+  async function handleGuest() {
+    setError(null);
+    setPending("guest");
+    try {
+      await signInAsGuest(); // AppLayout redirects "/" → "/menu" once signed in
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't sign in as guest.");
+    } finally {
+      setPending(null);
+    }
+  }
 
   return (
     <div>
-      {isAuthenticated ? (
-        /* Compact signed-in header: replaces the marketing hero. */
-        <section
+      {/* Hero */}
+      <section style={{ position: "relative", paddingTop: "var(--space-2xl)" }}>
+        {/* Ambient brand glow */}
+        <div
+          aria-hidden
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--space-sm)",
-            paddingTop: "var(--space-2xl)",
+            position: "absolute",
+            top: -40,
+            right: -80,
+            width: 320,
+            height: 320,
+            borderRadius: "var(--radius-full)",
+            background:
+              "radial-gradient(circle, var(--color-accent-glow) 0%, transparent 70%)",
+            pointerEvents: "none",
+            zIndex: 0,
           }}
-        >
-          <Mark size={32} />
+        />
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <Mark size={64} />
+          <h1
+            style={{
+              fontFamily: "var(--font-brand)",
+              fontSize: "var(--text-display)",
+              lineHeight: "var(--lh-display)",
+              fontWeight: "var(--weight-semibold)",
+              letterSpacing: "var(--tracking-brand)",
+              margin: "var(--space-md) 0 0",
+            }}
+          >
+            RideInSync
+          </h1>
+          {/* Signature mixed-weight tagline */}
           <p
             style={{
               fontSize: "var(--text-h2)",
               lineHeight: "var(--lh-h2)",
-              fontWeight: "var(--weight-semibold)",
               color: "var(--color-text-secondary)",
-              margin: 0,
+              marginTop: "var(--space-sm)",
+              maxWidth: 420,
             }}
           >
-            {greeting}
+            Ride as a group, not a scatter.{" "}
+            <strong style={{ color: "var(--color-text-primary)", fontWeight: "var(--weight-semibold)" }}>
+              Everyone tracked
+            </strong>
+            , every route shared, and{" "}
+            <strong style={{ color: "var(--color-text-primary)", fontWeight: "var(--weight-semibold)" }}>
+              help one tap away
+            </strong>
+            .
           </p>
-        </section>
-      ) : (
-        <>
-          {/* Hero */}
-          <section style={{ position: "relative", paddingTop: "var(--space-2xl)" }}>
-            {/* Ambient brand glow */}
-            <div
-              aria-hidden
-              style={{
-                position: "absolute",
-                top: -40,
-                right: -80,
-                width: 320,
-                height: 320,
-                borderRadius: "var(--radius-full)",
-                background:
-                  "radial-gradient(circle, var(--color-accent-glow) 0%, transparent 70%)",
-                pointerEvents: "none",
-                zIndex: 0,
-              }}
-            />
-            <div style={{ position: "relative", zIndex: 1 }}>
-              <Mark size={64} />
-              <h1
-                style={{
-                  fontFamily: "var(--font-brand)",
-                  fontSize: "var(--text-display)",
-                  lineHeight: "var(--lh-display)",
-                  fontWeight: "var(--weight-semibold)",
-                  letterSpacing: "var(--tracking-brand)",
-                  margin: "var(--space-md) 0 0",
-                }}
-              >
-                RideInSync
-              </h1>
-              {/* Signature mixed-weight tagline */}
-              <p
-                style={{
-                  fontSize: "var(--text-h2)",
-                  lineHeight: "var(--lh-h2)",
-                  color: "var(--color-text-secondary)",
-                  marginTop: "var(--space-sm)",
-                  maxWidth: 420,
-                }}
-              >
-                Ride as a group, not a scatter.{" "}
-                <strong style={{ color: "var(--color-text-primary)", fontWeight: "var(--weight-semibold)" }}>
-                  Everyone tracked
-                </strong>
-                , every route shared, and{" "}
-                <strong style={{ color: "var(--color-text-primary)", fontWeight: "var(--weight-semibold)" }}>
-                  help one tap away
-                </strong>
-                .
-              </p>
-            </div>
-          </section>
+        </div>
+      </section>
 
-          {/* Value carousel */}
-          <section style={{ marginTop: "var(--space-2xl)" }}>
-            <p
-              style={{
-                fontSize: "var(--text-label)",
-                color: "var(--color-text-secondary)",
-                textTransform: "none",
-                margin: "0 0 var(--space-md)",
-              }}
-            >
-              Why RideInSync
-            </p>
-            <Carousel aria-label="What RideInSync gives you">
-              {values.map((v) => (
-                <div key={v.title} style={{ padding: "0 2px" }}>
-                  <Card padding="var(--space-lg)" style={{ minHeight: 220 }}>
-                    <div
-                      style={{
-                        width: 52,
-                        height: 52,
-                        display: "grid",
-                        placeItems: "center",
-                        borderRadius: "var(--radius-md)",
-                        background: "var(--color-surface-3)",
-                        boxShadow: "var(--glow-accent)",
-                      }}
-                    >
-                      {v.icon}
-                    </div>
-                    <h2
-                      style={{
-                        fontSize: "var(--text-h2)",
-                        lineHeight: "var(--lh-h2)",
-                        fontWeight: "var(--weight-semibold)",
-                        margin: "var(--space-md) 0 var(--space-xs)",
-                      }}
-                    >
-                      {v.title}
-                    </h2>
-                    <p
-                      style={{
-                        fontSize: "var(--text-body-size)",
-                        lineHeight: "var(--lh-body)",
-                        color: "var(--color-text-secondary)",
-                        margin: 0,
-                      }}
-                    >
-                      {v.body}
-                    </p>
-                  </Card>
+      {/* Value carousel */}
+      <section style={{ marginTop: "var(--space-2xl)" }}>
+        <p
+          style={{
+            fontSize: "var(--text-label)",
+            color: "var(--color-text-secondary)",
+            textTransform: "none",
+            margin: "0 0 var(--space-md)",
+          }}
+        >
+          Why RideInSync
+        </p>
+        <Carousel aria-label="What RideInSync gives you">
+          {values.map((v) => (
+            <div key={v.title} style={{ padding: "0 2px" }}>
+              <Card padding="var(--space-lg)" style={{ minHeight: 220 }}>
+                <div
+                  style={{
+                    width: 52,
+                    height: 52,
+                    display: "grid",
+                    placeItems: "center",
+                    borderRadius: "var(--radius-md)",
+                    background: "var(--color-surface-3)",
+                    boxShadow: "var(--glow-accent)",
+                  }}
+                >
+                  {v.icon}
                 </div>
-              ))}
-            </Carousel>
-          </section>
-        </>
-      )}
+                <h2
+                  style={{
+                    fontSize: "var(--text-h2)",
+                    lineHeight: "var(--lh-h2)",
+                    fontWeight: "var(--weight-semibold)",
+                    margin: "var(--space-md) 0 var(--space-xs)",
+                  }}
+                >
+                  {v.title}
+                </h2>
+                <p
+                  style={{
+                    fontSize: "var(--text-body-size)",
+                    lineHeight: "var(--lh-body)",
+                    color: "var(--color-text-secondary)",
+                    margin: 0,
+                  }}
+                >
+                  {v.body}
+                </p>
+              </Card>
+            </div>
+          ))}
+        </Carousel>
+      </section>
 
-      <YourRides />
-
-      {/* CTAs */}
+      {/* Login */}
       <section
+        aria-label="Sign in"
         style={{
           display: "flex",
           flexDirection: "column",
@@ -345,10 +221,37 @@ export function LandingPage() {
           marginTop: "var(--space-2xl)",
         }}
       >
-        <Button onClick={() => navigate("/create")}>Create a ride</Button>
-        <Button variant="secondary" onClick={() => navigate("/join")}>
-          Join a ride
+        {error && (
+          <p style={{ color: "var(--color-role-sweep)", fontSize: "var(--text-label)", margin: 0 }}>
+            {error}
+          </p>
+        )}
+        <Button onClick={handleGoogle} disabled={pending !== null} loading={pending === "google"}>
+          Continue with Google
         </Button>
+        <Button
+          variant="secondary"
+          onClick={handleGuest}
+          disabled={pending !== null}
+          loading={pending === "guest"}
+        >
+          Continue as guest
+        </Button>
+        {isDev && (
+          <Button variant="ghost" onClick={signInDev} disabled={pending !== null}>
+            Continue as developer (dev)
+          </Button>
+        )}
+        <p
+          style={{
+            fontSize: "var(--text-label)",
+            color: "var(--color-text-tertiary)",
+            textAlign: "center",
+            margin: "var(--space-xs) 0 0",
+          }}
+        >
+          By continuing you agree to share ride and safety details with your group.
+        </p>
       </section>
     </div>
   );

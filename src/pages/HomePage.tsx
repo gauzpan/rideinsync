@@ -1,15 +1,21 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useHomeData, type ActiveRide, type PastRide } from "../hooks/useHomeData";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { Icon } from "../components/ui/Icon";
 import { RoleBadge, toBadgeRole } from "../components/ui/RoleBadge";
+import { VoicePermissionSheet } from "../components/VoicePermissionSheet";
+import { usePersistedToggle } from "../lib/preference";
+import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
 
 export function HomePage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
   const { loading, activeRide, completeness, stats, pastRides, isEmpty } = useHomeData();
+  const [voiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
+  const [showVoiceSheet, setShowVoiceSheet] = useState(false);
 
   const firstName = (profile?.display_name ?? "rider").trim().split(/\s+/)[0];
 
@@ -18,6 +24,10 @@ export function HomePage() {
     flexDirection: "column",
     gap: "var(--space-lg)",
   };
+
+  if (showVoiceSheet) {
+    return <VoicePermissionSheet onDone={() => setShowVoiceSheet(false)} />;
+  }
 
   return (
     <div style={col}>
@@ -63,6 +73,43 @@ export function HomePage() {
                 </div>
               </div>
               <SetupMeter done={completeness.done} total={completeness.total} />
+            </div>
+          </Card>
+        </button>
+      )}
+
+      {/* 4b. Voice-commands nudge — for anyone still on the manual signal picker */}
+      {!voiceOn && (
+        <button
+          type="button"
+          onClick={() => setShowVoiceSheet(true)}
+          style={{ border: "none", background: "transparent", padding: 0, textAlign: "left", cursor: "pointer" }}
+        >
+          <Card padding="var(--space-md)">
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+              <div
+                style={{
+                  flex: "none",
+                  width: 40,
+                  height: 40,
+                  borderRadius: "var(--radius-full)",
+                  background: "var(--color-surface-2)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "var(--color-accent)",
+                }}
+              >
+                <Icon name="mic" size={20} />
+              </div>
+              <div>
+                <div style={{ fontSize: "var(--text-body-size)", fontWeight: "var(--weight-medium)" as unknown as number }}>
+                  Turn on voice commands
+                </div>
+                <div style={{ marginTop: "var(--space-2xs)", fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>
+                  Say "sync" to signal your group hands-free.
+                </div>
+              </div>
             </div>
           </Card>
         </button>
