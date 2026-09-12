@@ -12,6 +12,7 @@ import { pickDocumentFile, pickImageFile } from "../services/cameraService";
 import {
   getRichProfile,
   submitMedicalProfile,
+  submitMinimumProfile,
   submitVehicleDetails,
   uploadAvatar,
   uploadDrivingLicence,
@@ -84,8 +85,15 @@ export function RichProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [displayName, setDisplayName] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [basicSaving, setBasicSaving] = useState(false);
+  const [basicSaved, setBasicSaved] = useState(false);
+
   const [makeModel, setMakeModel] = useState("");
   const [color, setColor] = useState("");
+  const [plate, setPlate] = useState("");
   const [vehicleSaving, setVehicleSaving] = useState(false);
   const [vehicleSaved, setVehicleSaved] = useState(false);
 
@@ -107,8 +115,12 @@ export function RichProfilePage() {
       .then((p) => {
         if (cancelled) return;
         setProfile(p);
+        setDisplayName(p.displayName);
+        setContactName(p.emergencyContact?.name ?? "");
+        setContactPhone(p.emergencyContact?.phone ?? "");
         setMakeModel(p.vehicle?.make_model && p.vehicle.make_model !== "Not specified yet" ? p.vehicle.make_model : "");
         setColor(p.vehicle?.color ?? "");
+        setPlate(p.vehicle?.plate ?? "");
         setBloodType(p.medical?.blood_type ?? "");
         setAllergies(p.medical?.allergies ?? "");
         setMedications(p.medical?.medications ?? "");
@@ -137,13 +149,35 @@ export function RichProfilePage() {
     }
   }
 
+  async function handleSaveBasic() {
+    if (!user) return;
+    setError(null);
+    setBasicSaving(true);
+    setBasicSaved(false);
+    try {
+      // vehiclePlate left blank so this call only touches name/contact —
+      // the Vehicle characteristics section below owns the plate field.
+      await submitMinimumProfile(user.id, {
+        displayName,
+        emergencyContactName: contactName,
+        emergencyContactPhone: contactPhone,
+        vehiclePlate: "",
+      });
+      setBasicSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't save your details.");
+    } finally {
+      setBasicSaving(false);
+    }
+  }
+
   async function handleSaveVehicle() {
     if (!user) return;
     setError(null);
     setVehicleSaving(true);
     setVehicleSaved(false);
     try {
-      await submitVehicleDetails(user.id, { makeModel, color });
+      await submitVehicleDetails(user.id, { makeModel, color, plate });
       setVehicleSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save vehicle details.");
@@ -242,6 +276,26 @@ export function RichProfilePage() {
             </div>
           </SectionCard>
 
+          <SectionCard title="Your details" hint="Shown to the rest of your ride, and used to reach your emergency contact if needed.">
+            <Field label="Name">
+              <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
+            </Field>
+            <Field label="Emergency contact name">
+              <Input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="e.g. Priya Sharma" />
+            </Field>
+            <Field label="Emergency contact phone">
+              <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="e.g. 98765 43210" />
+            </Field>
+            {basicSaved && (
+              <p style={{ color: "var(--color-accent)", fontSize: "var(--text-caption)", margin: "0 0 var(--space-md)" }}>
+                Saved.
+              </p>
+            )}
+            <Button variant="secondary" onClick={() => void handleSaveBasic()} loading={basicSaving}>
+              Save details
+            </Button>
+          </SectionCard>
+
           {install.platform === "installable" && (
             <SectionCard
               title="Install app"
@@ -283,7 +337,10 @@ export function RichProfilePage() {
             />
           </SectionCard>
 
-          <SectionCard title="Vehicle characteristics" hint="On top of the registration number you gave when joining.">
+          <SectionCard title="Vehicle characteristics">
+            <Field label="Registration number">
+              <Input value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="e.g. KA 01 AB 1234" />
+            </Field>
             <Field label="Make & model">
               <Input value={makeModel} onChange={(e) => setMakeModel(e.target.value)} placeholder="e.g. Royal Enfield Classic 350" />
             </Field>

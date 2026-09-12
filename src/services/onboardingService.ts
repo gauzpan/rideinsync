@@ -4,6 +4,7 @@
 import { supabase } from "../lib/supabase";
 import type {
   Document,
+  EmergencyContact,
   JoinRequestStatus,
   MedicalProfile,
   MemberRole,
@@ -685,15 +686,19 @@ export type MedicalProfileInput = {
 export type VehicleDetailsInput = {
   makeModel: string;
   color: string;
+  plate: string;
 };
 
-/** Everything the rich-profile screen shows: the latest vehicle row (created
- *  at minimum-join with just a plate — see `submitMinimumProfile`), the
- *  medical profile, the avatar URL, and the most recent driving-licence
- *  document. All owner-only reads. */
+/** Everything the rich-profile screen shows: display name, the latest
+ *  vehicle row (created at minimum-join with just a plate — see
+ *  `submitMinimumProfile`), the primary emergency contact, the medical
+ *  profile, the avatar URL, and the most recent driving-licence document.
+ *  All owner-only reads. */
 export type RichProfile = {
+  displayName: string;
   avatarUrl: string | null;
   vehicle: Vehicle | null;
+  emergencyContact: EmergencyContact | null;
   medical: MedicalProfile | null;
   licence: Document | null;
 };
@@ -702,11 +707,13 @@ export async function getRichProfile(userId: string): Promise<RichProfile> {
   const [
     { data: profile, error: profileError },
     { data: vehicle, error: vehicleError },
+    { data: emergencyContact, error: contactError },
     { data: medical, error: medicalError },
     { data: licenceRows, error: licenceError },
   ] = await Promise.all([
-    supabase.from("profiles").select("avatar_url").eq("id", userId).maybeSingle(),
+    supabase.from("profiles").select("display_name, avatar_url").eq("id", userId).maybeSingle(),
     supabase.from("vehicles").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("emergency_contacts").select("*").eq("user_id", userId).eq("ordinal", 1).maybeSingle(),
     supabase.from("medical_profiles").select("*").eq("user_id", userId).maybeSingle(),
     supabase
       .from("documents")
@@ -718,12 +725,15 @@ export async function getRichProfile(userId: string): Promise<RichProfile> {
   ]);
   if (profileError) throw profileError;
   if (vehicleError) throw vehicleError;
+  if (contactError) throw contactError;
   if (medicalError) throw medicalError;
   if (licenceError) throw licenceError;
 
   return {
+    displayName: profile?.display_name && profile.display_name !== "Rider" ? profile.display_name : "",
     avatarUrl: profile?.avatar_url ?? null,
     vehicle: vehicle ?? null,
+    emergencyContact: emergencyContact ?? null,
     medical: medical ?? null,
     licence: licenceRows?.[0] ?? null,
   };
@@ -742,13 +752,15 @@ export async function submitMedicalProfile(userId: string, input: MedicalProfile
   if (error) throw error;
 }
 
-/** Fills in make/model/colour on top of the registration number captured at
- *  join (`submitMinimumProfile`). Updates the rider's most recent vehicle
- *  row if one exists, otherwise creates one — mirrors the plate-only path. */
+/** Fills in make/model/colour/registration. Updates the rider's most recent
+ *  vehicle row if one exists (the row created at minimum-join with just a
+ *  plate — see `submitMinimumProfile` — or an earlier full save), otherwise
+ *  creates one. */
 export async function submitVehicleDetails(userId: string, input: VehicleDetailsInput): Promise<void> {
   const makeModel = input.makeModel.trim();
   const color = input.color.trim();
-  if (!makeModel && !color) return;
+  const plate = input.plate.trim();
+  if (!makeModel && !color && !plate) return;
 
   const { data: existing, error: findError } = await supabase
     .from("vehicles")
@@ -765,6 +777,7 @@ export async function submitVehicleDetails(userId: string, input: VehicleDetails
       .update({
         ...(makeModel ? { make_model: makeModel } : {}),
         ...(color ? { color } : {}),
+        ...(plate ? { plate } : {}),
       })
       .eq("id", existing.id);
     if (error) throw error;
@@ -773,6 +786,7 @@ export async function submitVehicleDetails(userId: string, input: VehicleDetails
       user_id: userId,
       make_model: makeModel || "Not specified yet",
       color: color || null,
+      plate: plate || null,
     });
     if (error) throw error;
   }
