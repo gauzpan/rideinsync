@@ -13,9 +13,11 @@ import type { Profile } from "../lib/models";
 import {
   getSession,
   onAuthStateChange,
+  sendPhoneOtp,
   signInAsGuest,
   signInWithGoogle,
   signOut as signOutService,
+  verifyPhoneOtp,
 } from "../services/authService";
 
 type AuthState = {
@@ -28,10 +30,13 @@ type AuthState = {
   isAuthenticated: boolean;
   isGuest: boolean;
   signInWithGoogle: () => Promise<void>;
+  sendPhoneOtp: (phoneE164: string) => Promise<void>;
+  verifyPhoneOtp: (phoneE164: string, token: string) => Promise<Session | null>;
   signInAsGuest: () => Promise<void>;
   /** Local-dev only: fake session so you can explore screens without a backend. */
   signInDev: () => void;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -95,6 +100,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .maybeSingle();
         if (fetchToken.current !== token) return;
         if (data) {
+          if (!data.phone && session?.user?.phone) {
+            void supabase
+              .from("profiles")
+              .update({ phone: session.user.phone })
+              .eq("id", userId);
+            data.phone = session.user.phone;
+          }
           setProfile(data);
           return;
         }
@@ -102,6 +114,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, [session?.user?.id]);
+
+  const refreshProfile = async () => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    const { data } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+    if (data) {
+      setProfile(data);
+    }
+  };
 
   const value = useMemo<AuthState>(
     () => ({
@@ -112,6 +133,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: !!session || devAuthed,
       isGuest: !!session?.user?.is_anonymous || devAuthed,
       signInWithGoogle,
+      sendPhoneOtp,
+      verifyPhoneOtp,
       signInAsGuest: async () => {
         await signInAsGuest();
       },
@@ -133,6 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDevAuthed(false);
         if (session) await signOutService();
       },
+      refreshProfile,
     }),
     [loading, session, profile, devAuthed]
   );
