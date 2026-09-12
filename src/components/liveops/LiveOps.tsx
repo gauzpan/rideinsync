@@ -146,18 +146,23 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
 
   // Push the current user's own GPS so their heading arrow (lead=red / you=green)
   // appears and moves on the map. Foreground only; stops once the ride ends.
-  const { fix } = useGeolocation(!ended && !!user);
+  const { fix, error: geoError } = useGeolocation(!ended && !!user);
   useEffect(() => {
     if (!fix || !user) return;
-    void supabase.from("rider_positions").insert({
-      ride_id: ride.id,
-      user_id: user.id,
-      lat: fix.lat,
-      lng: fix.lng,
-      heading: fix.heading,
-      speed: fix.speed,
-      accuracy: fix.accuracy,
-    });
+    void supabase
+      .from("rider_positions")
+      .insert({
+        ride_id: ride.id,
+        user_id: user.id,
+        lat: fix.lat,
+        lng: fix.lng,
+        heading: fix.heading,
+        speed: fix.speed,
+        accuracy: fix.accuracy,
+      })
+      .then(({ error }) => {
+        if (error) console.warn("[liveops] position insert failed:", error.message);
+      });
   }, [fix, user, ride.id]);
 
   async function simulatePack() {
@@ -218,7 +223,11 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     setShowQr((s) => !s);
   }
 
-  const inSync = riders.filter((r) => r.status === "intact").length;
+  // Count the pack from the DB (excluding self) + yourself when you have a live fix.
+  const inSync =
+    riders.filter((r) => r.member.user_id !== user?.id && r.status === "intact").length +
+    (fix ? 1 : 0);
+  const total = riders.length;
   const center = route[Math.floor(route.length / 2)] ?? { lat: 12.9716, lng: 77.5946 };
 
   return (
@@ -263,23 +272,32 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
               <StopPin index={i + 1} />
             </AdvancedMarker>
           ))}
+          {/* Other riders from the DB (self is drawn from the live fix below). */}
           {riders.map((r) => {
-            if (!r.latest) return null;
-            const isLeader = r.member.role === "leader" || r.member.role === "co_leader";
-            const isSelf = r.member.user_id === user?.id;
+            if (!r.latest || r.member.user_id === user?.id) return null;
+            const isLead = r.member.role === "leader" || r.member.role === "co_leader";
             const pos = { lat: r.latest.lat, lng: r.latest.lng };
             return (
               <AdvancedMarker key={r.member.user_id} position={pos}>
-                {isLeader ? (
+                {isLead ? (
                   <ArrowPin color="#FF453A" heading={r.latest.heading ?? 0} name={r.profile.display_name} kind="Lead" />
-                ) : isSelf ? (
-                  <ArrowPin color="#34C759" heading={r.latest.heading ?? 0} name={r.profile.display_name} kind="You" />
                 ) : (
                   <RiderPin rider={r} />
                 )}
               </AdvancedMarker>
             );
           })}
+          {/* Your own arrow, straight from live GPS — no DB round-trip. */}
+          {fix && (
+            <AdvancedMarker position={{ lat: fix.lat, lng: fix.lng }}>
+              <ArrowPin
+                color={isLeader ? "#FF453A" : "#34C759"}
+                heading={fix.heading ?? 0}
+                name="You"
+                kind={isLeader ? "Lead" : "You"}
+              />
+            </AdvancedMarker>
+          )}
         </Map>
         <span
           style={{
@@ -294,7 +312,26 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             fontWeight: 600,
           }}
         >
-          {inSync}/{riders.length} in sync
+          {inSync}/{total} in sync
+        </span>
+        <span
+          style={{
+            position: "absolute",
+            right: 12,
+            bottom: 12,
+            background: "rgba(20,20,22,.85)",
+            color: fix ? "#34C759" : geoError ? "#FF453A" : "#FF9F0A",
+            padding: "6px 12px",
+            borderRadius: 999,
+            fontSize: 12,
+            fontWeight: 600,
+            maxWidth: "60%",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {fix ? `GPS ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}` : geoError ? `GPS: ${geoError}` : "Locating…"}
         </span>
       </div>
 

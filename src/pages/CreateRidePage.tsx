@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
+import { Geolocation } from "@capacitor/geolocation";
 import { Input } from "../components/ui/Input";
 import { PlaceInput } from "../components/ui/PlaceInput";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
@@ -102,6 +103,22 @@ export function CreateRidePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [googlePending, setGooglePending] = useState(false);
+  const [locating, setLocating] = useState(false);
+
+  async function useCurrentLocation() {
+    setLocating(true);
+    setError(null);
+    try {
+      await Geolocation.requestPermissions();
+      const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+      setStartLabel("Current location");
+      setStartPoint({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't get your current location.");
+    } finally {
+      setLocating(false);
+    }
+  }
   // Dev-only fallback: let a guest lead a ride so the form→tracker path is
   // demoable before Google OAuth is configured. Coordinate with Mithul before
   // this reaches main (the Google-only rule is a deliberate product decision).
@@ -204,7 +221,7 @@ export function CreateRidePage() {
           <Field label="Ride name">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Coastal loop" />
           </Field>
-          <Field label="Start point" hint="Search a Google Maps place">
+          <Field label="Start point" hint="Search a place, or use your current location">
             <PlaceInput
               value={startLabel}
               placeholder="Search start address…"
@@ -213,6 +230,23 @@ export function CreateRidePage() {
                 setStartPoint(v.lat != null && v.lng != null ? { lat: v.lat, lng: v.lng } : null);
               }}
             />
+            <button
+              type="button"
+              onClick={() => void useCurrentLocation()}
+              disabled={locating}
+              style={{
+                marginTop: "var(--space-xs)",
+                background: "none",
+                border: "none",
+                padding: 0,
+                color: "var(--color-accent)",
+                fontSize: "var(--text-label)",
+                fontWeight: "var(--weight-semibold)" as unknown as number,
+                cursor: locating ? "default" : "pointer",
+              }}
+            >
+              {locating ? "Getting your location…" : "◎ Use my current location"}
+            </button>
           </Field>
           <Field label="Destination" hint="Search a Google Maps place">
             <PlaceInput
