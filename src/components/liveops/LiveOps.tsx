@@ -244,6 +244,8 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // to that (self points "up"); in overview the map is north-up.
   const mapHeading = navMode ? fix?.heading ?? 0 : 0;
   const NAV_ZOOM = 17;
+  // In fullscreen the overlay sits under the status bar/notch — clear it.
+  const topInset = fullscreen ? "calc(env(safe-area-inset-top, 0px) + 52px)" : 12;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
@@ -324,7 +326,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         </Map>
 
         {/* Map controls: maximize/minimize + orientation (nav heading-up / overview). */}
-        <div style={{ position: "absolute", top: 12, right: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ position: "absolute", top: topInset, right: 12, display: "flex", flexDirection: "column", gap: 8 }}>
           <MapControlButton title={fullscreen ? "Minimize map" : "Maximize map"} onClick={toggleFullscreen}>
             {fullscreen ? "⤡" : "⤢"}
           </MapControlButton>
@@ -343,7 +345,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             type="button"
             onClick={() => void raiseSos()}
             style={{
-              position: "absolute", top: 12, left: 12, height: 44, padding: "0 18px",
+              position: "absolute", top: topInset, left: 12, height: 44, padding: "0 18px",
               borderRadius: 999, border: "none", background: "#FF453A", color: "#fff",
               fontWeight: 700, fontSize: 15, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,.4)",
             }}
