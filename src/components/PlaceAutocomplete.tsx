@@ -85,7 +85,9 @@ export function PlaceAutocomplete({
     });
 
     return () => {
-      listener.remove();
+      // addListener can return undefined when the Places library is in a
+      // degraded state (e.g. a misconfigured Maps key), so guard the cleanup.
+      listener?.remove();
       if (typeof window !== "undefined" && window.google?.maps?.event) {
         google.maps.event.clearInstanceListeners(autocomplete);
       }
