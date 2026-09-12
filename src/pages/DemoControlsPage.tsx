@@ -516,13 +516,17 @@ function SignalModal({
     }
     setSending(kind);
     setSentKind(null);
+    // Send-confirmation tone — fired synchronously inside the click handler,
+    // before the `await` below. AudioContext.resume() only unlocks within a
+    // user gesture's call stack; once we cross a real network round-trip
+    // (the insert below), the browser's activation window has expired and
+    // the tone silently no-ops. Distinct from useRideSignalListener's
+    // receive-side tone in AppLayout (which every *other* rider hears,
+    // tier-matched the same way).
+    playSignalTone(SIGNAL_TIER[kind]);
     try {
       await sendRideSignal(rideId, leaderId, kind, `Lead signalled ${kind}`);
       setSentKind(kind);
-      // Send-confirmation tone — lets the sender know it actually went out,
-      // distinct from useRideSignalListener's receive-side tone in AppLayout
-      // (which every *other* rider hears, tier-matched the same way).
-      playSignalTone(SIGNAL_TIER[kind]);
     } finally {
       setSending(null);
     }

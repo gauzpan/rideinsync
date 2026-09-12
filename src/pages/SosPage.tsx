@@ -77,14 +77,20 @@ export function SosPage() {
       return;
     }
     setPhase("sending");
+    // Fired synchronously before the `await` below — see DemoControlsPage's
+    // SignalModal.sendSignal for why: AudioContext.resume() only unlocks
+    // within a user gesture's call stack, and a real network round-trip
+    // (sendSos) breaks that chain. Critical tier, same 3-beep tone every
+    // other rider hears on the receive side (AppLayout's tonedAlertIds
+    // effect). Note this still won't play for the voice-triggered auto-send
+    // countdown path (no user gesture exists there at all) unless some
+    // earlier tap in the session already unlocked the shared AudioContext.
+    playSignalTone("critical");
     try {
       const res = await sendSos(rideId, userId);
       setAlertId(res.alertId);
       setHasLocation(res.hasLocation);
       setPhase("sent");
-      // Send-confirmation tone — critical tier, same 3-beep tone every other
-      // rider hears on the receive side (AppLayout's tonedAlertIds effect).
-      playSignalTone("critical");
     } catch {
       setPhase("error");
     }

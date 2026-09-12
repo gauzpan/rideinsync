@@ -4,6 +4,7 @@ import { Icon } from "./ui/Icon";
 import { usePersistedToggle } from "../lib/preference";
 import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
 import { SIGNAL_LABEL, SIGNAL_TYPES } from "../lib/signals";
+import { primeAudioContext } from "../lib/earcon";
 
 type Props = { onDone: () => void };
 
@@ -21,6 +22,10 @@ export function VoicePermissionSheet({ onDone }: Props) {
   async function handleEnable() {
     setError(null);
     setRequesting(true);
+    // Fired synchronously, before the getUserMedia await below, so it
+    // actually lands inside this click's user-gesture window — see
+    // primeAudioContext's doc comment.
+    primeAudioContext();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       // Only the permission grant is needed here; the wake-word listener opens
@@ -186,7 +191,14 @@ export function VoicePermissionSheet({ onDone }: Props) {
         <Button onClick={() => void handleEnable()} loading={requesting}>
           Enable voice commands
         </Button>
-        <Button variant="ghost" onClick={onDone} disabled={requesting}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            primeAudioContext();
+            onDone();
+          }}
+          disabled={requesting}
+        >
           Skip for now
         </Button>
       </div>

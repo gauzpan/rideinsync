@@ -34,6 +34,21 @@ function getContext(): AudioContext | null {
  * AudioContext support) never breaks the toast/alert it's attached to,
  * matching the "notify, don't block" pattern used throughout sos.ts.
  */
+/**
+ * Unlocks the shared AudioContext from within a guaranteed user gesture.
+ * Call this synchronously inside a click handler that every rider actually
+ * taps early in the session (VoicePermissionSheet's onboarding buttons) —
+ * without it, the *first* tone ever played can lose the race against its
+ * own async network round-trip (see playSignalTone's call sites) and the
+ * context never leaves "suspended". Once genuinely running, it stays that
+ * way for the rest of the session, so later tones — including ones fired
+ * from non-gesture contexts like a voice command result — work fine.
+ */
+export function primeAudioContext(): void {
+  const ctx = getContext();
+  if (ctx?.state === "suspended") void ctx.resume();
+}
+
 export function playSignalTone(tier: SignalTier): void {
   const count = BEEP_COUNT[tier];
   if (count === 0) return;

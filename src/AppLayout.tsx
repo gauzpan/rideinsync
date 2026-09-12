@@ -124,10 +124,14 @@ export function AppLayout() {
       navigate("/sos");
       return;
     }
+    // Fired immediately rather than after the send resolves — a voice
+    // command has no user gesture of its own to unlock the AudioContext, so
+    // this only makes sound once VoicePermissionSheet's onboarding tap has
+    // already primed it (see primeAudioContext), but firing it eagerly at
+    // least avoids adding the network round-trip's delay on top of that.
+    playSignalTone(SIGNAL_TIER[kind]);
     void sendRideSignal(rideId, userId, kind, `Voice-signalled ${kind}`).then(() => {
       showVoiceFeedback(`${SIGNAL_LABEL[kind]} signalled`);
-      // Send-confirmation tone, same as the SignalModal tap-to-send path.
-      playSignalTone(SIGNAL_TIER[kind]);
     });
   }
 
