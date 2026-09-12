@@ -22,5 +22,8 @@ export const supabaseConfigured = Boolean(url && anonKey);
 // keys land in .env.local.
 export const supabase = createClient<Database>(
   url || "https://placeholder.supabase.co",
-  anonKey || "placeholder-anon-key"
+  anonKey || "placeholder-anon-key",
+  // PKCE so native (Capacitor) Google OAuth can exchange the deep-link code for
+  // a session; works on web too.
+  { auth: { flowType: "pkce", persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
 );
