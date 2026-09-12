@@ -5,8 +5,8 @@ import { Icon, type IconName } from "./Icon";
 // FLAGGED ADDITION: the design system ships no tab primitive, so this is a new
 // navigation component (see CODING_GUIDELINES §8 — a real gap, not a one-off
 // widget). Fixed bottom bar, tokens only. "Create" deliberately stays a button
-// on Home rather than a center tab, keeping one accent per screen (§0.5) and
-// avoiding a 4th nav concept.
+// on Home rather than a tab, keeping one accent per screen (§0.5) — Profile is
+// a plain destination (no accent action of its own), so it's a tab instead.
 //
 // Active state uses the mandated inverse treatment (§1: selected MUST invert —
 // --color-inverse-surface fill + --color-text-on-inverse — never a lime fill),
@@ -25,6 +25,7 @@ const TABS: Tab[] = [
   { label: "Home", icon: "home", to: "/home", match: (p) => p === "/home" || p === "/menu" },
   { label: "Ride", icon: "map", to: "/ride/demo", match: (p) => p.startsWith("/ride") },
   { label: "Discover", icon: "compass", to: "/discover", match: (p) => p.startsWith("/discover") },
+  { label: "Profile", icon: "user", to: "/profile", match: (p) => p.startsWith("/profile") },
 ];
 
 export function TabBar() {

@@ -60,6 +60,7 @@ export type SosAlert = Row<"sos_alerts">;
 export type SosResponse = Row<"sos_responses">;
 export type RideSummary = Row<"ride_summaries">;
 export type RideFeedback = Row<"ride_feedback">;
+export type PushSubscriptionRow = Row<"push_subscriptions">;
 
 // ---- Insert aliases for the tables branches write most -----------------------
 export type RideInsert = Insert<"rides">;
@@ -70,6 +71,7 @@ export type StoppageReportInsert = Insert<"stoppage_reports">;
 export type SosAlertInsert = Insert<"sos_alerts">;
 export type SosResponseInsert = Insert<"sos_responses">;
 export type RideFeedbackInsert = Insert<"ride_feedback">;
+export type PushSubscriptionInsert = Insert<"push_subscriptions">;
 
 // ---- Geo helper (shape stored in start_point/destination/location jsonb) -----
 export type GeoPoint = { lat: number; lng: number; label?: string };

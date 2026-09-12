@@ -8,6 +8,9 @@ import { supabase } from "../lib/supabase";
 import { ensureGuestSession } from "../lib/session";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { Card } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
+import { usePushNotifications } from "../lib/pushNotifications";
+import { useInstallPrompt } from "../lib/installApp";
 
 export function RiderJoinPage() {
   const [params] = useSearchParams();
@@ -42,6 +45,15 @@ export function RiderJoinPage() {
   }, [code]);
 
   const { fix, error: geoError } = useGeolocation(!!rideId);
+
+  // Notifications (Flow 4 first cut, PRD/signals_haptics_plan.md §7a) — this
+  // is the actual "someone else's phone" tester page for signal alerts, so
+  // it's the natural place to opt this device into push for the ride it just
+  // joined, on top of the in-app toast (useRideSignalListener) that only
+  // fires while this tab is open.
+  const push = usePushNotifications(rideId, userId.current);
+  const install = useInstallPrompt();
+  const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
     if (!rideId || !fix || !userId.current) return;
@@ -82,6 +94,58 @@ export function RiderJoinPage() {
               {fix.lat.toFixed(5)}, {fix.lng.toFixed(5)} · {pushes} updates sent
             </p>
           )}
+        </Card>
+      )}
+
+      {rideId && (
+        <Card padding="var(--space-md)">
+          <p style={{ margin: "0 0 var(--space-sm)", color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
+            {push.subscribed
+              ? "You'll get a notification here when the lead sends a hazard, regroup, pit stop, or SOS signal."
+              : push.supported
+                ? "Get notified on this phone when the lead sends a signal, even if you've switched apps."
+                : "Notifications aren't supported in this browser."}
+          </p>
+          {push.error && (
+            <p style={{ margin: "0 0 var(--space-sm)", color: "var(--color-danger)", fontSize: "var(--text-label)" }}>
+              {push.error}
+            </p>
+          )}
+          <Button
+            variant={push.subscribed ? "secondary" : "primary"}
+            disabled={!push.supported}
+            loading={push.loading}
+            onClick={() => void (push.subscribed ? push.disable() : push.enable())}
+          >
+            {push.subscribed ? "Turn off notifications" : "Turn on notifications"}
+          </Button>
+        </Card>
+      )}
+
+      {rideId && install.platform === "installable" && (
+        <Card padding="var(--space-md)">
+          <p style={{ margin: "0 0 var(--space-sm)", color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
+            Install RideInSync on this phone for faster access and full notification support.
+          </p>
+          <Button
+            variant="secondary"
+            loading={installing}
+            onClick={() => {
+              setInstalling(true);
+              void install.install().finally(() => setInstalling(false));
+            }}
+          >
+            Install app
+          </Button>
+        </Card>
+      )}
+
+      {rideId && install.platform === "ios-manual" && (
+        <Card padding="var(--space-md)">
+          <p style={{ margin: "0 0 var(--space-sm)", color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
+            iOS doesn't deliver notifications to a browser tab. Tap the Share icon, then "Add to Home
+            Screen", so alerts can reach this phone while riding.
+          </p>
         </Card>
       )}
     </div>

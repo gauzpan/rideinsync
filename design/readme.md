@@ -19,6 +19,7 @@ Dark-first, high-contrast, voice-forward. A near-black canvas with a **single el
 
 - **Voice & person:** Warm, second-person, reassuring. Speaks to "you"; the product "handles the rest." Never clinical or medical in tone despite the accessibility mission.
 - **Casing:** Sentence case everywhere. No all-caps, no title-case headings.
+- **Punctuation:** No em dashes anywhere in in-app copy. Use a period, comma, or parentheses instead.
 - **Tone device (signature):** mixed weights within one sentence — key phrases bold white, connective words muted gray. Example: "Just **tell us** where you're headed, and RideInSync **handles** the route."
 - **Copy length:** Short. Prompts are one line ("Where would you like to go?", "What should we call you?"). Section titles are 2–3 words ("My preferences", "What matters most", "My device").
 - **Numbers:** Tabular, terse, unit-suffixed — `30 ft`, `1.4 mi`, `+5%`, `2000 Steps / Trip`.

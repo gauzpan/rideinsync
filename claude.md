@@ -43,7 +43,7 @@ Rules:
 
 1. **Tokens only, never hard-coded values.** Use the CSS variables from `design/tokens/` (`var(--color-accent)`, `var(--space-md)`, `var(--radius-lg)`, `var(--text-body-size)`, …). No raw hex, px, or font names in components. The app imports these token files directly (`src/styles/global.css`) — do not duplicate or fork them.
 2. **Reuse before rebuilding.** Match a screen to an existing `design/components/**` primitive first. When porting a `.jsx` primitive into our TS app, keep the same prop names and visual spec, and keep the port in sync with its source (see `src/components/ui/`).
-3. **Honor the design language:** dark-first with opt-in `[data-theme="light"]`, a single lime accent (`#C4F82A`) used scarcely (one accent action per screen + the route line), soft geometry (pills, 16–20px cards), ≥56px tap targets, visible accent focus rings, sentence case, no emoji.
+3. **Honor the design language:** dark-first with opt-in `[data-theme="light"]`, a single lime accent (`#C4F82A`) used scarcely (one accent action per screen + the route line), soft geometry (pills, 16–20px cards), ≥56px tap targets, visible accent focus rings, sentence case, no emoji, no em dashes in any in-app copy (use a period, comma, or parentheses instead).
 4. **Flag substitutions.** Fonts (Poppins/Inter), icons (Lucide), and the logo are placeholders — don't treat them as final; call them out when relevant.
 5. When a design and a PRD/product need genuinely conflict, raise it rather than silently diverging from either.
 

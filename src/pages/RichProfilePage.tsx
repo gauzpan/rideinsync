@@ -3,11 +3,16 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
+import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { useAuth } from "../hooks/useAuth";
+import { usePersistedToggle } from "../lib/preference";
+import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
+import { useInstallPrompt } from "../lib/installApp";
 import { pickDocumentFile, pickImageFile } from "../services/cameraService";
 import {
   getRichProfile,
   submitMedicalProfile,
+  submitMinimumProfile,
   submitVehicleDetails,
   uploadAvatar,
   uploadDrivingLicence,
@@ -68,7 +73,10 @@ function SectionCard({
  *  joining a ride; it's reachable from ride detail during onboarding, or
  *  later from the Flow 2 dashboard. Each section saves independently. */
 export function RichProfilePage() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const [voiceOn, setVoiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
+  const install = useInstallPrompt();
+  const [installing, setInstalling] = useState(false);
   const [searchParams] = useSearchParams();
   const rideId = searchParams.get("rideId");
   const backTo = rideId ? `/ride/${rideId}` : "/menu";
@@ -77,8 +85,16 @@ export function RichProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [displayName, setDisplayName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [basicSaving, setBasicSaving] = useState(false);
+  const [basicSaved, setBasicSaved] = useState(false);
+
   const [makeModel, setMakeModel] = useState("");
   const [color, setColor] = useState("");
+  const [plate, setPlate] = useState("");
   const [vehicleSaving, setVehicleSaving] = useState(false);
   const [vehicleSaved, setVehicleSaved] = useState(false);
 
@@ -100,8 +116,13 @@ export function RichProfilePage() {
       .then((p) => {
         if (cancelled) return;
         setProfile(p);
+        setDisplayName(p.displayName);
+        setPhone(p.phone);
+        setContactName(p.emergencyContact?.name ?? "");
+        setContactPhone(p.emergencyContact?.phone ?? "");
         setMakeModel(p.vehicle?.make_model && p.vehicle.make_model !== "Not specified yet" ? p.vehicle.make_model : "");
         setColor(p.vehicle?.color ?? "");
+        setPlate(p.vehicle?.plate ?? "");
         setBloodType(p.medical?.blood_type ?? "");
         setAllergies(p.medical?.allergies ?? "");
         setMedications(p.medical?.medications ?? "");
@@ -130,13 +151,36 @@ export function RichProfilePage() {
     }
   }
 
+  async function handleSaveBasic() {
+    if (!user) return;
+    setError(null);
+    setBasicSaving(true);
+    setBasicSaved(false);
+    try {
+      // vehiclePlate left blank so this call only touches name/contact —
+      // the Vehicle characteristics section below owns the plate field.
+      await submitMinimumProfile(user.id, {
+        displayName,
+        phone,
+        emergencyContactName: contactName,
+        emergencyContactPhone: contactPhone,
+        vehiclePlate: "",
+      });
+      setBasicSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't save your details.");
+    } finally {
+      setBasicSaving(false);
+    }
+  }
+
   async function handleSaveVehicle() {
     if (!user) return;
     setError(null);
     setVehicleSaving(true);
     setVehicleSaved(false);
     try {
-      await submitVehicleDetails(user.id, { makeModel, color });
+      await submitVehicleDetails(user.id, { makeModel, color, plate });
       setVehicleSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save vehicle details.");
@@ -176,7 +220,7 @@ export function RichProfilePage() {
     }
   }
 
-  const initials = (user?.email ?? "R").slice(0, 1).toUpperCase();
+  const initials = (displayName || user?.email || "R").slice(0, 1).toUpperCase();
 
   return (
     <div>
@@ -194,7 +238,7 @@ export function RichProfilePage() {
         Complete your profile
       </h1>
       <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-lg)" }}>
-        All optional — skip anything you don't have handy now and finish it later. None of this
+        All optional, skip anything you don't have handy now and finish it later. None of this
         blocks you from joining or riding.
       </p>
 
@@ -235,7 +279,79 @@ export function RichProfilePage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Vehicle characteristics" hint="On top of the registration number you gave when joining.">
+          <SectionCard title="Your details" hint="Shown to the rest of your ride, and used to reach your emergency contact if needed.">
+            <Field label="Name">
+              <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
+            </Field>
+            <Field label="Email address">
+              <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-body-size)" }}>
+                {user?.email ?? "Not signed in with an email"}
+              </p>
+            </Field>
+            <Field label="Phone number">
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 98765 43210" />
+            </Field>
+            <Field label="Emergency contact name">
+              <Input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="e.g. Priya Sharma" />
+            </Field>
+            <Field label="Emergency contact phone">
+              <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="e.g. 98765 43210" />
+            </Field>
+            {basicSaved && (
+              <p style={{ color: "var(--color-accent)", fontSize: "var(--text-caption)", margin: "0 0 var(--space-md)" }}>
+                Saved.
+              </p>
+            )}
+            <Button variant="secondary" onClick={() => void handleSaveBasic()} loading={basicSaving}>
+              Save details
+            </Button>
+          </SectionCard>
+
+          {install.platform === "installable" && (
+            <SectionCard
+              title="Install app"
+              hint="Add RideInSync to your home screen or desktop for faster access and full notification support, even when the browser tab is closed."
+            >
+              <Button
+                variant="secondary"
+                fullWidth={false}
+                loading={installing}
+                onClick={() => {
+                  setInstalling(true);
+                  void install.install().finally(() => setInstalling(false));
+                }}
+              >
+                Install app
+              </Button>
+            </SectionCard>
+          )}
+
+          {install.platform === "ios-manual" && (
+            <SectionCard
+              title="Install app"
+              hint="iOS doesn't support notifications in a browser tab — install to your home screen for alerts to reach you while riding."
+            >
+              <p style={{ color: "var(--color-text-secondary)", margin: 0, fontSize: "var(--text-body-size)" }}>
+                Tap the Share icon, then "Add to Home Screen".
+              </p>
+            </SectionCard>
+          )}
+
+          <SectionCard
+            title="Voice commands"
+            hint={`Say "sync" followed by SOS, hazard, regroup, or pit stop to signal hands-free during an active ride.`}
+          >
+            <SegmentedControl
+              options={["On", "Off"]}
+              value={voiceOn ? "On" : "Off"}
+              onChange={(v) => setVoiceOn(v === "On")}
+            />
+          </SectionCard>
+
+          <SectionCard title="Vehicle characteristics">
+            <Field label="Registration number">
+              <Input value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="e.g. KA 01 AB 1234" />
+            </Field>
             <Field label="Make & model">
               <Input value={makeModel} onChange={(e) => setMakeModel(e.target.value)} placeholder="e.g. Royal Enfield Classic 350" />
             </Field>
@@ -252,7 +368,7 @@ export function RichProfilePage() {
             </Button>
           </SectionCard>
 
-          <SectionCard title="Medical profile" hint="Owner-only — never shown to the rest of the group.">
+          <SectionCard title="Medical profile" hint="Owner-only, never shown to the rest of the group.">
             <Field label="Blood type">
               <Input value={bloodType} onChange={(e) => setBloodType(e.target.value)} placeholder="e.g. O+" />
             </Field>
@@ -275,7 +391,7 @@ export function RichProfilePage() {
             </Button>
           </SectionCard>
 
-          <SectionCard title="Driving licence" hint="Owner-only — a photo or scan of your licence.">
+          <SectionCard title="Driving licence" hint="Owner-only, a photo or scan of your licence.">
             {profile?.licence && (
               <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-md)" }}>
                 Uploaded {new Date(profile.licence.uploaded_at).toLocaleDateString()}.
@@ -291,6 +407,12 @@ export function RichProfilePage() {
           <Link to={backTo}>
             <Button>Done</Button>
           </Link>
+
+          {/* Last item on the page, per design — sign-out used to live in
+              AccountBar's top-right menu; moved here instead. */}
+          <Button variant="ghost" onClick={() => void signOut()} style={{ marginTop: "var(--space-md)" }}>
+            Sign out
+          </Button>
         </>
       )}
     </div>

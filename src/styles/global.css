@@ -48,3 +48,16 @@ a {
 :root {
   --tabbar-height: calc(var(--control-height) + 2 * var(--space-xs));
 }
+
+/* Mic button while the "sync" wake-word listener is actively armed. */
+@keyframes mic-listening-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 var(--color-accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+.mic-listening {
+  animation: mic-listening-pulse 1.6s ease-in-out infinite;
+}

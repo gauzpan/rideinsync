@@ -1,31 +1,20 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { Logo } from "./ui/Logo";
 import { Icon } from "./ui/Icon";
-
-const menuItemStyle: CSSProperties = {
-  width: "100%",
-  textAlign: "left",
-  background: "transparent",
-  border: "none",
-  borderRadius: "var(--radius-sm)",
-  color: "var(--color-text-primary)",
-  fontSize: "var(--text-label)",
-  fontFamily: "var(--font-ui)",
-  cursor: "pointer",
-  padding: "var(--space-sm)",
-};
+import { useVoiceListening } from "../lib/voiceActivity";
 
 /** Top app bar: the RideInSync logo on the left, and a single account icon on
- *  the right. The rider's identity, profile link, and sign-out live together in
- *  the icon's menu — no separate name label or sign-out link. */
+ *  the right. The icon's menu shows the rider's identity — Profile (and
+ *  sign-out, as its last item) lives in the bottom TabBar instead. */
 export function AccountBar() {
-  const { profile, isGuest, signOut } = useAuth();
-  const navigate = useNavigate();
+  const { profile, isGuest } = useAuth();
   const label = profile?.display_name ?? (isGuest ? "Guest" : "Rider");
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  // App-wide: voice commands run globally (not just on the Ride screen), so
+  // "is it actually listening right now" needs to be visible from anywhere.
+  const voiceListening = useVoiceListening();
 
   // Close the menu on an outside click or Escape.
   useEffect(() => {
@@ -53,7 +42,29 @@ export function AccountBar() {
     >
       <Logo size={28} />
 
-      <div ref={rootRef} style={{ position: "relative" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+        {voiceListening && (
+          <span
+            role="status"
+            aria-label="Voice commands listening"
+            title="Voice commands listening"
+            className="mic-listening"
+            style={{
+              width: 28,
+              height: 28,
+              flex: "none",
+              borderRadius: "var(--radius-full)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "var(--color-surface-3)",
+              color: "var(--color-accent)",
+            }}
+          >
+            <Icon name="signal" size={16} />
+          </span>
+        )}
+        <div ref={rootRef} style={{ position: "relative" }}>
         <button
           type="button"
           aria-label={`Account: ${label}`}
@@ -125,31 +136,9 @@ export function AccountBar() {
                 </span>
               )}
             </div>
-            <div style={{ height: 1, background: "var(--color-divider)", margin: "var(--space-2xs) 0" }} />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                navigate("/profile");
-              }}
-              style={menuItemStyle}
-            >
-              Profile
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                void signOut();
-              }}
-              style={menuItemStyle}
-            >
-              Sign out
-            </button>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

@@ -19,6 +19,27 @@ export default defineConfig({
     VitePWA({
       disable: isCapacitor, // no service worker in the bundled APK (existing installs cleared on reinstall)
       registerType: "autoUpdate",
+      // injectManifest (not the default generateSW) — needed so sw.ts can add
+      // its own push/notificationclick listeners on top of precaching. See
+      // src/sw.ts and PRD/signals_haptics_plan.md §7a.
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
+      injectManifest: {
+        // vosk-browser's WASM engine (~6MB) is dynamically imported only when
+        // voice commands are turned on (see lib/voiceCommands.ts) — precaching
+        // it here would force every install to download it up front, which
+        // defeats the point of lazy-loading it, on top of exceeding Workbox's
+        // default 2 MiB precache-entry limit outright.
+        globIgnores: ["**/vosk-*.js"],
+      },
+      // devOptions.enabled — push needs a real registered service worker to
+      // test the subscribe flow; without this the SW (and therefore push)
+      // only exists in a built+previewed app, not `npm run dev`.
+      devOptions: {
+        enabled: true,
+        type: "module",
+      },
       manifest: {
         // id/start_url/scope make the app identity explicit so a TWA (Android
         // APK) wrapper and the installed PWA resolve to the same app. See docs/ANDROID.md.

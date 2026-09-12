@@ -33,7 +33,9 @@ export const router = createBrowserRouter([
       { path: "discover", element: <DiscoverPage /> },
       { path: "ride/:rideId/lead", element: <LeadViewPage /> },
       { path: "ride/:rideId/summary", element: <RideSummaryPage /> },
-      { path: "demo", element: <DemoControlsPage /> },
+      { path: "ride/demo", element: <DemoControlsPage /> },
+      // Legacy alias — earlier links pointed at /demo.
+      { path: "demo", element: <Navigate to="/ride/demo" replace /> },
       { path: "sos", element: <SosPage /> },
       { path: "r", element: <RiderJoinPage /> },
     ],

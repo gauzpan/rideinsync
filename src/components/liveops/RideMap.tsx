@@ -2,7 +2,7 @@
 // and one avatar pin per rider, coloured by group status. Purely presentational
 // — it renders whatever riders the ops view passes in.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { APIProvider, AdvancedMarker, Map, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import type { RiderOnMap } from "../../lib/models";
 import type { GroupStatus } from "../../lib/models";
@@ -47,30 +47,64 @@ function FitToRoute({ path }: { path: LatLng[] }) {
 }
 
 function RiderPin({ rider }: { rider: RiderOnMap }) {
+  const [hovered, setHovered] = useState(false);
   const isLeader = rider.member.role === "leader" || rider.member.role === "co_leader";
   const ring = isLeader ? "#C4F82A" : STATUS_COLOR[rider.status];
   const initial = (rider.profile.display_name || "R").trim().charAt(0).toUpperCase();
   return (
     <div
-      title={`${rider.profile.display_name} — ${rider.status}`}
-      style={{
-        width: 38,
-        height: 38,
-        borderRadius: "50%",
-        background: "#1C1C1E",
-        border: `3px solid ${ring}`,
-        boxShadow: "0 2px 8px rgba(0,0,0,.5)",
-        color: "#fff",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontWeight: 600,
-        fontSize: 15,
-        fontFamily: "system-ui, sans-serif",
-        opacity: rider.status === "stale" ? 0.65 : 1,
-      }}
+      style={{ position: "relative", display: "inline-flex" }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      {initial}
+      {hovered && (
+        <div
+          role="tooltip"
+          style={{
+            position: "absolute",
+            bottom: "calc(100% + var(--space-xs))",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 10,
+            background: "var(--color-surface-1)",
+            border: "1px solid var(--color-divider)",
+            borderRadius: "var(--radius-sm)",
+            boxShadow: "var(--shadow-card)",
+            padding: "var(--space-2xs) var(--space-sm)",
+            whiteSpace: "nowrap",
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ color: "var(--color-text-primary)", fontSize: "var(--text-label)", fontWeight: 600 }}>
+            {rider.profile.display_name || "Rider"} — {rider.status}
+          </div>
+          {rider.latest && (
+            <div style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-caption)" }}>
+              {rider.latest.lat.toFixed(5)}, {rider.latest.lng.toFixed(5)}
+            </div>
+          )}
+        </div>
+      )}
+      <div
+        style={{
+          width: 38,
+          height: 38,
+          borderRadius: "50%",
+          background: "#1C1C1E",
+          border: `3px solid ${ring}`,
+          boxShadow: "0 2px 8px rgba(0,0,0,.5)",
+          color: "#fff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontWeight: 600,
+          fontSize: 15,
+          fontFamily: "system-ui, sans-serif",
+          opacity: rider.status === "stale" ? 0.65 : 1,
+        }}
+      >
+        {initial}
+      </div>
     </div>
   );
 }
