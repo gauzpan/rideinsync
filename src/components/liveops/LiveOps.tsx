@@ -10,11 +10,14 @@ import { APIProvider, AdvancedMarker, Map, useMap, useMapsLibrary } from "@vis.g
 import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
 import { SIM_RIDER_NAMES } from "../../lib/demoRide";
-import { approveJoinRequest } from "../../services/onboardingService";
+import { approveJoinRequest, buildJoinUrl } from "../../services/onboardingService";
+import { useAuth } from "../../hooks/useAuth";
 import { supabase } from "../../lib/supabase";
 import type { Ride, RiderOnMap, GroupStatus } from "../../lib/models";
 import type { LatLng } from "../../lib/geo";
 import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
+import QRCode from "qrcode";
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const MAP_ID = import.meta.env.VITE_MAP_ID;
@@ -62,8 +65,11 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const [populating, setPopulating] = useState(false);
   const [populated, setPopulated] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [qr, setQr] = useState<string | null>(null);
+  const [showQr, setShowQr] = useState(false);
   const simRef = useRef<RideSimulator | null>(null);
 
+  const { user } = useAuth();
   const { riders } = useRideChannel(ride.id);
 
   // Geocode the form's start/destination labels → a driving route polyline.
@@ -150,6 +156,17 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     }
   }
 
+  async function toggleQr() {
+    if (!showQr && !qr) {
+      try {
+        setQr(await QRCode.toDataURL(buildJoinUrl(ride.code), { width: 220, margin: 1 }));
+      } catch {
+        /* leave qr null; the code text is still shown */
+      }
+    }
+    setShowQr((s) => !s);
+  }
+
   const inSync = riders.filter((r) => r.status === "intact").length;
   const center = route[Math.floor(route.length / 2)] ?? { lat: 12.9716, lng: 77.5946 };
 
@@ -179,13 +196,23 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
               <StopPin index={i + 1} />
             </AdvancedMarker>
           ))}
-          {riders.map((r) =>
-            r.latest ? (
-              <AdvancedMarker key={r.member.user_id} position={{ lat: r.latest.lat, lng: r.latest.lng }}>
-                <RiderPin rider={r} />
+          {riders.map((r) => {
+            if (!r.latest) return null;
+            const isLeader = r.member.role === "leader" || r.member.role === "co_leader";
+            const isSelf = r.member.user_id === user?.id;
+            const pos = { lat: r.latest.lat, lng: r.latest.lng };
+            return (
+              <AdvancedMarker key={r.member.user_id} position={pos}>
+                {isLeader ? (
+                  <ArrowPin color="#FF453A" heading={r.latest.heading ?? 0} name={r.profile.display_name} kind="Lead" />
+                ) : isSelf ? (
+                  <ArrowPin color="#34C759" heading={r.latest.heading ?? 0} name={r.profile.display_name} kind="You" />
+                ) : (
+                  <RiderPin rider={r} />
+                )}
               </AdvancedMarker>
-            ) : null,
-          )}
+            );
+          })}
         </Map>
         <span
           style={{
@@ -214,6 +241,25 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         {populated ? "Pack riding" : populating ? "Riders joining…" : "Simulate pack (demo)"}
       </Button>
       {note && <p style={{ color: "var(--color-role-sweep)", fontSize: 13, margin: 0 }}>{note}</p>}
+
+      <Button variant="secondary" fullWidth={false} onClick={() => void toggleQr()}>
+        {showQr ? "Hide QR" : "Invite riders (QR)"}
+      </Button>
+      {showQr && (
+        <Card glow style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Scan to join this ride</div>
+          {qr && (
+            <img
+              src={qr}
+              alt={`QR to join ${ride.name}`}
+              style={{ width: 200, height: 200, marginTop: 8, borderRadius: 12 }}
+            />
+          )}
+          <div style={{ fontFamily: "var(--font-brand)", letterSpacing: 2, fontSize: 20, marginTop: 4 }}>
+            {ride.code}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
@@ -267,6 +313,34 @@ function StopPin({ index }: { index: number }) {
       }}
     >
       {index}
+    </div>
+  );
+}
+
+// Directional arrow for the lead (red) and the current rider (green). Rotates
+// to the GPS heading (0 = north). Others use the circle pin below.
+function ArrowPin({
+  color,
+  heading,
+  name,
+  kind,
+}: {
+  color: string;
+  heading: number;
+  name: string;
+  kind: "Lead" | "You";
+}) {
+  return (
+    <div title={`${name} — ${kind}`} style={{ transform: `rotate(${heading}deg)`, transformOrigin: "50% 50%" }}>
+      <svg width="30" height="30" viewBox="0 0 24 24" aria-hidden>
+        <path
+          d="M12 2 L19 21 L12 16 L5 21 Z"
+          fill={color}
+          stroke="#0A0A0B"
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+        />
+      </svg>
     </div>
   );
 }
