@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import { Capacitor } from "@capacitor/core";
 import { supabase } from "../lib/supabase";
 import type { Profile } from "../lib/models";
 import {
@@ -16,6 +17,8 @@ import {
   signInAsGuest,
   signInWithGoogle,
   signOut as signOutService,
+  startAutoRefresh,
+  stopAutoRefresh,
 } from "../services/authService";
 
 type AuthState = {
@@ -70,6 +73,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       unsubscribe();
     };
+  }, []);
+
+  // Revive token auto-refresh on foreground. A backgrounded native WebView (or
+  // a hidden browser tab) suspends supabase-js's refresh timer, so the stored
+  // access token can be expired by the time the user reopens the app — the
+  // first query then fails with PGRST303 and the ride "won't load". Restarting
+  // on resume forces an immediate refresh before any query fires.
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+      const removers: Array<() => void> = [];
+      let disposed = false;
+      void import("@capacitor/app").then(({ App }) => {
+        if (disposed) return;
+        void App.addListener("resume", () => startAutoRefresh()).then((h) =>
+          removers.push(() => void h.remove())
+        );
+        void App.addListener("pause", () => stopAutoRefresh()).then((h) =>
+          removers.push(() => void h.remove())
+        );
+      });
+      return () => {
+        disposed = true;
+        removers.forEach((r) => r());
+      };
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") startAutoRefresh();
+      else stopAutoRefresh();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
   useEffect(() => {

@@ -453,7 +453,36 @@ export type RideDetail = {
   pillionLinks: PillionLink[];
 };
 
+/** Retries an idempotent read a few times on transient network failures
+ *  (dropped Wi-Fi, a flapping VPN/DNS, a tunnel crossing cells mid-ride), so a
+ *  single failed fetch doesn't dump the rider to "couldn't load the ride". Only
+ *  network-shaped failures are retried; a real query/RLS error rethrows at once. */
+async function withRetry<T>(run: () => Promise<T>, attempts = 3, delayMs = 600): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await run();
+    } catch (e) {
+      lastError = e;
+      const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
+      const transient =
+        msg.includes("fetch") ||
+        msg.includes("network") ||
+        msg.includes("timeout") ||
+        msg.includes("name_not_resolved") ||
+        msg.includes("failed to load");
+      if (!transient || i === attempts - 1) throw e;
+      await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw lastError;
+}
+
 export async function getRideDetail(rideId: string): Promise<RideDetail | null> {
+  return withRetry(() => getRideDetailOnce(rideId));
+}
+
+async function getRideDetailOnce(rideId: string): Promise<RideDetail | null> {
   const [
     { data: ride, error: rideError },
     { data: stops, error: stopsError },

@@ -188,7 +188,7 @@ export function AppLayout() {
         </>
       )}
 
-      {isAuthenticated && <TabBar />}
+      {isAuthenticated && <TabBar activeRideId={rideId} />}
     </>
   );
 }
