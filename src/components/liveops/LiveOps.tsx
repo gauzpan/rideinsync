@@ -5,7 +5,7 @@
 // riders through the real request→approve→track flow so the map has movement
 // without needing many phones.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { APIProvider, AdvancedMarker, Map, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
@@ -76,6 +76,8 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const { riders, rideStatus } = useRideChannel(ride.id);
   const [ending, setEnding] = useState(false);
   const [sosSending, setSosSending] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [navMode, setNavMode] = useState(false); // heading-up follow-me (rider nav)
   const isLeader = user?.id === ride.leader_id;
   const ended = rideStatus === "ended";
   const activeSos = useSosAlerts(ride.id, user?.id ?? null).filter((a) => !a.resolved);
@@ -230,6 +232,19 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const total = riders.length;
   const center = route[Math.floor(route.length / 2)] ?? { lat: 12.9716, lng: 77.5946 };
 
+  // Maximizing the map = ride/nav mode (heading-up follow); minimizing = overview.
+  function toggleFullscreen() {
+    setFullscreen((f) => {
+      const next = !f;
+      setNavMode(next);
+      return next;
+    });
+  }
+  // In nav mode the map rotates to the rider's heading, so markers rotate relative
+  // to that (self points "up"); in overview the map is north-up.
+  const mapHeading = navMode ? fix?.heading ?? 0 : 0;
+  const NAV_ZOOM = 17;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
       {ended && (
@@ -249,13 +264,17 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         </Card>
       )}
       <div
-        style={{
-          position: "relative",
-          height: "44vh",
-          borderRadius: "var(--radius-lg)",
-          overflow: "hidden",
-          background: "var(--color-surface-2)",
-        }}
+        style={
+          fullscreen
+            ? { position: "fixed", inset: 0, zIndex: 1000, background: "var(--color-surface-2)" }
+            : {
+                position: "relative",
+                height: "44vh",
+                borderRadius: "var(--radius-lg)",
+                overflow: "hidden",
+                background: "var(--color-surface-2)",
+              }
+        }
       >
         <Map
           mapId={MAP_ID}
@@ -266,13 +285,17 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           style={{ width: "100%", height: "100%" }}
         >
           {route.length > 1 && <RoutePolyline path={route} />}
-          {route.length > 1 && <FitToRoute path={route} />}
+          {route.length > 1 && !(navMode && fix) && <FitToRoute path={route} />}
+          {navMode && fix && (
+            <FollowCamera target={{ lat: fix.lat, lng: fix.lng }} zoom={NAV_ZOOM} heading={fix.heading ?? 0} tilt={45} />
+          )}
           {stopPoints.map((p, i) => (
             <AdvancedMarker key={`stop-${i}`} position={p}>
               <StopPin index={i + 1} />
             </AdvancedMarker>
           ))}
-          {/* Other riders from the DB (self is drawn from the live fix below). */}
+          {/* Other riders from the DB (self is drawn from the live fix below).
+              Rotation is relative to the map heading so heading-up stays correct. */}
           {riders.map((r) => {
             if (!r.latest || r.member.user_id === user?.id) return null;
             const isLead = r.member.role === "leader" || r.member.role === "co_leader";
@@ -280,7 +303,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             return (
               <AdvancedMarker key={r.member.user_id} position={pos}>
                 {isLead ? (
-                  <ArrowPin color="#FF453A" heading={r.latest.heading ?? 0} name={r.profile.display_name} kind="Lead" />
+                  <ArrowPin color="#FF453A" heading={(r.latest.heading ?? 0) - mapHeading} name={r.profile.display_name} kind="Lead" />
                 ) : (
                   <RiderPin rider={r} />
                 )}
@@ -292,45 +315,47 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             <AdvancedMarker position={{ lat: fix.lat, lng: fix.lng }}>
               <ArrowPin
                 color={isLeader ? "#FF453A" : "#34C759"}
-                heading={fix.heading ?? 0}
+                heading={(fix.heading ?? 0) - mapHeading}
                 name="You"
                 kind={isLeader ? "Lead" : "You"}
               />
             </AdvancedMarker>
           )}
         </Map>
-        <span
-          style={{
-            position: "absolute",
-            left: 12,
-            bottom: 12,
-            background: "rgba(20,20,22,.85)",
-            color: "#fff",
-            padding: "6px 12px",
-            borderRadius: 999,
-            fontSize: 13,
-            fontWeight: 600,
-          }}
-        >
+
+        {/* Map controls: maximize/minimize + orientation (nav heading-up / overview). */}
+        <div style={{ position: "absolute", top: 12, right: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <MapControlButton title={fullscreen ? "Minimize map" : "Maximize map"} onClick={toggleFullscreen}>
+            {fullscreen ? "⤡" : "⤢"}
+          </MapControlButton>
+          <MapControlButton
+            title={navMode ? "Switch to overview (north-up)" : "Navigation (heading-up)"}
+            active={navMode}
+            onClick={() => setNavMode((n) => !n)}
+          >
+            ➤
+          </MapControlButton>
+        </div>
+
+        {/* Keep SOS reachable while riding fullscreen. */}
+        {fullscreen && !ended && (
+          <button
+            type="button"
+            onClick={() => void raiseSos()}
+            style={{
+              position: "absolute", top: 12, left: 12, height: 44, padding: "0 18px",
+              borderRadius: 999, border: "none", background: "#FF453A", color: "#fff",
+              fontWeight: 700, fontSize: 15, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,.4)",
+            }}
+          >
+            SOS
+          </button>
+        )}
+
+        <span style={{ position: "absolute", left: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: "#fff", padding: "6px 12px", borderRadius: 999, fontSize: 13, fontWeight: 600 }}>
           {inSync}/{total} in sync
         </span>
-        <span
-          style={{
-            position: "absolute",
-            right: 12,
-            bottom: 12,
-            background: "rgba(20,20,22,.85)",
-            color: fix ? "#34C759" : geoError ? "#FF453A" : "#FF9F0A",
-            padding: "6px 12px",
-            borderRadius: 999,
-            fontSize: 12,
-            fontWeight: 600,
-            maxWidth: "60%",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
+        <span style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: fix ? "#34C759" : geoError ? "#FF453A" : "#FF9F0A", padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {fix ? `GPS ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}` : geoError ? `GPS: ${geoError}` : "Locating…"}
         </span>
       </div>
@@ -416,6 +441,65 @@ function FitToRoute({ path }: { path: LatLng[] }) {
     map.fitBounds(bounds, 56);
   }, [map, path]);
   return null;
+}
+
+// Navigation camera: recenters on the rider, zoomed for the next turn, rotated
+// heading-up (with tilt) like a nav app. Runs while nav mode is on.
+function FollowCamera({
+  target,
+  zoom,
+  heading,
+  tilt,
+}: {
+  target: LatLng;
+  zoom: number;
+  heading: number;
+  tilt: number;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (!map) return;
+    map.moveCamera({ center: target, zoom, heading, tilt });
+  }, [map, target.lat, target.lng, zoom, heading, tilt]);
+  return null;
+}
+
+function MapControlButton({
+  title,
+  active,
+  onClick,
+  children,
+}: {
+  title: string;
+  active?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      style={{
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        border: "none",
+        background: active ? "#C4F82A" : "rgba(20,20,22,.9)",
+        color: active ? "#0A0A0B" : "#fff",
+        fontSize: 20,
+        lineHeight: 1,
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        boxShadow: "0 2px 8px rgba(0,0,0,.4)",
+      }}
+    >
+      {children}
+    </button>
+  );
 }
 
 function StopPin({ index }: { index: number }) {
