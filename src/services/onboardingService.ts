@@ -415,30 +415,29 @@ export async function submitMinimumProfile(userId: string, input: MinimumProfile
 export async function joinRideByCode(
   code: string,
   userId: string
-): Promise<{ ride: Ride; member: RideMember | null }> {
+): Promise<{ rideId: string; member: RideMember | null }> {
   const trimmed = code.trim();
   if (!trimmed) throw new Error("Enter a join code.");
 
   const { error: rpcError } = await supabase.rpc("request_join_ride", { join_code: trimmed });
   if (rpcError) throw rpcError;
 
-  const { data: ride, error: rideError } = await supabase
-    .from("rides")
-    .select("*")
-    .eq("code", trimmed.toUpperCase())
-    .maybeSingle();
-  if (rideError) throw rideError;
-  if (!ride) throw new Error("Couldn't load the ride after joining. Try again.");
+  // Get the ride id via the preview RPC (SECURITY DEFINER, readable by
+  // non-members). A still-pending (non-demo) rider is not yet a member, so the
+  // `rides` table is RLS-hidden from them — selecting it directly returns null
+  // and used to throw "Couldn't load the ride after joining".
+  const preview = await getRidePreview(trimmed);
+  if (!preview) throw new Error("Couldn't load the ride after joining. Try again.");
 
   const { data: member, error: memberError } = await supabase
     .from("ride_members")
     .select("*")
-    .eq("ride_id", ride.id)
+    .eq("ride_id", preview.rideId)
     .eq("user_id", userId)
     .maybeSingle();
   if (memberError) throw memberError;
 
-  return { ride, member };
+  return { rideId: preview.rideId, member: member ?? null };
 }
 
 /** Everything the ride-detail screen needs: the ride, its ordered stops, and
