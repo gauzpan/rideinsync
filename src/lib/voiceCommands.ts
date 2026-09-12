@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 // which is exactly what blew the production build's PWA precache budget the
 // first time this was wired up statically.
 import type { Model, KaldiRecognizer } from "vosk-browser";
-import type { SignalKind } from "./signals";
+import { SIGNAL_LABEL, type SignalKind } from "./signals";
+import { publishVoiceAudioLevel, publishVoiceDetection, publishVoicePartial } from "./voiceActivity";
 
 // ============================================================================
 // "Sync, ___" wake word + signal command, via Vosk (on-device, WASM, grammar-
@@ -130,6 +131,9 @@ export function useVoiceCommand({
     if (!supported || !enabled) {
       console.log(`[voice] not starting: ${!supported ? "unsupported browser" : "disabled"}`);
       setListening(false);
+      publishVoiceAudioLevel(0);
+      publishVoicePartial("");
+      publishVoiceDetection(null);
       return;
     }
 
@@ -144,10 +148,19 @@ export function useVoiceCommand({
     let recognizer: KaldiRecognizer | null = null;
     let activateTimer: number | null = null;
 
+    // Publishes what Vosk finalized and what the app decided to do about it,
+    // for the mic button's live "heard X -> doing Y" caption, plus a matching
+    // console log so the same story is visible without the UI open.
+    function detect(word: string, action: string) {
+      publishVoiceDetection({ text: word, action });
+      console.log(`[voice] detected "${word}" -> ${action}`);
+    }
+
     function handleWord(word: string) {
       const w = word.toLowerCase().trim();
       if (!w) return;
       console.log(`[voice] heard: "${w}"`);
+      publishVoicePartial("");
 
       // Signal picker already open — a bare signal name is enough, no need
       // to repeat the wake word before every choice.
@@ -155,11 +168,13 @@ export function useVoiceCommand({
         const bareKind = wordToKind(w);
         if (bareKind) {
           const now = Date.now();
-          if (now - lastTriggerRef.current >= DEBOUNCE_MS) {
-            lastTriggerRef.current = now;
-            console.log(`[voice] bare command "${bareKind}" from "${w}"`);
-            onCommandRef.current(bareKind);
+          if (now - lastTriggerRef.current < DEBOUNCE_MS) {
+            detect(w, "ignored (too soon after the last command)");
+            return;
           }
+          lastTriggerRef.current = now;
+          detect(w, `${SIGNAL_LABEL[bareKind]} triggered`);
+          onCommandRef.current(bareKind);
           return;
         }
       }
@@ -169,28 +184,42 @@ export function useVoiceCommand({
         // command arrives as the next utterance before treating it as bare
         // activation.
         if (activateTimer != null) window.clearTimeout(activateTimer);
+        detect(w, "waiting for a command");
         activateTimer = window.setTimeout(() => {
           activateTimer = null;
           const now = Date.now();
-          if (now - lastTriggerRef.current < DEBOUNCE_MS) return;
+          if (now - lastTriggerRef.current < DEBOUNCE_MS) {
+            detect(w, "ignored (too soon after the last command)");
+            return;
+          }
           lastTriggerRef.current = now;
-          console.log(`[voice] activate from "${w}"`);
+          detect(w, "activated");
           onActivateRef.current?.();
         }, ACTIVATE_GRACE_MS);
         return;
       }
 
       const kind = wordToKind(w);
-      if (kind && activateTimer != null) {
-        // A command arrived right after the wake word.
-        window.clearTimeout(activateTimer);
-        activateTimer = null;
-        const now = Date.now();
-        if (now - lastTriggerRef.current < DEBOUNCE_MS) return;
-        lastTriggerRef.current = now;
-        console.log(`[voice] command "${kind}" from "${w}"`);
-        onCommandRef.current(kind);
+      if (kind) {
+        if (activateTimer != null) {
+          // A command arrived right after the wake word.
+          window.clearTimeout(activateTimer);
+          activateTimer = null;
+          const now = Date.now();
+          if (now - lastTriggerRef.current < DEBOUNCE_MS) {
+            detect(w, "ignored (too soon after the last command)");
+            return;
+          }
+          lastTriggerRef.current = now;
+          detect(w, `${SIGNAL_LABEL[kind]} triggered`);
+          onCommandRef.current(kind);
+          return;
+        }
+        detect(w, `heard, but say "${WAKE_WORD}" first`);
+        return;
       }
+
+      detect(w, "not recognized");
     }
 
     (async () => {
@@ -217,21 +246,54 @@ export function useVoiceCommand({
           if (message.event === "result") handleWord(message.result.text);
         });
         recognizer.on("partialresult", (message) => {
-          if (message.event === "partialresult" && message.result.partial) {
-            console.log(`[voice] partial: "${message.result.partial}"`);
-          }
+          if (message.event !== "partialresult") return;
+          const partial = message.result.partial ?? "";
+          publishVoicePartial(partial);
+          if (partial) console.log(`[voice] partial: "${partial}"`);
         });
         recognizer.on("error", (message) => {
           if (message.event === "error") console.warn(`[voice] recognizer error ${message.error}`);
         });
 
-        audioContext = new AudioContext();
+        // Must match the recognizer's declared rate above — without this,
+        // AudioContext runs at the hardware default (typically 44.1/48kHz)
+        // and every buffer handed to acceptWaveform() is ~3x faster than
+        // Kaldi is told to expect, garbling the decode with no error thrown:
+        // recognition starts fine, audio flows fine, but partials/results
+        // never fire because the phoneme timing is entirely wrong.
+        audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+        // Chrome (and others) start a context "suspended" unless the page has
+        // had a user gesture — and this effect can turn on with no gesture at
+        // all (voiceOn was already true from a previous session, and
+        // AppLayout just found inApp && rideId && voiceOn all true on
+        // mount/navigation). Suspended means onaudioprocess below never
+        // fires: no partials, no results, no audio-level meter, total
+        // silence with nothing in the console to explain why.
+        if (audioContext.state === "suspended") {
+          await audioContext.resume().catch(() => {});
+        }
+        if (cancelled) return;
+        if (audioContext.state !== "running") {
+          console.warn(`[voice] audio context stuck in "${audioContext.state}" state — no audio will reach the recognizer`);
+          setError("audio-suspended");
+          return;
+        }
         const source = audioContext.createMediaStreamSource(stream);
         // ScriptProcessorNode is deprecated but is what the library's own
         // examples use, and AudioWorklet would need a separate module file
         // served alongside it — not worth the extra moving part here.
         const node = audioContext.createScriptProcessor(4_096, 1, 1);
         node.onaudioprocess = (event) => {
+          // RMS of this buffer, scaled up so ordinary speech actually moves
+          // the meter (raw mic RMS at normal gain sits well under 1.0) — this
+          // is "is there audio around" feedback, independent of whether Vosk
+          // recognizes any of it as a word.
+          const data = event.inputBuffer.getChannelData(0);
+          let sumSquares = 0;
+          for (let i = 0; i < data.length; i++) sumSquares += data[i] * data[i];
+          const rms = Math.sqrt(sumSquares / data.length);
+          publishVoiceAudioLevel(Math.min(1, rms * 8));
+
           try {
             recognizer?.acceptWaveform(event.inputBuffer);
           } catch (err) {
@@ -281,6 +343,9 @@ export function useVoiceCommand({
       }
       stream?.getTracks().forEach((track) => track.stop());
       setListening(false);
+      publishVoiceAudioLevel(0);
+      publishVoicePartial("");
+      publishVoiceDetection(null);
     };
   }, [supported, enabled]);
 

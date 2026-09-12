@@ -126,3 +126,29 @@ const signalModalOpenStore = makeValueStore(false);
  *  name on its own (the picker is already up, saying "sync" again is redundant). */
 export const publishSignalModalOpen = signalModalOpenStore.publish;
 export const useSignalModalOpen = signalModalOpenStore.useValue;
+
+// ---- Mic diagnostics: live audio level, in-progress transcript, and the last
+// finalized word + what the app decided to do about it. Published directly
+// from voiceCommands.ts's audio-processing loop rather than routed through
+// AppLayout's React state, since these update many times a second and the
+// component that shows them (the Ride screen's mic button) isn't the one that
+// owns the recognition session.
+const audioLevelStore = makeValueStore(0);
+/** Roughly 0..1 — how loud the last ~250ms of mic input was. Lets the mic
+ *  button visibly react to "there is audio around" independent of whether any
+ *  of it was recognized as a word. */
+export const publishVoiceAudioLevel = audioLevelStore.publish;
+export const useVoiceAudioLevel = audioLevelStore.useValue;
+
+const partialStore = makeValueStore("");
+/** The recognizer's in-progress guess at the current utterance; empty when
+ *  nothing is being said right now. */
+export const publishVoicePartial = partialStore.publish;
+export const useVoicePartial = partialStore.useValue;
+
+export type VoiceDetection = { text: string; action: string };
+const detectionStore = makeValueStore<VoiceDetection | null>(null);
+/** The last word Vosk finalized, and what the app did about it (triggered a
+ *  signal, waited for a command, ignored it, or didn't recognize it). */
+export const publishVoiceDetection = detectionStore.publish;
+export const useVoiceDetection = detectionStore.useValue;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { Logo } from "./ui/Logo";
 import { Icon } from "./ui/Icon";
+import { useVoiceListening } from "../lib/voiceActivity";
 
 const menuItemStyle: CSSProperties = {
   width: "100%",
@@ -24,6 +25,9 @@ export function AccountBar() {
   const label = profile?.display_name ?? (isGuest ? "Guest" : "Rider");
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  // App-wide: voice commands run globally (not just on the Ride screen), so
+  // "is it actually listening right now" needs to be visible from anywhere.
+  const voiceListening = useVoiceListening();
 
   // Close the menu on an outside click or Escape.
   useEffect(() => {
@@ -51,7 +55,29 @@ export function AccountBar() {
     >
       <Logo size={28} />
 
-      <div ref={rootRef} style={{ position: "relative" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+        {voiceListening && (
+          <span
+            role="status"
+            aria-label="Voice commands listening"
+            title="Voice commands listening"
+            className="mic-listening"
+            style={{
+              width: 28,
+              height: 28,
+              flex: "none",
+              borderRadius: "var(--radius-full)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "var(--color-surface-3)",
+              color: "var(--color-accent)",
+            }}
+          >
+            <Icon name="signal" size={16} />
+          </span>
+        )}
+        <div ref={rootRef} style={{ position: "relative" }}>
         <button
           type="button"
           aria-label={`Account: ${label}`}
@@ -137,6 +163,7 @@ export function AccountBar() {
             </button>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

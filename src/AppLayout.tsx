@@ -85,15 +85,22 @@ export function AppLayout() {
   const [voiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
   const [voiceOnboardingSeen, setVoiceOnboardingSeen] = usePersistedToggle(VOICE_ONBOARDING_KEY, false);
   const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
+  const voiceFeedbackTimer = useRef<number | null>(null);
 
+  // Two-stage feedback for commands: "Sync heard" fires the instant the wake
+  // word is recognized, then gets replaced by the actual outcome once the
+  // (async) signal send resolves — so there's never a silent gap between
+  // saying "sync" and seeing *something* happen on screen.
   function showVoiceFeedback(message: string) {
+    if (voiceFeedbackTimer.current != null) window.clearTimeout(voiceFeedbackTimer.current);
     setVoiceFeedback(message);
-    window.setTimeout(() => setVoiceFeedback(null), FEEDBACK_MS);
+    voiceFeedbackTimer.current = window.setTimeout(() => setVoiceFeedback(null), FEEDBACK_MS);
   }
 
   function handleVoiceCommand(kind: SignalKind) {
     publishVoiceHeard();
     publishVoiceCommandFired();
+    showVoiceFeedback("Sync heard");
     if (!rideId || !userId) return;
     if (kind === "sos") {
       navigate("/sos");
@@ -123,6 +130,13 @@ export function AppLayout() {
   useEffect(() => {
     publishVoiceListening(voice.listening);
   }, [voice.listening]);
+
+  useEffect(
+    () => () => {
+      if (voiceFeedbackTimer.current != null) window.clearTimeout(voiceFeedbackTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     publishVoiceError(voice.error);

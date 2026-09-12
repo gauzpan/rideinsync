@@ -25,6 +25,9 @@ import {
   useVoiceError,
   publishSignalModalOpen,
   useVoiceCommandFiredListener,
+  useVoiceAudioLevel,
+  useVoicePartial,
+  useVoiceDetection,
 } from "../lib/voiceActivity";
 import { usePersistedToggle } from "../lib/preference";
 import { VOICE_COMMANDS_KEY, isVoiceCommandSupported } from "../lib/voiceCommands";
@@ -73,6 +76,8 @@ function describeVoiceError(code: string): string | null {
       return "Microphone access is blocked for this site.";
     case "audio-capture":
       return "No microphone was found.";
+    case "audio-suspended":
+      return "Voice commands are paused — turn the mic off and on to restart it.";
     default:
       return `Voice recognition error: ${code}.`;
   }
@@ -112,6 +117,23 @@ export function DemoControlsPage() {
   const voiceHeard = useVoiceHeardPulse();
   const micListening = useVoiceListening();
   const voiceRecognitionError = useVoiceError();
+  // Live diagnostics around the mic button: how loud the mic input currently
+  // is (moves even when nothing is recognized, so "is it picking up audio at
+  // all" is answerable at a glance), the in-progress transcript while
+  // speaking, and the last finalized word plus what the app did about it.
+  const audioLevel = useVoiceAudioLevel();
+  const partial = useVoicePartial();
+  const detection = useVoiceDetection();
+  const [showDetection, setShowDetection] = useState(false);
+  useEffect(() => {
+    if (!detection) {
+      setShowDetection(false);
+      return;
+    }
+    setShowDetection(true);
+    const timer = window.setTimeout(() => setShowDetection(false), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [detection]);
   useVoiceActivateListener(() => setSignalOpen(true));
   // Once the picker is open (voice or a manual tap), AppLayout's listener can
   // match a bare signal name with no wake word first — closing again here
@@ -133,6 +155,20 @@ export function DemoControlsPage() {
       (!isVoiceCommandSupported()
         ? "Voice commands aren't supported in this browser."
         : voiceRecognitionError && describeVoiceError(voiceRecognitionError));
+
+  // Live caption near the mic: the in-progress transcript while something is
+  // being said, otherwise the last finalized word and what the app did with
+  // it (fades after a few seconds via showDetection). Only shown once voice
+  // is actually on and the recognizer is running, and never alongside an
+  // error message (voiceMessage takes priority in that slot).
+  const micCaption =
+    voiceOn && micListening && !voiceMessage
+      ? partial
+        ? `Hearing "${partial}"`
+        : showDetection && detection
+          ? `"${detection.text}" — ${detection.action}`
+          : null
+      : null;
 
   async function handleMicToggle() {
     if (voiceOn) {
@@ -214,19 +250,35 @@ export function DemoControlsPage() {
               Sync heard
             </span>
           )}
-          <IconButton
-            name="mic"
-            size={44}
-            variant={voiceOn ? "accent" : "surface"}
-            onClick={() => void handleMicToggle()}
-            aria-label={voiceOn ? "Turn off RideInSync voice commands" : "Turn on RideInSync voice commands"}
-            aria-pressed={voiceOn}
-            className={voiceOn && micListening ? "mic-listening" : undefined}
-          />
+          {/* The ring's spread and opacity track live mic input level (via
+              color-mix on the accent token, not a hardcoded rgba) — separate
+              from the steady "mic-listening" pulse below, this is "is there
+              audio around right now" rather than "is the mic on". */}
+          <div
+            style={{
+              display: "inline-flex",
+              borderRadius: "var(--radius-full)",
+              boxShadow:
+                voiceOn && micListening
+                  ? `0 0 0 ${(4 + audioLevel * 10).toFixed(1)}px color-mix(in srgb, var(--color-accent) ${Math.round(8 + audioLevel * 30)}%, transparent)`
+                  : "none",
+              transition: "box-shadow 80ms linear",
+            }}
+          >
+            <IconButton
+              name="mic"
+              size={44}
+              variant={voiceOn ? "accent" : "surface"}
+              onClick={() => void handleMicToggle()}
+              aria-label={voiceOn ? "Turn off RideInSync voice commands" : "Turn on RideInSync voice commands"}
+              aria-pressed={voiceOn}
+              className={voiceOn && micListening ? "mic-listening" : undefined}
+            />
+          </div>
         </div>
       </div>
 
-      {voiceMessage && (
+      {(voiceMessage || micCaption) && (
         <div
           style={{
             position: "absolute",
@@ -241,14 +293,14 @@ export function DemoControlsPage() {
             style={{
               background: "var(--color-surface-1)",
               border: "1px solid var(--color-divider)",
-              color: "var(--color-text-secondary)",
+              color: voiceMessage ? "var(--color-text-secondary)" : "var(--color-text-primary)",
               padding: "6px 12px",
               borderRadius: "var(--radius-full)",
               fontSize: "var(--text-label)",
               textAlign: "right",
             }}
           >
-            {voiceMessage}
+            {voiceMessage ?? micCaption}
           </span>
         </div>
       )}
