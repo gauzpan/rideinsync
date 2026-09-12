@@ -181,24 +181,16 @@ export function CreateRidePage() {
               {error}
             </p>
           )}
-          {/* Dev fallback — bypasses the Google-only rule for testing without OAuth. */}
-          <button
-            type="button"
+          {/* Dev fallback — bypasses the Google-only rule for testing without OAuth.
+              Also the only viable leader path inside the WebView, since Google
+              blocks OAuth in embedded WebViews. */}
+          <Button
+            variant="secondary"
             onClick={() => setGuestLeaderOverride(true)}
-            style={{
-              display: "block",
-              marginTop: "var(--space-md)",
-              background: "none",
-              border: "none",
-              padding: 0,
-              color: "var(--color-text-tertiary)",
-              fontSize: "var(--text-caption)",
-              textDecoration: "underline",
-              cursor: "pointer",
-            }}
+            style={{ marginTop: "var(--space-sm)" }}
           >
-            Create as guest (dev only)
-          </button>
+            Create as guest (dev)
+          </Button>
         </Card>
       )}
 
