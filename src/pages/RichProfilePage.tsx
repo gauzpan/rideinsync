@@ -217,7 +217,7 @@ export function RichProfilePage() {
     }
   }
 
-  const initials = (user?.email ?? "R").slice(0, 1).toUpperCase();
+  const initials = (displayName || user?.email || "R").slice(0, 1).toUpperCase();
 
   return (
     <div>
