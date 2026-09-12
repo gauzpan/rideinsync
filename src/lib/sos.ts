@@ -12,6 +12,7 @@ import {
   demoStay,
   subscribe as subscribeDemo,
 } from "./sosDemo";
+import { triggerPushNotify } from "./pushNotifications";
 import type {
   SosAlert,
   SosAlertInsert,
@@ -119,6 +120,10 @@ export async function sendSos(rideId: string, userId: string): Promise<SendSosRe
   };
   const { error: eErr } = await supabase.from("ride_events").insert(eventRow);
   if (eErr) console.warn("[sos] event insert failed", eErr.message);
+
+  // Critical tier, per PRD/signals_haptics_plan.md §8: never throttled, fires
+  // regardless of the (best-effort) ride_events insert above.
+  triggerPushNotify(rideId, userId, "sos");
 
   console.info("[sos] alert sent", { alertId, rideId, hasLocation: Boolean(pos) });
   return { alertId, hasLocation: Boolean(pos) };

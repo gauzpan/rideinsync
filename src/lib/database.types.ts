@@ -26,6 +26,8 @@ export type SosKind = "manual" | "auto";
 export type AckState = "unseen" | "seen";
 export type PitstopKind = "planned" | "dynamic";
 export type ConsentPolicy = "tnc" | "privacy" | "medical" | "dpdp";
+export type Gender = "male" | "female" | "non_binary" | "prefer_not_to_say";
+export type AgeBand = "18_25" | "26_35" | "36_45" | "46_55" | "56_plus";
 
 // Helper: a table definition with Row / Insert / Update shapes.
 // `Relationships: []` is required by @supabase/supabase-js v2's generics — without
@@ -45,8 +47,28 @@ export interface Database {
   public: {
     Tables: {
       profiles: Table<
-        { id: string; display_name: string; phone: string | null; avatar_url: string | null; is_guest: boolean } & Timestamps,
-        { id: string; display_name?: string; phone?: string | null; avatar_url?: string | null; is_guest?: boolean }
+        {
+          id: string;
+          display_name: string;
+          first_name: string | null;
+          last_name: string | null;
+          gender: Gender | null;
+          age_band: AgeBand | null;
+          phone: string | null;
+          avatar_url: string | null;
+          is_guest: boolean;
+        } & Timestamps,
+        {
+          id: string;
+          display_name?: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          gender?: Gender | null;
+          age_band?: AgeBand | null;
+          phone?: string | null;
+          avatar_url?: string | null;
+          is_guest?: boolean;
+        }
       >;
       rides: Table<
         {
@@ -57,6 +79,7 @@ export interface Database {
           separation_distance_km: number; separation_time_seconds: number;
           default_location_visibility: Visibility; status: RideStatus;
           retention_until: string | null; is_demo: boolean; ended_at: string | null;
+          scheduled_start: string | null; scheduled_end: string | null;
           travel_mode: TravelMode;
         } & Timestamps,
         { code: string; name: string; leader_id: string; city?: string | null; start_point?: Json | null;
@@ -64,7 +87,7 @@ export interface Database {
           member_capacity?: number | null; fee_amount?: number | null; gps_interval_seconds?: number;
           separation_distance_km?: number; separation_time_seconds?: number;
           default_location_visibility?: Visibility; status?: RideStatus; retention_until?: string | null;
-          is_demo?: boolean }
+          is_demo?: boolean; scheduled_start?: string | null; scheduled_end?: string | null; }
       >;
       ride_members: Table<
         {
@@ -179,6 +202,11 @@ export interface Database {
         { id: number; user_id: string | null; name: string; props: Json | null; created_at: string },
         { user_id?: string | null; name: string; props?: Json | null }
       >;
+      // migration 0010_push_notifications.sql — hand-authored mirror; regenerate later.
+      push_subscriptions: Table<
+        { id: string; user_id: string; ride_id: string; endpoint: string; p256dh: string; auth: string; created_at: string },
+        { user_id: string; ride_id: string; endpoint: string; p256dh: string; auth: string }
+      >;
     };
     Views: Record<string, never>;
     Functions: {
@@ -194,6 +222,8 @@ export interface Database {
       // supabase/migrations/0007_ending.sql (Flow 6) — renumbered on merge; see below.
       close_ride: { Args: { p_ride_id: string }; Returns: undefined };
       reached_home: { Args: { p_ride_id: string }; Returns: undefined };
+      // supabase/migrations/0009_flow2_remove_member.sql
+      remove_ride_member: { Args: { p_ride_id: string; p_user_id: string }; Returns: undefined };
     };
     Enums: {
       member_role: MemberRole;

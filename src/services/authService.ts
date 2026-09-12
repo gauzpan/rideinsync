@@ -50,6 +50,25 @@ export async function completeOAuthFromUrl(url: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Sends a one-time passcode (OTP) via SMS to the specified phone number (E.164). */
+export async function sendPhoneOtp(phoneE164: string): Promise<void> {
+  const { error } = await supabase.auth.signInWithOtp({
+    phone: phoneE164,
+  });
+  if (error) throw error;
+}
+
+/** Verifies a phone SMS OTP. Returns the resulting session on success. */
+export async function verifyPhoneOtp(phoneE164: string, token: string): Promise<Session | null> {
+  const { data, error } = await supabase.auth.verifyOtp({
+    phone: phoneE164,
+    token,
+    type: "sms",
+  });
+  if (error) throw error;
+  return data.session;
+}
+
 /** Anonymous (guest) sign-in — resolves immediately with the new session. */
 export async function signInAsGuest() {
   const { data, error } = await supabase.auth.signInAnonymously();

@@ -14,11 +14,13 @@ import type { Profile } from "../lib/models";
 import {
   getSession,
   onAuthStateChange,
+  sendPhoneOtp,
   signInAsGuest,
   signInWithGoogle,
   signOut as signOutService,
   startAutoRefresh,
   stopAutoRefresh,
+  verifyPhoneOtp,
 } from "../services/authService";
 
 type AuthState = {
@@ -31,10 +33,13 @@ type AuthState = {
   isAuthenticated: boolean;
   isGuest: boolean;
   signInWithGoogle: () => Promise<void>;
+  sendPhoneOtp: (phoneE164: string) => Promise<void>;
+  verifyPhoneOtp: (phoneE164: string, token: string) => Promise<Session | null>;
   signInAsGuest: () => Promise<void>;
   /** Local-dev only: fake session so you can explore screens without a backend. */
   signInDev: () => void;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -42,8 +47,13 @@ const AuthContext = createContext<AuthState | null>(null);
 // Dev-only dummy auth (only ever active under `import.meta.env.DEV`, i.e.
 // `npm run dev` — never in a production build). Lets local development reach
 // the post-login screens without a real Supabase session.
+//
+// The id is a syntactically valid (but nonexistent) UUID, not a plain string
+// like "dev-user" — every `user_id`-keyed query in the app is UUID-typed, so
+// a non-UUID id 400s (invalid input syntax) instead of just returning an
+// empty result the way a real, ride-less user correctly would.
 const DEV_AUTH_KEY = "rideinsync:devAuth";
-const DEV_USER = { id: "dev-user", is_anonymous: true } as unknown as User;
+const DEV_USER = { id: "00000000-0000-0000-0000-0000000000d3", is_anonymous: true } as unknown as User;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
@@ -124,6 +134,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .maybeSingle();
         if (fetchToken.current !== token) return;
         if (data) {
+          if (!data.phone && session?.user?.phone) {
+            void supabase
+              .from("profiles")
+              .update({ phone: session.user.phone })
+              .eq("id", userId);
+            data.phone = session.user.phone;
+          }
           setProfile(data);
           return;
         }
@@ -131,6 +148,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, [session?.user?.id]);
+
+  const refreshProfile = async () => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    const { data } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+    if (data) {
+      setProfile(data);
+    }
+  };
 
   const value = useMemo<AuthState>(
     () => ({
@@ -141,6 +167,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: !!session || devAuthed,
       isGuest: !!session?.user?.is_anonymous || devAuthed,
       signInWithGoogle,
+      sendPhoneOtp,
+      verifyPhoneOtp,
       signInAsGuest: async () => {
         await signInAsGuest();
       },
@@ -162,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDevAuthed(false);
         if (session) await signOutService();
       },
+      refreshProfile,
     }),
     [loading, session, profile, devAuthed]
   );
