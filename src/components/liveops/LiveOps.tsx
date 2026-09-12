@@ -11,7 +11,9 @@ import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
 import { SIM_RIDER_NAMES } from "../../lib/demoRide";
 import { approveJoinRequest, buildJoinUrl } from "../../services/onboardingService";
+import { closeRide } from "../../lib/ending";
 import { useAuth } from "../../hooks/useAuth";
+import { useGeolocation } from "../../hooks/useGeolocation";
 import { supabase } from "../../lib/supabase";
 import type { Ride, RiderOnMap, GroupStatus } from "../../lib/models";
 import type { LatLng } from "../../lib/geo";
@@ -70,7 +72,10 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const simRef = useRef<RideSimulator | null>(null);
 
   const { user } = useAuth();
-  const { riders } = useRideChannel(ride.id);
+  const { riders, rideStatus } = useRideChannel(ride.id);
+  const [ending, setEnding] = useState(false);
+  const isLeader = user?.id === ride.leader_id;
+  const ended = rideStatus === "ended";
 
   // Geocode the form's start/destination labels → a driving route polyline.
   useEffect(() => {
@@ -136,6 +141,22 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
 
   useEffect(() => () => void simRef.current?.stop(), []);
 
+  // Push the current user's own GPS so their heading arrow (lead=red / you=green)
+  // appears and moves on the map. Foreground only; stops once the ride ends.
+  const { fix } = useGeolocation(!ended && !!user);
+  useEffect(() => {
+    if (!fix || !user) return;
+    void supabase.from("rider_positions").insert({
+      ride_id: ride.id,
+      user_id: user.id,
+      lat: fix.lat,
+      lng: fix.lng,
+      heading: fix.heading,
+      speed: fix.speed,
+      accuracy: fix.accuracy,
+    });
+  }, [fix, user, ride.id]);
+
   async function simulatePack() {
     if (route.length < 2) {
       setNote("Waiting for the route to resolve…");
@@ -156,6 +177,19 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     }
   }
 
+  async function endRide() {
+    setEnding(true);
+    setNote(null);
+    try {
+      await closeRide(ride.id); // leader-gated + idempotent server-side
+      await simRef.current?.stop();
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Couldn't end the ride.");
+    } finally {
+      setEnding(false);
+    }
+  }
+
   async function toggleQr() {
     if (!showQr && !qr) {
       try {
@@ -172,6 +206,14 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+      {ended && (
+        <Card style={{ borderLeft: "3px solid #FF453A" }}>
+          <strong style={{ color: "#FF453A" }}>Ride ended</strong>
+          <span style={{ color: "var(--color-text-secondary)", marginLeft: 8, fontSize: 13 }}>
+            The lead has ended this ride.
+          </span>
+        </Card>
+      )}
       <div
         style={{
           position: "relative",
@@ -259,6 +301,17 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             {ride.code}
           </div>
         </Card>
+      )}
+
+      {isLeader && !ended && (
+        <Button
+          fullWidth={false}
+          loading={ending}
+          onClick={() => void endRide()}
+          style={{ background: "#FF453A", color: "#fff", marginTop: "var(--space-xs)" }}
+        >
+          End ride
+        </Button>
       )}
     </div>
   );
