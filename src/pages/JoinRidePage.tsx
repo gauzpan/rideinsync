@@ -200,19 +200,19 @@ export function JoinRidePage() {
       if (mode === "pillion") {
         // Now a ride member, so the roster is readable under RLS — move to
         // picking which rider's bike they're on.
-        setJoinedRideId(joined.ride.id);
-        await loadEligibleRiders(joined.ride.id);
+        setJoinedRideId(joined.rideId);
+        await loadEligibleRiders(joined.rideId);
         setStep("linkRider");
         return;
       }
-      navigate(`/ride/${joined.ride.id}`);
+      navigate(`/ride/${joined.rideId}`);
       return;
     }
     // Non-demo ride: a `ride_join_requests` row was created, pending the
     // lead's approval — wait here rather than navigating to a ride-detail
     // fetch that RLS would block for a non-member. (A pillion whose join is
     // pending links their rider once approved, from ride detail.)
-    setPendingRideId(joined.ride.id);
+    setPendingRideId(joined.rideId);
     setRequestStatus("pending");
     setStep("pending");
   }

@@ -3,11 +3,21 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
 
+// The bundled Capacitor (Android) build must NOT ship a service worker: it
+// precaches the app inside the WebView and then serves stale JS across APK
+// updates. Disable the PWA/SW for `VITE_TARGET=capacitor` builds; keep it for
+// the web/iPhone-PWA build.
+const isCapacitor = process.env.VITE_TARGET === "capacitor";
+
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Bind on all interfaces (IPv4 0.0.0.0) so `adb reverse` (which forwards to
+  // 127.0.0.1) and physical devices on the LAN can reach the dev server.
+  server: { host: true },
   plugins: [
     react(),
     VitePWA({
+      disable: isCapacitor, // no service worker in the bundled APK (existing installs cleared on reinstall)
       registerType: "autoUpdate",
       manifest: {
         // id/start_url/scope make the app identity explicit so a TWA (Android

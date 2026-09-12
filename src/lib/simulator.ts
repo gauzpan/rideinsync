@@ -30,12 +30,25 @@ export class RideSimulator {
     private tickMs = 1500,
   ) {}
 
-  /** Create `names.length` sim riders, join them, and start moving. */
-  async start(names: string[]): Promise<void> {
+  /**
+   * Create `names.length` sim riders, join them, and start moving.
+   * On an `is_demo` ride the RPC auto-approves. On a real ride it only files a
+   * pending request, so pass `approve` (the leader approving via their session)
+   * to materialize membership before the rider starts pushing positions.
+   */
+  async start(
+    names: string[],
+    opts?: { approve?: (requestId: string) => Promise<void> },
+  ): Promise<void> {
     const riders = await Promise.all(
       names.map(async (name, i): Promise<SimRider> => {
         const guest = await makeGuestClient(name);
-        await guest.client.rpc("request_join_ride", { join_code: this.code });
+        const { data: requestId } = await guest.client.rpc("request_join_ride", {
+          join_code: this.code,
+        });
+        if (opts?.approve && typeof requestId === "string") {
+          await opts.approve(requestId);
+        }
         return {
           ...guest,
           name,

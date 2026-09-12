@@ -4,7 +4,9 @@ import { Link } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
+import { Geolocation } from "@capacitor/geolocation";
 import { Input } from "../components/ui/Input";
+import { PlaceInput } from "../components/ui/PlaceInput";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { Stepper } from "../components/ui/Stepper";
 import { useAuth } from "../hooks/useAuth";
@@ -90,7 +92,9 @@ export function CreateRidePage() {
 
   const [name, setName] = useState("");
   const [startLabel, setStartLabel] = useState("");
+  const [startPoint, setStartPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [destinationLabel, setDestinationLabel] = useState("");
+  const [destinationPoint, setDestinationPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [stops, setStops] = useState<DraftStop[]>([]);
   const [capacity, setCapacity] = useState(0); // 0 = no limit
   const [guidelines, setGuidelines] = useState("");
@@ -99,6 +103,27 @@ export function CreateRidePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [googlePending, setGooglePending] = useState(false);
+  const [locating, setLocating] = useState(false);
+
+  async function useCurrentLocation() {
+    setLocating(true);
+    setError(null);
+    try {
+      await Geolocation.requestPermissions();
+      const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+      setStartLabel("Current location");
+      setStartPoint({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't get your current location.");
+    } finally {
+      setLocating(false);
+    }
+  }
+  // Dev-only fallback: let a guest lead a ride so the form→tracker path is
+  // demoable before Google OAuth is configured. Coordinate with Mithul before
+  // this reaches main (the Google-only rule is a deliberate product decision).
+  const [guestLeaderOverride, setGuestLeaderOverride] = useState(false);
+  const showForm = !isGuest || guestLeaderOverride;
 
   function addStop() {
     setStops((s) => [...s, { key: stopKey++, label: "", kind: "fuel" }]);
@@ -133,7 +158,9 @@ export function CreateRidePage() {
         name,
         startLabel,
         destinationLabel,
-        stops: stops.map(({ label, kind }) => ({ label, kind })),
+        startPoint,
+        destinationPoint,
+        stops: stops.map(({ label, kind, lat, lng }) => ({ label, kind, lat, lng })),
         memberCapacity: capacity > 0 ? capacity : null,
         guidelines: guidelines || null,
         permits: permits || null,
@@ -162,7 +189,7 @@ export function CreateRidePage() {
         Create ride
       </h1>
 
-      {isGuest && (
+      {!showForm && (
         <Card padding="var(--space-lg)">
           <p style={{ margin: "0 0 var(--space-md)", color: "var(--color-text-secondary)" }}>
             Leading a ride needs a Google account, so riders are never following a ride owned by
@@ -176,26 +203,59 @@ export function CreateRidePage() {
               {error}
             </p>
           )}
+          {/* Dev fallback — bypasses the Google-only rule for testing without OAuth.
+              Also the only viable leader path inside the WebView, since Google
+              blocks OAuth in embedded WebViews. */}
+          <Button
+            variant="secondary"
+            onClick={() => setGuestLeaderOverride(true)}
+            style={{ marginTop: "var(--space-sm)" }}
+          >
+            Create as guest (dev)
+          </Button>
         </Card>
       )}
 
-      {!isGuest && (
+      {showForm && (
         <div>
           <Field label="Ride name">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Coastal loop" />
           </Field>
-          <Field label="Start point">
-            <Input
+          <Field label="Start point" hint="Search a place, or use your current location">
+            <PlaceInput
               value={startLabel}
-              onChange={(e) => setStartLabel(e.target.value)}
-              placeholder="e.g. City centre car park"
+              placeholder="Search start address…"
+              onChange={(v) => {
+                setStartLabel(v.label);
+                setStartPoint(v.lat != null && v.lng != null ? { lat: v.lat, lng: v.lng } : null);
+              }}
             />
+            <button
+              type="button"
+              onClick={() => void useCurrentLocation()}
+              disabled={locating}
+              style={{
+                marginTop: "var(--space-xs)",
+                background: "none",
+                border: "none",
+                padding: 0,
+                color: "var(--color-accent)",
+                fontSize: "var(--text-label)",
+                fontWeight: "var(--weight-semibold)" as unknown as number,
+                cursor: locating ? "default" : "pointer",
+              }}
+            >
+              {locating ? "Getting your location…" : "◎ Use my current location"}
+            </button>
           </Field>
-          <Field label="Destination">
-            <Input
+          <Field label="Destination" hint="Search a Google Maps place">
+            <PlaceInput
               value={destinationLabel}
-              onChange={(e) => setDestinationLabel(e.target.value)}
-              placeholder="e.g. Lighthouse point"
+              placeholder="Search destination address…"
+              onChange={(v) => {
+                setDestinationLabel(v.label);
+                setDestinationPoint(v.lat != null && v.lng != null ? { lat: v.lat, lng: v.lng } : null);
+              }}
             />
           </Field>
 
@@ -204,10 +264,16 @@ export function CreateRidePage() {
             <Card key={stop.key} padding="var(--space-md)" style={{ marginBottom: "var(--space-sm)" }}>
               <div style={{ display: "flex", gap: "var(--space-sm)", alignItems: "center" }}>
                 <div style={{ flex: 1 }}>
-                  <Input
+                  <PlaceInput
                     value={stop.label}
-                    onChange={(e) => updateStop(stop.key, { label: e.target.value })}
-                    placeholder="Stop name"
+                    placeholder="Search stop address…"
+                    onChange={(v) =>
+                      updateStop(stop.key, {
+                        label: v.label,
+                        lat: v.lat ?? null,
+                        lng: v.lng ?? null,
+                      })
+                    }
                   />
                 </div>
                 <IconButton name="x" size={40} onClick={() => removeStop(stop.key)} />
