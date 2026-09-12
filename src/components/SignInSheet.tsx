@@ -105,6 +105,12 @@ export function SignInSheet({ joinCode }: Props) {
     try {
       if (joinCode) stashPendingJoinCode(joinCode);
       await signInWithGoogle();
+      // Web: signInWithGoogle redirects and unloads this page, so this line
+      // never runs. If we do reach it — native handed off to the system
+      // browser, or the redirect silently didn't happen (misconfigured OAuth,
+      // embedded webview, blocked redirect) — clear the spinner so the button
+      // isn't stuck on "Loading" forever.
+      setPending(null);
     } catch (e) {
       setPending(null);
       setError(e instanceof Error ? e.message : "Couldn't start Google sign-in.");
