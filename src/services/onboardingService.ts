@@ -29,6 +29,9 @@ export type CreateRideInput = {
   name: string;
   startLabel: string;
   destinationLabel: string;
+  /** Exact coordinates when the label was picked via Places autocomplete. */
+  startPoint?: { lat: number; lng: number } | null;
+  destinationPoint?: { lat: number; lng: number } | null;
   stops: CreateRideStopInput[];
   /** null/omitted = no capacity limit set. */
   memberCapacity?: number | null;
@@ -68,8 +71,8 @@ export async function createRide(leaderId: string, input: CreateRideInput): Prom
   const base: Omit<RideInsert, "code"> = {
     name,
     leader_id: leaderId,
-    start_point: { label: startLabel },
-    destination: { label: destinationLabel },
+    start_point: { label: startLabel, ...(input.startPoint ?? {}) },
+    destination: { label: destinationLabel, ...(input.destinationPoint ?? {}) },
     guidelines: input.guidelines?.trim() || null,
     permits: input.permits?.trim() ? { note: input.permits.trim() } : null,
     member_capacity: input.memberCapacity ?? null,

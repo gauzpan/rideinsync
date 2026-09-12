@@ -29,6 +29,15 @@ function labelOf(pt: Ride["start_point"]): string | null {
   return pt && typeof pt === "object" && "label" in pt ? String((pt as { label?: unknown }).label ?? "") || null : null;
 }
 
+// Exact coordinates when the ride was created with a Places-picked address.
+function pointOf(pt: Ride["start_point"]): LatLng | null {
+  if (pt && typeof pt === "object") {
+    const o = pt as { lat?: unknown; lng?: unknown };
+    if (typeof o.lat === "number" && typeof o.lng === "number") return { lat: o.lat, lng: o.lng };
+  }
+  return null;
+}
+
 export function LiveOps({ ride }: { ride: Ride }) {
   if (!MAPS_KEY) {
     return (
@@ -73,7 +82,12 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
       });
 
     (async () => {
-      const [a, b] = await Promise.all([geocode(startLabel), geocode(destLabel)]);
+      // Prefer exact Places coordinates stored on the ride; geocode the label
+      // only as a fallback for rides created before address autocomplete.
+      const [a, b] = await Promise.all([
+        pointOf(ride.start_point) ?? geocode(startLabel),
+        pointOf(ride.destination) ?? geocode(destLabel),
+      ]);
       if (cancelled || !a || !b) return;
       const ds = new routesLib.DirectionsService();
       ds.route(

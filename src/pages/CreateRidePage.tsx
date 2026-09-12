@@ -5,6 +5,7 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
 import { Input } from "../components/ui/Input";
+import { PlaceInput } from "../components/ui/PlaceInput";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { Stepper } from "../components/ui/Stepper";
 import { useAuth } from "../hooks/useAuth";
@@ -90,7 +91,9 @@ export function CreateRidePage() {
 
   const [name, setName] = useState("");
   const [startLabel, setStartLabel] = useState("");
+  const [startPoint, setStartPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [destinationLabel, setDestinationLabel] = useState("");
+  const [destinationPoint, setDestinationPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [stops, setStops] = useState<DraftStop[]>([]);
   const [capacity, setCapacity] = useState(0); // 0 = no limit
   const [guidelines, setGuidelines] = useState("");
@@ -138,6 +141,8 @@ export function CreateRidePage() {
         name,
         startLabel,
         destinationLabel,
+        startPoint,
+        destinationPoint,
         stops: stops.map(({ label, kind }) => ({ label, kind })),
         memberCapacity: capacity > 0 ? capacity : null,
         guidelines: guidelines || null,
@@ -199,18 +204,24 @@ export function CreateRidePage() {
           <Field label="Ride name">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Coastal loop" />
           </Field>
-          <Field label="Start point">
-            <Input
+          <Field label="Start point" hint="Search a Google Maps place">
+            <PlaceInput
               value={startLabel}
-              onChange={(e) => setStartLabel(e.target.value)}
-              placeholder="e.g. City centre car park"
+              placeholder="Search start address…"
+              onChange={(v) => {
+                setStartLabel(v.label);
+                setStartPoint(v.lat != null && v.lng != null ? { lat: v.lat, lng: v.lng } : null);
+              }}
             />
           </Field>
-          <Field label="Destination">
-            <Input
+          <Field label="Destination" hint="Search a Google Maps place">
+            <PlaceInput
               value={destinationLabel}
-              onChange={(e) => setDestinationLabel(e.target.value)}
-              placeholder="e.g. Lighthouse point"
+              placeholder="Search destination address…"
+              onChange={(v) => {
+                setDestinationLabel(v.label);
+                setDestinationPoint(v.lat != null && v.lng != null ? { lat: v.lat, lng: v.lng } : null);
+              }}
             />
           </Field>
 
