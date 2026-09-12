@@ -99,6 +99,11 @@ export function CreateRidePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [googlePending, setGooglePending] = useState(false);
+  // Dev-only fallback: let a guest lead a ride so the form→tracker path is
+  // demoable before Google OAuth is configured. Coordinate with Mithul before
+  // this reaches main (the Google-only rule is a deliberate product decision).
+  const [guestLeaderOverride, setGuestLeaderOverride] = useState(false);
+  const showForm = !isGuest || guestLeaderOverride;
 
   function addStop() {
     setStops((s) => [...s, { key: stopKey++, label: "", kind: "fuel" }]);
@@ -162,7 +167,7 @@ export function CreateRidePage() {
         Create ride
       </h1>
 
-      {isGuest && (
+      {!showForm && (
         <Card padding="var(--space-lg)">
           <p style={{ margin: "0 0 var(--space-md)", color: "var(--color-text-secondary)" }}>
             Leading a ride needs a Google account, so riders are never following a ride owned by
@@ -176,10 +181,28 @@ export function CreateRidePage() {
               {error}
             </p>
           )}
+          {/* Dev fallback — bypasses the Google-only rule for testing without OAuth. */}
+          <button
+            type="button"
+            onClick={() => setGuestLeaderOverride(true)}
+            style={{
+              display: "block",
+              marginTop: "var(--space-md)",
+              background: "none",
+              border: "none",
+              padding: 0,
+              color: "var(--color-text-tertiary)",
+              fontSize: "var(--text-caption)",
+              textDecoration: "underline",
+              cursor: "pointer",
+            }}
+          >
+            Create as guest (dev only)
+          </button>
         </Card>
       )}
 
-      {!isGuest && (
+      {showForm && (
         <div>
           <Field label="Ride name">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Coastal loop" />
