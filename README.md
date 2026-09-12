@@ -19,6 +19,31 @@ npm run dev                  # http://localhost:5173
 
 `npm run build` type-checks and produces a production PWA build in `dist/`.
 
+## Testing on web vs Android
+
+The app ships as an Android APK (Capacitor), but it's the same web build underneath — use the browser for day-to-day iteration:
+
+```bash
+npm run dev   # http://localhost:5173
+```
+
+Open in Chrome and toggle the device toolbar (Cmd+Shift+M) for a phone-sized viewport. This covers most UI/logic work.
+
+**Doesn't work in plain browser dev** (Capacitor-native only):
+- `@capacitor/geolocation` — falls back to browser geolocation, different permission flow than Android.
+- `@capacitor/app` (deep links, back-button handling) — no-op in browser.
+- Other native Capacitor plugin APIs.
+
+**To test closer to actual APK behavior** without building an APK, run the Capacitor web layer in the Android emulator:
+
+```bash
+npm run build
+npx cap sync android
+npx cap open android   # opens Android Studio, run on emulator
+```
+
+With the emulator running, use `chrome://inspect` on your machine for remote DevTools debugging of native-bridge issues.
+
 ## Structure
 
 ```
