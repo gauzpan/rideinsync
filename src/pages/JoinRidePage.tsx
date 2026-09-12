@@ -171,6 +171,10 @@ export function JoinRidePage() {
   // asking for any profile fields, so a pillion never sees the vehicle field.
   function handleContinueFromPreview() {
     if (!preview) return;
+    if (preview.status === "cancelled") {
+      setError("This ride was cancelled by the leader.");
+      return;
+    }
     if (preview.alreadyMember) {
       navigate(`/ride/${preview.rideId}`);
       return;
@@ -418,67 +422,102 @@ export function JoinRidePage() {
       {scannerOpen && <QrScannerSheet onDecode={handleScanned} onClose={() => setScannerOpen(false)} />}
 
       {step === "preview" && preview && (
-        <div>
-          <Card padding="var(--space-lg)">
-            <h2
-              style={{
-                fontSize: "var(--text-h2)",
-                lineHeight: "var(--lh-h2)",
-                fontWeight: "var(--weight-semibold)",
-                margin: "0 0 var(--space-md)",
-              }}
+        preview.status === "cancelled" ? (
+          <div>
+            <Card padding="var(--space-lg)">
+              <h2
+                style={{
+                  fontSize: "var(--text-h2)",
+                  lineHeight: "var(--lh-h2)",
+                  fontWeight: "var(--weight-semibold)",
+                  margin: "0 0 var(--space-xs)",
+                }}
+              >
+                {preview.name}
+              </h2>
+              <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>
+                This ride was cancelled by the leader.
+              </p>
+            </Card>
+            <div style={{ marginTop: "var(--space-lg)" }}>
+              <Link
+                to="/"
+                style={{
+                  color: "var(--color-text-secondary)",
+                  fontSize: "var(--text-label)",
+                  textDecoration: "underline",
+                  display: "inline-block",
+                  minHeight: 56,
+                  lineHeight: "56px",
+                }}
+              >
+                ‹ Home
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <Card padding="var(--space-lg)">
+              <h2
+                style={{
+                  fontSize: "var(--text-h2)",
+                  lineHeight: "var(--lh-h2)",
+                  fontWeight: "var(--weight-semibold)",
+                  margin: "0 0 var(--space-md)",
+                }}
+              >
+                {preview.name}
+              </h2>
+              <SummaryRow label="Lead" value={preview.leaderName ?? "Unknown"} />
+              <SummaryRow
+                label="Route"
+                value={`${preview.startLabel ?? "—"} → ${preview.destinationLabel ?? "—"}`}
+              />
+              {preview.stopLabels.length > 0 && (
+                <SummaryRow label="Stops" value={preview.stopLabels.join(", ")} />
+              )}
+              {preview.scheduledStart && (
+                <SummaryRow
+                  label="Departure"
+                  value={formatScheduleDateTime(preview.scheduledStart)}
+                />
+              )}
+              {preview.scheduledEnd && (
+                <SummaryRow
+                  label="Expected end"
+                  value={formatScheduleDateTime(preview.scheduledEnd)}
+                />
+              )}
+              <SummaryRow label="Status" value={preview.status === "draft" ? "Not started yet" : "Active"} />
+              <SummaryRow
+                label="Capacity"
+                value={
+                  preview.memberCapacity
+                    ? `${preview.memberCount} / ${preview.memberCapacity} riders`
+                    : `${preview.memberCount} riders`
+                }
+              />
+              {preview.guidelines && <SummaryRow label="Guidelines" value={preview.guidelines} />}
+            </Card>
+
+            {preview.alreadyMember && (
+              <p style={{ color: "var(--color-text-secondary)", margin: "var(--space-md) 0" }}>
+                You're already in this ride.
+              </p>
+            )}
+
+            {error && (
+              <p style={{ color: "var(--color-role-sweep)", margin: "var(--space-md) 0 0" }}>{error}</p>
+            )}
+            <Button
+              style={{ marginTop: "var(--space-lg)" }}
+              onClick={handleContinueFromPreview}
+              loading={loading}
             >
-              {preview.name}
-            </h2>
-            <SummaryRow label="Lead" value={preview.leaderName ?? "Unknown"} />
-            <SummaryRow
-              label="Route"
-              value={`${preview.startLabel ?? "—"} → ${preview.destinationLabel ?? "—"}`}
-            />
-            {preview.stopLabels.length > 0 && (
-              <SummaryRow label="Stops" value={preview.stopLabels.join(", ")} />
-            )}
-            {preview.scheduledStart && (
-              <SummaryRow
-                label="Departure"
-                value={formatScheduleDateTime(preview.scheduledStart)}
-              />
-            )}
-            {preview.scheduledEnd && (
-              <SummaryRow
-                label="Expected end"
-                value={formatScheduleDateTime(preview.scheduledEnd)}
-              />
-            )}
-            <SummaryRow label="Status" value={preview.status === "draft" ? "Not started yet" : "Active"} />
-            <SummaryRow
-              label="Capacity"
-              value={
-                preview.memberCapacity
-                  ? `${preview.memberCount} / ${preview.memberCapacity} riders`
-                  : `${preview.memberCount} riders`
-              }
-            />
-            {preview.guidelines && <SummaryRow label="Guidelines" value={preview.guidelines} />}
-          </Card>
-
-          {preview.alreadyMember && (
-            <p style={{ color: "var(--color-text-secondary)", margin: "var(--space-md) 0" }}>
-              You're already in this ride.
-            </p>
-          )}
-
-          {error && (
-            <p style={{ color: "var(--color-role-sweep)", margin: "var(--space-md) 0 0" }}>{error}</p>
-          )}
-          <Button
-            style={{ marginTop: "var(--space-lg)" }}
-            onClick={handleContinueFromPreview}
-            loading={loading}
-          >
-            {preview.alreadyMember ? "Go to ride" : "Continue"}
-          </Button>
-        </div>
+              {preview.alreadyMember ? "Go to ride" : "Continue"}
+            </Button>
+          </div>
+        )
       )}
 
       {step === "mode" && preview && (

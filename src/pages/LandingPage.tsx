@@ -12,6 +12,7 @@ const STATUS_LABEL: Record<MyRideSummary["status"], string> = {
   draft: "Not started",
   active: "In progress",
   ended: "Ended",
+  cancelled: "Cancelled",
 };
 
 /** Where tapping a ride card should go: the leader of a still-draft ride

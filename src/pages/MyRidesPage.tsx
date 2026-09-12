@@ -32,12 +32,14 @@ function RideCard({
   section: "active" | "upcoming" | "past";
   onClick: () => void;
 }) {
+  const isCancelled = ride.status === "cancelled";
+
   return (
     <Card
       padding="var(--space-md)"
-      onClick={onClick}
+      onClick={isCancelled ? undefined : onClick}
       style={{
-        cursor: "pointer",
+        cursor: isCancelled ? "default" : "pointer",
         minHeight: 56,
         display: "flex",
         flexDirection: "column",
@@ -67,7 +69,25 @@ function RideCard({
           {ride.name}
         </span>
 
-        {ride.isPending ? (
+        {isCancelled ? (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              height: 22,
+              padding: "0 var(--space-xs)",
+              borderRadius: "var(--radius-full)",
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-secondary)",
+              fontSize: "var(--text-caption)",
+              lineHeight: 1,
+              fontWeight: "var(--weight-semibold)" as unknown as number,
+              flexShrink: 0,
+            }}
+          >
+            Cancelled
+          </span>
+        ) : ride.isPending ? (
           <span
             style={{
               display: "inline-flex",
@@ -161,10 +181,12 @@ function RideCard({
             color: "var(--color-text-tertiary)",
           }}
         >
-          {ride.endedAt
+          {isCancelled
+            ? "Cancelled"
+            : ride.endedAt
             ? `Ended ${formatScheduleDateTime(ride.endedAt)}`
             : "Ended"}
-          {ride.distanceKm != null && ` · ${ride.distanceKm} km`}
+          {!isCancelled && ride.distanceKm != null && ` · ${ride.distanceKm} km`}
           {ride.memberCount > 0 &&
             ` · ${ride.memberCount} ${
               ride.memberCount === 1 ? "rider" : "riders"

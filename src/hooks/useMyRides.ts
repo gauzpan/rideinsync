@@ -7,7 +7,7 @@ export type MyRideItem = {
   id: string;
   name: string;
   code: string;
-  status: "draft" | "active" | "ended";
+  status: "draft" | "active" | "ended" | "cancelled";
   role: MemberRole | "rider";
   startLabel: string | null;
   destinationLabel: string | null;
@@ -32,10 +32,13 @@ export type MyRidesData = {
 /** Resolves tap-through route based on ride status and user's role. */
 export function getRideRoute(ride: {
   id: string;
-  status: "draft" | "active" | "ended";
+  status: "draft" | "active" | "ended" | "cancelled";
   role?: string | null;
   isPending?: boolean;
 }): string {
+  if (ride.status === "cancelled") {
+    return "";
+  }
   if (ride.isPending) {
     return `/ride/${ride.id}`;
   }
@@ -132,7 +135,7 @@ export function useMyRides(): MyRidesData {
             .in("id", allRideIds)
         ),
         safe(() =>
-          supabase.from("ride_members").select("ride_id").in("id", allRideIds)
+          supabase.from("ride_members").select("ride_id").in("ride_id", allRideIds)
         ),
       ]);
 
@@ -177,7 +180,7 @@ export function useMyRides(): MyRidesData {
           id: r.id,
           name: r.name,
           code: r.code,
-          status: r.status as "draft" | "active" | "ended",
+          status: r.status as "draft" | "active" | "ended" | "cancelled",
           role,
           startLabel:
             (r.start_point as { label?: string } | null)?.label ?? null,
@@ -193,7 +196,7 @@ export function useMyRides(): MyRidesData {
 
         if (item.status === "active") {
           activeList.push(item);
-        } else if (item.status === "ended") {
+        } else if (item.status === "ended" || item.status === "cancelled") {
           pastList.push(item);
         } else {
           // draft status -> Upcoming section
@@ -201,15 +204,16 @@ export function useMyRides(): MyRidesData {
         }
       }
 
-      // Process pending join requests -> Upcoming section with isPending tag
+      // Process pending join requests -> Upcoming section (or Past if cancelled)
       for (const j of joinRequests) {
         if (roleByRideId.has(j.ride_id)) continue;
         const r = rideById.get(j.ride_id);
+        const itemStatus = (r?.status as "draft" | "active" | "ended" | "cancelled") ?? "draft";
         const item: MyRideItem = {
           id: j.ride_id,
           name: r?.name ?? "Requested ride",
           code: r?.code ?? "",
-          status: (r?.status as "draft" | "active" | "ended") ?? "draft",
+          status: itemStatus,
           role: "rider",
           startLabel: r
             ? (r.start_point as { label?: string } | null)?.label ?? null
@@ -224,7 +228,11 @@ export function useMyRides(): MyRidesData {
           memberCount: countByRideId.get(j.ride_id) ?? 0,
           isPending: true,
         };
-        upcomingList.push(item);
+        if (itemStatus === "cancelled") {
+          pastList.push(item);
+        } else {
+          upcomingList.push(item);
+        }
       }
 
       // Sort upcoming by scheduledStart ascending (earliest first)
@@ -237,12 +245,11 @@ export function useMyRides(): MyRidesData {
         return 0;
       });
 
-      // Sort past by endedAt descending (newest ended first)
+      // Sort past by endedAt / scheduledStart descending (newest first)
       pastList.sort((a, b) => {
-        if (a.endedAt && b.endedAt) {
-          return new Date(b.endedAt).getTime() - new Date(a.endedAt).getTime();
-        }
-        return 0;
+        const timeA = new Date(a.endedAt || a.scheduledStart || 0).getTime();
+        const timeB = new Date(b.endedAt || b.scheduledStart || 0).getTime();
+        return timeB - timeA;
       });
 
       const isEmpty =
