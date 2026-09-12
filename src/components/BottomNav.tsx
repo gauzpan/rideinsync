@@ -25,7 +25,13 @@ export function BottomNav({ onOpenMore, moreOpen }: Props) {
 
   const tabs: Tab[] = [
     { label: "Home", icon: "home", path: "/", match: (p) => p === "/" },
-    { label: "Ride", icon: "map", path: "/ride/demo", match: (p) => p.startsWith("/ride") },
+    {
+      label: "Ride",
+      icon: "map",
+      path: "/rides",
+      match: (p) =>
+        (p.startsWith("/rides") || p.startsWith("/ride/")) && !p.startsWith("/ride/demo"),
+    },
     { label: "Discover", icon: "compass", path: "/discover", match: (p) => p.startsWith("/discover") },
     { label: "More", icon: "more-horizontal", onSelect: onOpenMore },
   ];

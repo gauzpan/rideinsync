@@ -106,25 +106,13 @@ export function MoreSheet({ onClose }: Props) {
           className="more-sheet__row"
           onClick={() => {
             onClose();
-            navigate("/demo");
+            navigate("/ride/demo");
           }}
         >
           <span className="more-sheet__row-icon">
-            <Icon name="sliders" size={20} strokeWidth={1.75} />
+            <Icon name="navigation" size={20} strokeWidth={1.75} />
           </span>
-          <span style={{ flex: 1 }}>Demo controls</span>
-          <span
-            style={{
-              fontSize: "var(--text-caption)",
-              lineHeight: "var(--lh-caption)",
-              color: "var(--color-text-tertiary)",
-              background: "var(--color-surface-3)",
-              padding: "2px var(--space-xs)",
-              borderRadius: "var(--radius-full)",
-            }}
-          >
-            Dev
-          </span>
+          <span style={{ flex: 1 }}>Live tracking demo</span>
         </button>
 
         <hr className="more-sheet__divider" />
