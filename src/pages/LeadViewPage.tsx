@@ -110,6 +110,16 @@ export function LeadViewPage() {
     };
   }, [load]);
 
+  // ride_join_requests isn't in Realtime, so poll for new join requests (and
+  // roster changes as they're approved) while the lead has this screen open.
+  useEffect(() => {
+    if (!rideId) return;
+    const t = setInterval(() => {
+      void getPendingJoinRequests(rideId).then(setPending).catch(() => {});
+    }, 5000);
+    return () => clearInterval(t);
+  }, [rideId]);
+
   const self = detail?.roster.find((r) => r.member.user_id === user?.id);
   const isLead = self?.member.role === "leader" || self?.member.role === "co_leader";
   const capacity = detail?.ride.member_capacity ?? null;
