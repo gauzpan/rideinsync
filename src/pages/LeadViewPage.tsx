@@ -5,6 +5,7 @@ import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { useAuth } from "../hooks/useAuth";
+import { useNavigateOnRideEnd } from "../hooks/useNavigateOnRideEnd";
 import { LiveOps } from "../components/liveops/LiveOps";
 import type { MemberRole } from "../lib/models";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
@@ -84,6 +85,7 @@ function Avatar({ name, url }: { name: string; url: string | null }) {
 
 export function LeadViewPage() {
   const { rideId } = useParams<{ rideId: string }>();
+  useNavigateOnRideEnd(rideId);
   const { user } = useAuth();
 
   const [detail, setDetail] = useState<RideDetail | null>(null);

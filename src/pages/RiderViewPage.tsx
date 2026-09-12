@@ -4,6 +4,7 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Icon } from "../components/ui/Icon";
 import { useAuth } from "../hooks/useAuth";
+import { useNavigateOnRideEnd } from "../hooks/useNavigateOnRideEnd";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import {
   formatScheduleDateTime,
@@ -35,6 +36,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
 
 export function RiderViewPage() {
   const { rideId } = useParams<{ rideId: string }>();
+  useNavigateOnRideEnd(rideId);
   const { user } = useAuth();
   const navigate = useNavigate();
 
