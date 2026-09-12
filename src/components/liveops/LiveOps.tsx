@@ -49,6 +49,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const routesLib = useMapsLibrary("routes");
   const [route, setRoute] = useState<LatLng[]>([]);
   const [populating, setPopulating] = useState(false);
+  const [populated, setPopulated] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const simRef = useRef<RideSimulator | null>(null);
 
@@ -106,8 +107,10 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
       simRef.current = sim;
       // Real ride: the leader (current session) approves each sim's join request.
       await sim.start(SIM_RIDER_NAMES, { approve: (reqId) => approveJoinRequest(reqId) });
+      setPopulated(true);
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Couldn't add demo riders.");
+    } finally {
       setPopulating(false);
     }
   }
@@ -161,8 +164,14 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         </span>
       </div>
 
-      <Button variant="secondary" fullWidth={false} loading={populating} onClick={() => void simulatePack()}>
-        {populating ? "Riders joining…" : "Simulate pack (demo)"}
+      <Button
+        variant="secondary"
+        fullWidth={false}
+        loading={populating}
+        disabled={populated}
+        onClick={() => void simulatePack()}
+      >
+        {populated ? "Pack riding" : populating ? "Riders joining…" : "Simulate pack (demo)"}
       </Button>
       {note && <p style={{ color: "var(--color-role-sweep)", fontSize: 13, margin: 0 }}>{note}</p>}
     </div>
