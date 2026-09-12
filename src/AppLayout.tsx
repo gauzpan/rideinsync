@@ -19,7 +19,9 @@ import {
   publishVoiceCommandFired,
   useSignalModalOpen,
 } from "./lib/voiceActivity";
-import { SIGNAL_LABEL, sendRideSignal, type SignalKind } from "./lib/signals";
+import { SIGNAL_LABEL, SIGNAL_TIER, sendRideSignal, useRideSignalListener, type SignalKind } from "./lib/signals";
+import { playSignalTone } from "./lib/earcon";
+import { vibrateForTier } from "./lib/haptics";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
 const FEEDBACK_MS = 3_000;
@@ -64,6 +66,22 @@ export function AppLayout() {
   const visibleAlerts = alerts
     .map((a) => ({ alert: a, ...sosCardState(a, responsesByAlert[a.id] ?? []) }))
     .filter((x) => x.visible);
+
+  // In-app sound (§7d/§7e) for incoming SOS — Critical tier, 3 beeps. `alerts`
+  // already excludes the current user's own (useSosAlerts filters self out),
+  // so this only ever tones for someone *else's* SOS landing on this device.
+  // Tracked by id, not just "alerts.length > 0", so it fires once per alert
+  // rather than replaying every time this component re-renders.
+  const tonedAlertIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const a of alerts) {
+      if (!tonedAlertIds.current.has(a.id)) {
+        tonedAlertIds.current.add(a.id);
+        playSignalTone("critical");
+        vibrateForTier("critical");
+      }
+    }
+  }, [alerts]);
 
   function handleRespond(alertId: string) {
     if (!rideId || !userId) return;
@@ -119,6 +137,17 @@ export function AppLayout() {
   }
 
   const signalModalOpen = useSignalModalOpen();
+
+  // The receiving half of handleVoiceCommand/the Signal modal's sends: every
+  // other member with the app open sees a toast when someone raises hazard/
+  // regroup/pit-stop, the same way SOS alerts are global rather than scoped
+  // to the Ride tab. The sender is excluded server-round-trip-side (see
+  // useRideSignalListener) so they don't get a duplicate of their own toast.
+  useRideSignalListener(inApp ? rideId : null, userId, (kind) => {
+    playSignalTone(SIGNAL_TIER[kind]);
+    vibrateForTier(SIGNAL_TIER[kind]);
+    showVoiceFeedback(`${SIGNAL_LABEL[kind]} signalled`);
+  });
 
   const voice = useVoiceCommand({
     enabled: inApp && Boolean(rideId) && voiceOn,

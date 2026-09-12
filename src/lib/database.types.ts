@@ -179,6 +179,11 @@ export interface Database {
         { id: number; user_id: string | null; name: string; props: Json | null; created_at: string },
         { user_id?: string | null; name: string; props?: Json | null }
       >;
+      // migration 0010_push_notifications.sql — hand-authored mirror; regenerate later.
+      push_subscriptions: Table<
+        { id: string; user_id: string; ride_id: string; endpoint: string; p256dh: string; auth: string; created_at: string },
+        { user_id: string; ride_id: string; endpoint: string; p256dh: string; auth: string }
+      >;
     };
     Views: Record<string, never>;
     Functions: {

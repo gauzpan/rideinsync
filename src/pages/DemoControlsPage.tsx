@@ -31,6 +31,7 @@ import {
 } from "../lib/voiceActivity";
 import { usePersistedToggle } from "../lib/preference";
 import { VOICE_COMMANDS_KEY, isVoiceCommandSupported } from "../lib/voiceCommands";
+import { usePushNotifications } from "../lib/pushNotifications";
 import type { GroupStatus, RiderOnMap } from "../lib/models";
 import QRCode from "qrcode";
 
@@ -185,6 +186,17 @@ export function DemoControlsPage() {
     }
   }
 
+  // Notifications (Flow 4 first cut, PRD/signals_haptics_plan.md §7a): lets
+  // this device (the lead's) receive an OS-level push when someone else in
+  // the ride raises a signal or SOS, reaching it even backgrounded/locked
+  // (Android) — distinct from useRideSignalListener's in-app toast in
+  // AppLayout, which only fires while the app is open.
+  const push = usePushNotifications(demo?.rideId ?? null, demo?.leaderId ?? null);
+  async function handlePushToggle() {
+    if (push.subscribed) await push.disable();
+    else await push.enable();
+  }
+
   if (error) {
     return (
       <Card style={{ borderLeft: "3px solid var(--color-danger)" }}>
@@ -250,6 +262,25 @@ export function DemoControlsPage() {
               Sync heard
             </span>
           )}
+          {/* Per §10's "no silent degradation" principle: disabled rather
+              than hidden when unsupported (a plain Safari tab never gets
+              push regardless of permission), with the reason in the label
+              rather than the button just not responding. */}
+          <IconButton
+            name="bell"
+            size={44}
+            variant={push.subscribed ? "accent" : "surface"}
+            onClick={() => void handlePushToggle()}
+            disabled={!push.supported || push.loading}
+            aria-label={
+              !push.supported
+                ? "Notifications aren't supported in this browser"
+                : push.subscribed
+                  ? "Turn off notifications for this ride"
+                  : "Turn on notifications for this ride"
+            }
+            aria-pressed={push.subscribed}
+          />
           {/* The ring's spread and opacity track live mic input level (via
               color-mix on the accent token, not a hardcoded rgba) — separate
               from the steady "mic-listening" pulse below, this is "is there
@@ -278,7 +309,7 @@ export function DemoControlsPage() {
         </div>
       </div>
 
-      {(voiceMessage || micCaption) && (
+      {(voiceMessage || micCaption || push.error) && (
         <div
           style={{
             position: "absolute",
@@ -293,14 +324,14 @@ export function DemoControlsPage() {
             style={{
               background: "var(--color-surface-1)",
               border: "1px solid var(--color-divider)",
-              color: voiceMessage ? "var(--color-text-secondary)" : "var(--color-text-primary)",
+              color: voiceMessage || push.error ? "var(--color-text-secondary)" : "var(--color-text-primary)",
               padding: "6px 12px",
               borderRadius: "var(--radius-full)",
               fontSize: "var(--text-label)",
               textAlign: "right",
             }}
           >
-            {voiceMessage ?? micCaption}
+            {voiceMessage ?? micCaption ?? push.error}
           </span>
         </div>
       )}
