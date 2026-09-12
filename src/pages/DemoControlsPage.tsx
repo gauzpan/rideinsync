@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { IconButton } from "../components/ui/IconButton";
-import { Icon, type IconName } from "../components/ui/Icon";
+import { Icon } from "../components/ui/Icon";
 import { RoleBadge, toBadgeRole } from "../components/ui/RoleBadge";
 import { RideMap } from "../components/liveops/RideMap";
 import { useRideChannel } from "../hooks/useRideChannel";
@@ -17,6 +17,17 @@ import { ensureGuestSession } from "../lib/session";
 import { createDemoRide, DEMO_ROUTE, SIM_RIDER_NAMES } from "../lib/demoRide";
 import { RideSimulator } from "../lib/simulator";
 import { supabase } from "../lib/supabase";
+import { SIGNAL_LABEL, SIGNAL_TYPES, sendRideSignal, type SignalKind } from "../lib/signals";
+import {
+  useVoiceHeardPulse,
+  useVoiceActivateListener,
+  useVoiceListening,
+  useVoiceError,
+  publishSignalModalOpen,
+  useVoiceCommandFiredListener,
+} from "../lib/voiceActivity";
+import { usePersistedToggle } from "../lib/preference";
+import { VOICE_COMMANDS_KEY, isVoiceCommandSupported } from "../lib/voiceCommands";
 import type { GroupStatus, RiderOnMap } from "../lib/models";
 import QRCode from "qrcode";
 
@@ -48,6 +59,25 @@ const STATUS_COLOR: Record<GroupStatus, string> = {
   stale: "var(--color-text-tertiary)",
 };
 
+/** Web Speech API error codes, translated for someone who just said "sync"
+ *  and nothing happened. Null means "not worth showing" (expected/benign). */
+function describeVoiceError(code: string): string | null {
+  switch (code) {
+    case "no-speech":
+    case "aborted":
+      return null;
+    case "network":
+      return "Voice recognition needs a working internet connection.";
+    case "not-allowed":
+    case "service-not-allowed":
+      return "Microphone access is blocked for this site.";
+    case "audio-capture":
+      return "No microphone was found.";
+    default:
+      return `Voice recognition error: ${code}.`;
+  }
+}
+
 export function DemoControlsPage() {
   const [demo, setDemo] = useState<DemoState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +105,50 @@ export function DemoControlsPage() {
     return { total, inSync };
   }, [riders]);
 
+  // The wake-word listener runs globally (AppLayout), not here — this just
+  // reacts to it so the Ride screen shows its own "heard you" confirmation,
+  // pulses the mic while actually listening, and opens Signal on a bare
+  // "sync" with no signal name attached to it.
+  const voiceHeard = useVoiceHeardPulse();
+  const micListening = useVoiceListening();
+  const voiceRecognitionError = useVoiceError();
+  useVoiceActivateListener(() => setSignalOpen(true));
+  // Once the picker is open (voice or a manual tap), AppLayout's listener can
+  // match a bare signal name with no wake word first — closing again here
+  // once a spoken choice actually fires, matching what a tap+close would do.
+  useEffect(() => publishSignalModalOpen(signalOpen), [signalOpen]);
+  useEffect(() => () => publishSignalModalOpen(false), []);
+  useVoiceCommandFiredListener(() => setSignalOpen(false));
+
+  // Manual activation, right where it's used, instead of only via Profile.
+  const [voiceOn, setVoiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
+  const [micError, setMicError] = useState<string | null>(null);
+
+  // What to show under the mic button: a permission denial from the toggle
+  // itself takes priority, then "this browser can't do this at all", then
+  // whatever the live recognition session's last error was.
+  const voiceMessage = !voiceOn
+    ? null
+    : micError ??
+      (!isVoiceCommandSupported()
+        ? "Voice commands aren't supported in this browser."
+        : voiceRecognitionError && describeVoiceError(voiceRecognitionError));
+
+  async function handleMicToggle() {
+    if (voiceOn) {
+      setVoiceOn(false);
+      return;
+    }
+    setMicError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      setVoiceOn(true);
+    } catch {
+      setMicError("Microphone access was denied.");
+    }
+  }
+
   if (error) {
     return (
       <Card style={{ borderLeft: "3px solid var(--color-danger)" }}>
@@ -93,13 +167,19 @@ export function DemoControlsPage() {
         {demo ? <RideMap route={DEMO_ROUTE} riders={riders} /> : <Centered>Starting demo…</Centered>}
       </div>
 
-      {/* Top overlay — in-sync count. An active SOS shows via the app-wide
-          alert card (AppLayout), not a page-local banner. */}
+      {/* Top overlay — in-sync count, and a "Sync heard" badge while the wake
+          word was just heard (an active SOS shows via the app-wide alert card
+          in AppLayout instead of a page-local banner). */}
       <div
         style={{
           position: "absolute",
           left: "var(--gutter)",
+          right: "var(--gutter)",
           top: "calc(env(safe-area-inset-top) + var(--space-md))",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "var(--space-sm)",
         }}
       >
         <span
@@ -114,7 +194,64 @@ export function DemoControlsPage() {
         >
           {counts.inSync}/{counts.total} in sync
         </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+          {voiceHeard && (
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-xs)",
+                background: "var(--color-accent)",
+                color: "var(--color-text-on-accent)",
+                padding: "8px 14px",
+                borderRadius: "var(--radius-full)",
+                fontWeight: 600,
+                fontSize: 14,
+                boxShadow: "var(--glow-accent)",
+              }}
+            >
+              <Icon name="signal" size={16} />
+              Sync heard
+            </span>
+          )}
+          <IconButton
+            name="mic"
+            size={44}
+            variant={voiceOn ? "accent" : "surface"}
+            onClick={() => void handleMicToggle()}
+            aria-label={voiceOn ? "Turn off RideInSync voice commands" : "Turn on RideInSync voice commands"}
+            aria-pressed={voiceOn}
+            className={voiceOn && micListening ? "mic-listening" : undefined}
+          />
+        </div>
       </div>
+
+      {voiceMessage && (
+        <div
+          style={{
+            position: "absolute",
+            right: "var(--gutter)",
+            left: "var(--gutter)",
+            top: "calc(env(safe-area-inset-top) + var(--space-md) + 56px)",
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
+          <span
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-divider)",
+              color: "var(--color-text-secondary)",
+              padding: "6px 12px",
+              borderRadius: "var(--radius-full)",
+              fontSize: "var(--text-label)",
+              textAlign: "right",
+            }}
+          >
+            {voiceMessage}
+          </span>
+        </div>
+      )}
 
       {/* Bottom overlay — Details + Signal, clear of the TabBar */}
       <div
@@ -146,7 +283,12 @@ export function DemoControlsPage() {
         )}
       {signalOpen && demo &&
         createPortal(
-          <SignalModal rideId={demo.rideId} leaderId={demo.leaderId} onClose={() => setSignalOpen(false)} />,
+          <SignalModal
+            rideId={demo.rideId}
+            leaderId={demo.leaderId}
+            voiceOn={voiceOn}
+            onClose={() => setSignalOpen(false)}
+          />,
           document.body,
         )}
     </div>
@@ -264,21 +406,15 @@ function RideDetailsModal({
   );
 }
 
-type SignalKind = "sos" | "hazard" | "regroup" | "pitstop";
-const SIGNAL_TYPES: { kind: SignalKind; label: string; icon: IconName; color: string }[] = [
-  { kind: "sos", label: "SOS", icon: "signal", color: "var(--color-danger)" },
-  { kind: "hazard", label: "Hazard", icon: "hazard", color: "var(--color-role-sweep)" },
-  { kind: "regroup", label: "Regroup", icon: "users", color: "var(--color-accent)" },
-  { kind: "pitstop", label: "Pit stop", icon: "flag", color: "var(--color-role-member)" },
-];
-
 function SignalModal({
   rideId,
   leaderId,
+  voiceOn,
   onClose,
 }: {
   rideId: string;
   leaderId: string;
+  voiceOn: boolean;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
@@ -297,12 +433,7 @@ function SignalModal({
     setSending(kind);
     setSentKind(null);
     try {
-      await supabase.from("ride_events").insert({
-        ride_id: rideId,
-        user_id: leaderId,
-        type: kind,
-        payload: { note: `Lead signalled ${kind}` },
-      });
+      await sendRideSignal(rideId, leaderId, kind, `Lead signalled ${kind}`);
       setSentKind(kind);
     } finally {
       setSending(null);
@@ -311,8 +442,19 @@ function SignalModal({
 
   return (
     <CenterModal title="Signal" onClose={onClose}>
+      {voiceOn && (
+        <p
+          style={{
+            fontSize: "var(--text-caption)",
+            color: "var(--color-text-tertiary)",
+            margin: "0 0 var(--space-md)",
+          }}
+        >
+          Say a name below to send it hands-free.
+        </p>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--space-md)" }}>
-        {SIGNAL_TYPES.map(({ kind, label, icon, color }) => (
+        {SIGNAL_TYPES.map(({ kind, icon, color }) => (
           <button
             key={kind}
             type="button"
@@ -347,14 +489,14 @@ function SignalModal({
               <Icon name={icon} size={24} />
             </span>
             <span style={{ fontSize: "var(--text-label)", color: "var(--color-text-primary)", fontWeight: 600 }}>
-              {sending === kind ? "Sending…" : label}
+              {sending === kind ? "Sending…" : SIGNAL_LABEL[kind]}
             </span>
           </button>
         ))}
       </div>
       {sentKind && (
         <p style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)", textAlign: "center", margin: "var(--space-md) 0 0" }}>
-          {SIGNAL_TYPES.find((s) => s.kind === sentKind)?.label} sent
+          {SIGNAL_LABEL[sentKind]} sent
         </p>
       )}
     </CenterModal>

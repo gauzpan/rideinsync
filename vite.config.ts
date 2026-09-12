@@ -9,6 +9,14 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      workbox: {
+        // vosk-browser's WASM engine (~6MB) is dynamically imported only when
+        // voice commands are turned on (see lib/voiceCommands.ts) — precaching
+        // it here would force every install to download it up front, which
+        // defeats the point of lazy-loading it, on top of exceeding Workbox's
+        // default 2 MiB precache-entry limit outright.
+        globIgnores: ["**/vosk-*.js"],
+      },
       manifest: {
         // id/start_url/scope make the app identity explicit so a TWA (Android
         // APK) wrapper and the installed PWA resolve to the same app. See docs/ANDROID.md.

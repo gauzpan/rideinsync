@@ -39,8 +39,13 @@ const AuthContext = createContext<AuthState | null>(null);
 // Dev-only dummy auth (only ever active under `import.meta.env.DEV`, i.e.
 // `npm run dev` — never in a production build). Lets local development reach
 // the post-login screens without a real Supabase session.
+//
+// The id is a syntactically valid (but nonexistent) UUID, not a plain string
+// like "dev-user" — every `user_id`-keyed query in the app is UUID-typed, so
+// a non-UUID id 400s (invalid input syntax) instead of just returning an
+// empty result the way a real, ride-less user correctly would.
 const DEV_AUTH_KEY = "rideinsync:devAuth";
-const DEV_USER = { id: "dev-user", is_anonymous: true } as unknown as User;
+const DEV_USER = { id: "00000000-0000-0000-0000-0000000000d3", is_anonymous: true } as unknown as User;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);

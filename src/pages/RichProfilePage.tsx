@@ -3,7 +3,10 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
+import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { useAuth } from "../hooks/useAuth";
+import { usePersistedToggle } from "../lib/preference";
+import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
 import { pickDocumentFile, pickImageFile } from "../services/cameraService";
 import {
   getRichProfile,
@@ -69,6 +72,7 @@ function SectionCard({
  *  later from the Flow 2 dashboard. Each section saves independently. */
 export function RichProfilePage() {
   const { user } = useAuth();
+  const [voiceOn, setVoiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
   const [searchParams] = useSearchParams();
   const rideId = searchParams.get("rideId");
   const backTo = rideId ? `/ride/${rideId}` : "/menu";
@@ -194,7 +198,7 @@ export function RichProfilePage() {
         Complete your profile
       </h1>
       <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-lg)" }}>
-        All optional — skip anything you don't have handy now and finish it later. None of this
+        All optional, skip anything you don't have handy now and finish it later. None of this
         blocks you from joining or riding.
       </p>
 
@@ -235,6 +239,17 @@ export function RichProfilePage() {
             </div>
           </SectionCard>
 
+          <SectionCard
+            title="Voice commands"
+            hint={`Say "sync" followed by SOS, hazard, regroup, or pit stop to signal hands-free during an active ride.`}
+          >
+            <SegmentedControl
+              options={["On", "Off"]}
+              value={voiceOn ? "On" : "Off"}
+              onChange={(v) => setVoiceOn(v === "On")}
+            />
+          </SectionCard>
+
           <SectionCard title="Vehicle characteristics" hint="On top of the registration number you gave when joining.">
             <Field label="Make & model">
               <Input value={makeModel} onChange={(e) => setMakeModel(e.target.value)} placeholder="e.g. Royal Enfield Classic 350" />
@@ -252,7 +267,7 @@ export function RichProfilePage() {
             </Button>
           </SectionCard>
 
-          <SectionCard title="Medical profile" hint="Owner-only — never shown to the rest of the group.">
+          <SectionCard title="Medical profile" hint="Owner-only, never shown to the rest of the group.">
             <Field label="Blood type">
               <Input value={bloodType} onChange={(e) => setBloodType(e.target.value)} placeholder="e.g. O+" />
             </Field>
@@ -275,7 +290,7 @@ export function RichProfilePage() {
             </Button>
           </SectionCard>
 
-          <SectionCard title="Driving licence" hint="Owner-only — a photo or scan of your licence.">
+          <SectionCard title="Driving licence" hint="Owner-only, a photo or scan of your licence.">
             {profile?.licence && (
               <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-md)" }}>
                 Uploaded {new Date(profile.licence.uploaded_at).toLocaleDateString()}.

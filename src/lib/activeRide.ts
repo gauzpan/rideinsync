@@ -8,6 +8,8 @@ const DEMO_RIDE_ID = "00000000-0000-0000-0000-0000000000b1";
 
 export type ActiveRideState = { rideId: string | null; loading: boolean };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function useActiveRide(userId: string | null): ActiveRideState {
   const [state, setState] = useState<ActiveRideState>(
     DEMO ? { rideId: DEMO_RIDE_ID, loading: false } : { rideId: null, loading: true },
@@ -15,7 +17,11 @@ export function useActiveRide(userId: string | null): ActiveRideState {
 
   useEffect(() => {
     if (DEMO) return;
-    if (!userId) {
+    // `userId` is a real UUID for every real (including guest) session. The
+    // "Continue as developer" dev-only bypass uses the literal id "dev-user",
+    // which isn't one — querying with it 400s (invalid uuid syntax) instead
+    // of just resolving "not in a ride", which is the actual right answer.
+    if (!userId || !UUID_RE.test(userId)) {
       setState({ rideId: null, loading: false });
       return;
     }

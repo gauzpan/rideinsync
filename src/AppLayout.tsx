@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import { SignInSheet } from "./components/SignInSheet";
@@ -8,8 +8,22 @@ import { SosAlertCard } from "./components/SosAlertCard";
 import { consumePendingJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
 import { markReached, respondToSos, sosCardState, useSosAlerts, useSosResponses } from "./lib/sos";
+import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
+import { usePersistedToggle } from "./lib/preference";
+import { useVoiceCommand, VOICE_COMMANDS_KEY } from "./lib/voiceCommands";
+import {
+  publishVoiceHeard,
+  publishVoiceActivate,
+  publishVoiceListening,
+  publishVoiceError,
+  publishVoiceCommandFired,
+  useSignalModalOpen,
+} from "./lib/voiceActivity";
+import { SIGNAL_LABEL, sendRideSignal, type SignalKind } from "./lib/signals";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
+const FEEDBACK_MS = 3_000;
+const VOICE_ONBOARDING_KEY = "voice.onboarding.seen";
 
 export function AppLayout() {
   const { loading, isAuthenticated, user } = useAuth();
@@ -64,6 +78,56 @@ export function AppLayout() {
     });
   }
 
+  // "Sync, ___" wake word + signal command (toggled on Profile). Runs
+  // app-wide during an active ride so it works hands-free from any screen,
+  // not just the Ride tab. The wake word alone (no signal name) "activates"
+  // the app by bringing the live ride view to front.
+  const [voiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
+  const [voiceOnboardingSeen, setVoiceOnboardingSeen] = usePersistedToggle(VOICE_ONBOARDING_KEY, false);
+  const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
+
+  function showVoiceFeedback(message: string) {
+    setVoiceFeedback(message);
+    window.setTimeout(() => setVoiceFeedback(null), FEEDBACK_MS);
+  }
+
+  function handleVoiceCommand(kind: SignalKind) {
+    publishVoiceHeard();
+    publishVoiceCommandFired();
+    if (!rideId || !userId) return;
+    if (kind === "sos") {
+      navigate("/sos");
+      return;
+    }
+    void sendRideSignal(rideId, userId, kind, `Voice-signalled ${kind}`).then(() => {
+      showVoiceFeedback(`${SIGNAL_LABEL[kind]} signalled`);
+    });
+  }
+
+  function handleVoiceActivate() {
+    publishVoiceHeard();
+    publishVoiceActivate();
+    navigate("/ride/demo");
+    showVoiceFeedback("Sync activated");
+  }
+
+  const signalModalOpen = useSignalModalOpen();
+
+  const voice = useVoiceCommand({
+    enabled: inApp && Boolean(rideId) && voiceOn,
+    onCommand: handleVoiceCommand,
+    onActivate: handleVoiceActivate,
+    bareCommandsEnabled: signalModalOpen,
+  });
+
+  useEffect(() => {
+    publishVoiceListening(voice.listening);
+  }, [voice.listening]);
+
+  useEffect(() => {
+    publishVoiceError(voice.error);
+  }, [voice.error]);
+
   if (loading) {
     // Brief, unstyled beat while the initial session check resolves — avoids
     // flashing the landing/login for an already-authenticated user.
@@ -83,6 +147,11 @@ export function AppLayout() {
   if (!isAuthenticated && !onLanding) {
     if (joinCodeFromPath) return <SignInSheet joinCode={joinCodeFromPath} />;
     return <Navigate to="/" replace />;
+  }
+  // One-time, right after sign-in: ask for mic access up front so it's already
+  // granted by the time a rider wants hands-free voice commands mid-ride.
+  if (isAuthenticated && !voiceOnboardingSeen) {
+    return <VoicePermissionSheet onDone={() => setVoiceOnboardingSeen(true)} />;
   }
 
   return (
@@ -133,6 +202,34 @@ export function AppLayout() {
               onReached={handleReached}
             />
           ))}
+        </div>
+      )}
+
+      {voiceFeedback && (
+        <div
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: "calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-sm))",
+            zIndex: 42,
+            display: "flex",
+            justifyContent: "center",
+            pointerEvents: "none",
+          }}
+        >
+          <span
+            style={{
+              background: "var(--color-inverse-surface)",
+              color: "var(--color-text-on-inverse)",
+              padding: "8px 16px",
+              borderRadius: "var(--radius-full)",
+              fontSize: "var(--text-label)",
+              fontWeight: "var(--weight-semibold)" as unknown as number,
+            }}
+          >
+            {voiceFeedback}
+          </span>
         </div>
       )}
 
