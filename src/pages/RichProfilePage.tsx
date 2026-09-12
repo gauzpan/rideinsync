@@ -7,6 +7,7 @@ import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { useAuth } from "../hooks/useAuth";
 import { usePersistedToggle } from "../lib/preference";
 import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
+import { useInstallPrompt } from "../lib/installApp";
 import { pickDocumentFile, pickImageFile } from "../services/cameraService";
 import {
   getRichProfile,
@@ -73,6 +74,8 @@ function SectionCard({
 export function RichProfilePage() {
   const { user } = useAuth();
   const [voiceOn, setVoiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
+  const install = useInstallPrompt();
+  const [installing, setInstalling] = useState(false);
   const [searchParams] = useSearchParams();
   const rideId = searchParams.get("rideId");
   const backTo = rideId ? `/ride/${rideId}` : "/menu";
@@ -238,6 +241,36 @@ export function RichProfilePage() {
               </Button>
             </div>
           </SectionCard>
+
+          {install.platform === "installable" && (
+            <SectionCard
+              title="Install app"
+              hint="Add RideInSync to your home screen or desktop for faster access and full notification support, even when the browser tab is closed."
+            >
+              <Button
+                variant="secondary"
+                fullWidth={false}
+                loading={installing}
+                onClick={() => {
+                  setInstalling(true);
+                  void install.install().finally(() => setInstalling(false));
+                }}
+              >
+                Install app
+              </Button>
+            </SectionCard>
+          )}
+
+          {install.platform === "ios-manual" && (
+            <SectionCard
+              title="Install app"
+              hint="iOS doesn't support notifications in a browser tab — install to your home screen for alerts to reach you while riding."
+            >
+              <p style={{ color: "var(--color-text-secondary)", margin: 0, fontSize: "var(--text-body-size)" }}>
+                Tap the Share icon, then "Add to Home Screen".
+              </p>
+            </SectionCard>
+          )}
 
           <SectionCard
             title="Voice commands"
