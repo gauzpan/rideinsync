@@ -194,7 +194,6 @@ export function CreateRidePage() {
   const [capacity, setCapacity] = useState(0); // 0 = no limit
   const [guidelines, setGuidelines] = useState("");
   const [permits, setPermits] = useState("");
-  const [fee, setFee] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [googlePending, setGooglePending] = useState(false);
@@ -258,7 +257,6 @@ export function CreateRidePage() {
           (detail.ride.permits as { note?: string } | null)?.note ??
           (typeof detail.ride.permits === "string" ? detail.ride.permits : "");
         setPermits(permitNote);
-        setFee(detail.ride.fee_amount != null ? String(detail.ride.fee_amount) : "");
       })
       .catch((e) => {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : "Couldn't load ride.");
@@ -351,7 +349,6 @@ export function CreateRidePage() {
         memberCapacity: capacity > 0 ? capacity : null,
         guidelines: guidelines || null,
         permits: permits || null,
-        feeAmount: fee.trim() ? Number(fee) : null,
       };
 
       if (isEdit && rideId) {
@@ -488,15 +485,6 @@ export function CreateRidePage() {
           value={permits}
           onChange={(e) => setPermits(e.target.value)}
           placeholder="e.g. Forest entry permit required"
-        />
-      </Field>
-      <Field label="Fee">
-        <Input
-          type="number"
-          inputMode="decimal"
-          value={fee}
-          onChange={(e) => setFee(e.target.value)}
-          placeholder="0.00"
         />
       </Field>
 

@@ -68,7 +68,6 @@ export type CreateRideInput = {
   memberCapacity?: number | null;
   guidelines?: string | null;
   permits?: string | null;
-  feeAmount?: number | null;
 };
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I — easy to read aloud
@@ -162,7 +161,6 @@ export async function createRide(leaderId: string, input: CreateRideInput): Prom
     guidelines: input.guidelines?.trim() || null,
     permits: input.permits?.trim() ? { note: input.permits.trim() } : null,
     member_capacity: input.memberCapacity ?? null,
-    fee_amount: input.feeAmount ?? null,
     status: "draft",
   };
 
@@ -224,7 +222,7 @@ export type UpdateRideInput = CreateRideInput;
 
 /**
  * Updates a draft ride's details (name, start point, destination, stops, capacity,
- * guidelines, permits, fee).
+ * guidelines, permits).
  *
  * Guarded: only the ride's leader can update it, and only while the ride is still
  * in "draft" status. Join code, leader_id, status, members, and created_at remain untouched.
@@ -269,7 +267,6 @@ export async function updateRide(
     guidelines: string | null;
     permits: { note: string } | null;
     member_capacity: number | null;
-    fee_amount: number | null;
   } = {
     name,
     scheduled_start: input.scheduledStart,
@@ -279,7 +276,6 @@ export async function updateRide(
     guidelines: input.guidelines?.trim() || null,
     permits: input.permits?.trim() ? { note: input.permits.trim() } : null,
     member_capacity: input.memberCapacity ?? null,
-    fee_amount: input.feeAmount ?? null,
   };
 
   const { data: updatedRide, error: updateError } = await supabase
