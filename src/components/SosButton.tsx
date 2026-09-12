@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 type Props = {
@@ -39,6 +39,18 @@ export function SosButton({
 }: Props) {
   const navigate = useNavigate();
   const [showHint, setShowHint] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showHint) return;
+    function onOutside(event: PointerEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setShowHint(false);
+      }
+    }
+    document.addEventListener("pointerdown", onOutside);
+    return () => document.removeEventListener("pointerdown", onOutside);
+  }, [showHint]);
 
   function onPress() {
     if (disabled) {
@@ -55,6 +67,7 @@ export function SosButton({
 
   return (
     <div
+      ref={containerRef}
       style={{
         position: "fixed",
         right: "var(--gutter)",
