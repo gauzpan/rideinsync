@@ -18,6 +18,7 @@ export function useRideChannel(rideId: string | undefined) {
   const [positions, setPositions] = useState<PosMap>({});
   const [profiles, setProfiles] = useState<ProfileMap>({});
   const [events, setEvents] = useState<RideEvent[]>([]);
+  const [rideStatus, setRideStatus] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   // Re-derive freshness (stale detection) on a light heartbeat.
@@ -31,6 +32,14 @@ export function useRideChannel(rideId: string | undefined) {
     let cancelled = false;
 
     async function seed() {
+      supabase
+        .from("rides")
+        .select("status")
+        .eq("id", rideId!)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (!cancelled && data) setRideStatus(data.status);
+        });
       const [{ data: mem }, { data: pos }] = await Promise.all([
         supabase.from("ride_members").select("*").eq("ride_id", rideId!),
         supabase
@@ -95,6 +104,11 @@ export function useRideChannel(rideId: string | undefined) {
         { event: "INSERT", schema: "public", table: "ride_events", filter: `ride_id=eq.${rideId}` },
         (payload) => setEvents((prev) => [payload.new as RideEvent, ...prev].slice(0, 30)),
       )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "rides", filter: `id=eq.${rideId}` },
+        (payload) => setRideStatus((payload.new as { status?: string }).status ?? null),
+      )
       .subscribe();
 
     return () => {
@@ -142,5 +156,5 @@ export function useRideChannel(rideId: string | undefined) {
     });
   }, [members, positions, profiles, now]);
 
-  return { riders, events };
+  return { riders, events, rideStatus };
 }

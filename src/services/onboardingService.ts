@@ -23,12 +23,18 @@ export const STOP_KINDS: StopKind[] = ["fuel", "food", "rest", "scenic"];
 export type CreateRideStopInput = {
   label: string;
   kind: StopKind;
+  /** Exact coordinates when the stop was picked via Places autocomplete. */
+  lat?: number | null;
+  lng?: number | null;
 };
 
 export type CreateRideInput = {
   name: string;
   startLabel: string;
   destinationLabel: string;
+  /** Exact coordinates when the label was picked via Places autocomplete. */
+  startPoint?: { lat: number; lng: number } | null;
+  destinationPoint?: { lat: number; lng: number } | null;
   stops: CreateRideStopInput[];
   /** null/omitted = no capacity limit set. */
   memberCapacity?: number | null;
@@ -68,8 +74,8 @@ export async function createRide(leaderId: string, input: CreateRideInput): Prom
   const base: Omit<RideInsert, "code"> = {
     name,
     leader_id: leaderId,
-    start_point: { label: startLabel },
-    destination: { label: destinationLabel },
+    start_point: { label: startLabel, ...(input.startPoint ?? {}) },
+    destination: { label: destinationLabel, ...(input.destinationPoint ?? {}) },
     guidelines: input.guidelines?.trim() || null,
     permits: input.permits?.trim() ? { note: input.permits.trim() } : null,
     member_capacity: input.memberCapacity ?? null,
@@ -111,9 +117,11 @@ export async function createRide(leaderId: string, input: CreateRideInput): Prom
         ride_id: ride!.id,
         seq: idx + 1,
         name: stop.label.trim(),
-        // Text-label location, per docs/flow1-onboarding-spec.md — coordinates
-        // are backfilled by Flow 3's Google Maps integration.
-        location: { label: stop.label.trim() },
+        // Coordinates from Places autocomplete when available; label-only otherwise.
+        location: {
+          label: stop.label.trim(),
+          ...(stop.lat != null && stop.lng != null ? { lat: stop.lat, lng: stop.lng } : {}),
+        },
         kind: stop.kind,
       }))
     );
@@ -407,30 +415,29 @@ export async function submitMinimumProfile(userId: string, input: MinimumProfile
 export async function joinRideByCode(
   code: string,
   userId: string
-): Promise<{ ride: Ride; member: RideMember | null }> {
+): Promise<{ rideId: string; member: RideMember | null }> {
   const trimmed = code.trim();
   if (!trimmed) throw new Error("Enter a join code.");
 
   const { error: rpcError } = await supabase.rpc("request_join_ride", { join_code: trimmed });
   if (rpcError) throw rpcError;
 
-  const { data: ride, error: rideError } = await supabase
-    .from("rides")
-    .select("*")
-    .eq("code", trimmed.toUpperCase())
-    .maybeSingle();
-  if (rideError) throw rideError;
-  if (!ride) throw new Error("Couldn't load the ride after joining. Try again.");
+  // Get the ride id via the preview RPC (SECURITY DEFINER, readable by
+  // non-members). A still-pending (non-demo) rider is not yet a member, so the
+  // `rides` table is RLS-hidden from them — selecting it directly returns null
+  // and used to throw "Couldn't load the ride after joining".
+  const preview = await getRidePreview(trimmed);
+  if (!preview) throw new Error("Couldn't load the ride after joining. Try again.");
 
   const { data: member, error: memberError } = await supabase
     .from("ride_members")
     .select("*")
-    .eq("ride_id", ride.id)
+    .eq("ride_id", preview.rideId)
     .eq("user_id", userId)
     .maybeSingle();
   if (memberError) throw memberError;
 
-  return { ride, member };
+  return { rideId: preview.rideId, member: member ?? null };
 }
 
 /** Everything the ride-detail screen needs: the ride, its ordered stops, and

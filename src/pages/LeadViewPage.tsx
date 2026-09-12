@@ -4,6 +4,7 @@ import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { useAuth } from "../hooks/useAuth";
+import { LiveOps } from "../components/liveops/LiveOps";
 import type { MemberRole } from "../lib/models";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import {
@@ -108,6 +109,16 @@ export function LeadViewPage() {
       cancelled = true;
     };
   }, [load]);
+
+  // ride_join_requests isn't in Realtime, so poll for new join requests (and
+  // roster changes as they're approved) while the lead has this screen open.
+  useEffect(() => {
+    if (!rideId) return;
+    const t = setInterval(() => {
+      void getPendingJoinRequests(rideId).then(setPending).catch(() => {});
+    }, 5000);
+    return () => clearInterval(t);
+  }, [rideId]);
 
   const self = detail?.roster.find((r) => r.member.user_id === user?.id);
   const isLead = self?.member.role === "leader" || self?.member.role === "co_leader";
@@ -230,8 +241,12 @@ export function LeadViewPage() {
         )}
       </p>
 
+      {/* Flow 3 live tracker for this real ride — route geocoded from the
+          form's start/destination labels, real roster shown live. */}
+      <LiveOps ride={ride} />
+
       {actionError && (
-        <p style={{ color: "var(--color-role-sweep)", margin: "0 0 var(--space-md)" }}>{actionError}</p>
+        <p style={{ color: "var(--color-role-sweep)", margin: "var(--space-md) 0 var(--space-md)" }}>{actionError}</p>
       )}
 
       <SectionTitle>Join requests{pending.length > 0 ? ` (${pending.length})` : ""}</SectionTitle>

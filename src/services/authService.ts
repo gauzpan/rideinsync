@@ -2,17 +2,51 @@
 // components never call supabase.auth.* directly. Swap-point for a future
 // Capacitor auth plugin without touching call sites.
 import type { Session, User } from "@supabase/supabase-js";
+import { Capacitor } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
 import { supabase } from "../lib/supabase";
 
 export type AuthChangeHandler = (session: Session | null) => void;
 
-/** Starts (or continues) a Google OAuth sign-in. Redirects the browser away
- *  and back — the caller does not get a return value on this leg. */
+// Deep link the native OAuth flow returns to. Must be listed in the Supabase
+// project's Auth → URL Configuration → Redirect URLs, and registered as an
+// intent-filter scheme in android/app/src/main/AndroidManifest.xml.
+export const NATIVE_OAUTH_REDIRECT = "com.rideinsync.app://auth";
+
+/** Starts a Google OAuth sign-in.
+ *  - Native (Capacitor): opens the system browser (Google blocks OAuth in a
+ *    WebView) and returns to the app via the deep link, completed by
+ *    completeOAuthFromUrl().
+ *  - Web: normal in-page redirect. */
 export async function signInWithGoogle(redirectTo: string = window.location.href) {
+  if (Capacitor.isNativePlatform()) {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: NATIVE_OAUTH_REDIRECT, skipBrowserRedirect: true },
+    });
+    if (error) throw error;
+    if (data?.url) await Browser.open({ url: data.url });
+    return;
+  }
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: { redirectTo },
   });
+  if (error) throw error;
+}
+
+/** Completes native OAuth: exchanges the deep-link `?code=` for a session and
+ *  closes the in-app browser. Call from the App `appUrlOpen` listener. */
+export async function completeOAuthFromUrl(url: string): Promise<void> {
+  let code: string | null = null;
+  try {
+    code = new URL(url).searchParams.get("code");
+  } catch {
+    return;
+  }
+  if (!code) return;
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  void Browser.close().catch(() => {});
   if (error) throw error;
 }
 
