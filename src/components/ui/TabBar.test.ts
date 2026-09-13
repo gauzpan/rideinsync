@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { iconLayers, type IconName } from "./Icon";
 import { TAB_ICON_FILL } from "./TabBar";
 
-// The four glyphs the tab bar renders (Home / Ride / Discover / Profile).
-const NAV_ICONS: IconName[] = ["home", "map", "compass", "user"];
+// The glyphs the tab bar renders (Home / Ride / Groups / Discover / Profile).
+const NAV_ICONS: IconName[] = ["home", "map", "users", "compass", "user"];
 
 test("iconLayers without a fill returns the raw stroke paths (default unchanged)", () => {
   for (const name of NAV_ICONS) {

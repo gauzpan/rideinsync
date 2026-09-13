@@ -28,13 +28,6 @@ type Tab = {
 // light/dark, keeping upstream's inverse active treatment (never a lime fill).
 export const TAB_ICON_FILL = "color-mix(in srgb, currentColor 16%, transparent)";
 
-const TABS: Tab[] = [
-  { label: "Home", icon: "home", to: "/home", match: (p) => p === "/home" || p === "/menu" },
-  { label: "Ride", icon: "map", to: "/ride/demo", match: (p) => p.startsWith("/ride") },
-  { label: "Discover", icon: "compass", to: "/discover", match: (p) => p.startsWith("/discover") },
-  { label: "Profile", icon: "user", to: "/profile", match: (p) => p.startsWith("/profile") },
-];
-
 // The Ride tab opens the rider's current active ride when there is one;
 // otherwise it falls back to Home (the ride list), rather than a dead route.
 // `activeRideId` is threaded down from AppLayout's `useActiveRide`.
@@ -47,6 +40,7 @@ function buildTabs(activeRideId: string | null): Tab[] {
       to: activeRideId ? `/ride/${activeRideId}` : "/home",
       match: (p) => p.startsWith("/ride"),
     },
+    { label: "Groups", icon: "users", to: "/groups", match: (p) => p.startsWith("/groups") },
     { label: "Discover", icon: "compass", to: "/discover", match: (p) => p.startsWith("/discover") },
     { label: "Profile", icon: "user", to: "/profile", match: (p) => p.startsWith("/profile") },
   ];

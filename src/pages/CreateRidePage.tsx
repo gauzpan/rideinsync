@@ -257,7 +257,6 @@ useEffect(() => {
           (detail.ride.permits as { note?: string } | null)?.note ??
           (typeof detail.ride.permits === "string" ? detail.ride.permits : "");
         setPermits(permitNote);
-        setFee(detail.ride.fee_amount != null ? String(detail.ride.fee_amount) : "");
       })
       .catch((e) => {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : "Couldn't load ride.");
@@ -378,7 +377,6 @@ useEffect(() => {
     //     memberCapacity: capacity > 0 ? capacity : null,
     //     guidelines: guidelines || null,
     //     permits: permits || null,
-    //     feeAmount: fee.trim() ? Number(fee) : null,
     //   });
     //   navigate(`/ride/${ride.id}/invite`, { state: { ride } });
     // } catch (e) {
@@ -503,15 +501,6 @@ useEffect(() => {
           value={permits}
           onChange={(e) => setPermits(e.target.value)}
           placeholder="e.g. Forest entry permit required"
-        />
-      </Field>
-      <Field label="Fee">
-        <Input
-          type="number"
-          inputMode="decimal"
-          value={fee}
-          onChange={(e) => setFee(e.target.value)}
-          placeholder="0.00"
         />
       </Field>
 

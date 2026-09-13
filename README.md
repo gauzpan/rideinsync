@@ -41,6 +41,9 @@ src/
 | `/join`              | Join ride          |
 | `/ride/:rideId`      | Rider view         |
 | `/ride/:rideId/lead` | Lead / sweep view  |
+| `/groups`            | Groups (crews)     |
+| `/groups/new`        | Create-group wizard |
+| `/groups/:groupId`   | Group detail       |
 | `/demo`              | Demo controls      |
 
 Design system: `design/rideinsync-design-system.md`. Product scope: `PRD/PRD.md`.

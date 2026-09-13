@@ -11,6 +11,9 @@ import { RideSummaryPage } from "./pages/RideSummaryPage";
 import { DemoControlsPage } from "./pages/DemoControlsPage";
 import { RichProfilePage } from "./pages/RichProfilePage";
 import { DiscoverPage } from "./pages/DiscoverPage";
+import { GroupsPage } from "./pages/GroupsPage";
+import { CreateGroupPage } from "./pages/CreateGroupPage";
+import { GroupDetailPage } from "./pages/GroupDetailPage";
 import { SosPage } from "./pages/SosPage";
 import { RiderJoinPage } from "./pages/RiderJoinPage";
 
@@ -31,6 +34,9 @@ export const router = createBrowserRouter([
       { path: "join/:code", element: <JoinRidePage /> },
       { path: "ride/:rideId", element: <RiderViewPage /> },
       { path: "profile", element: <RichProfilePage /> },
+      { path: "groups", element: <GroupsPage /> },
+      { path: "groups/new", element: <CreateGroupPage /> },
+      { path: "groups/:groupId", element: <GroupDetailPage /> },
       { path: "discover", element: <DiscoverPage /> },
       { path: "ride/:rideId/lead", element: <LeadViewPage /> },
       { path: "ride/:rideId/summary", element: <RideSummaryPage /> },
