@@ -31,6 +31,7 @@ export type {
   Gender,
   AgeBand,
   FeedbackSentiment,
+  GroupMemberRole,
   Json,
 } from "./database.types";
 
@@ -63,6 +64,9 @@ export type SosResponse = Row<"sos_responses">;
 export type RideSummary = Row<"ride_summaries">;
 export type RideFeedback = Row<"ride_feedback">;
 export type PushSubscriptionRow = Row<"push_subscriptions">;
+export type RideGroup = Row<"ride_groups">;
+export type RideGroupMember = Row<"ride_group_members">;
+export type RideGroupMemberInsert = Insert<"ride_group_members">;
 
 // ---- Insert aliases for the tables branches write most -----------------------
 export type RideInsert = Insert<"rides">;

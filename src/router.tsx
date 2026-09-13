@@ -13,6 +13,11 @@ import { DemoControlsPage } from "./pages/DemoControlsPage";
 import { RichProfilePage } from "./pages/RichProfilePage";
 import { DiscoverPage } from "./pages/DiscoverPage";
 import { PickDetailPage } from "./pages/PickDetailPage";
+import { GroupsPage } from "./pages/GroupsPage";
+import { CreateGroupPage } from "./pages/CreateGroupPage";
+import { GroupDetailPage } from "./pages/GroupDetailPage";
+import { GroupInvitePage } from "./pages/GroupInvitePage";
+import { GroupJoinPage } from "./pages/GroupJoinPage";
 import { SosPage } from "./pages/SosPage";
 import { RiderJoinPage } from "./pages/RiderJoinPage";
 
@@ -40,6 +45,11 @@ export const router = createBrowserRouter([
       { path: "join/:code", element: <JoinRidePage /> },
       { path: "ride/:rideId", element: <RiderViewPage /> },
       { path: "profile", element: <RichProfilePage /> },
+      { path: "groups", element: <GroupsPage /> },
+      { path: "groups/new", element: <CreateGroupPage /> },
+      { path: "groups/join/:code", element: <GroupJoinPage /> },
+      { path: "groups/:groupId", element: <GroupDetailPage /> },
+      { path: "groups/:groupId/invite", element: <GroupInvitePage /> },
       { path: "discover", element: <DiscoverPage /> },
       { path: "discover/pick/:pickId", element: <PickDetailPage /> },
       { path: "ride/:rideId/lead", element: <LeadViewPage /> },

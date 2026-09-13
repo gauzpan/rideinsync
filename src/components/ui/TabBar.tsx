@@ -31,6 +31,9 @@ export const TAB_ICON_FILL = "color-mix(in srgb, currentColor 16%, transparent)"
 // otherwise it falls back to the Ride tab's own base page (RidesPage — active
 // + past rides, empty state when there's none), rather than a dead route.
 // `activeRideId` is threaded down from AppLayout's `useActiveRide`.
+// Profile moved to the AccountBar (top bar) menu — it's an identity
+// destination, not a primary nav tab, so this bar is now Home / Ride /
+// Groups / Discover, with Groups next to Discover.
 function buildTabs(activeRideId: string | null): Tab[] {
   return [
     { label: "Home", icon: "home", to: "/home", match: (p) => p === "/home" || p === "/menu" },
@@ -40,8 +43,8 @@ function buildTabs(activeRideId: string | null): Tab[] {
       to: activeRideId ? `/ride/${activeRideId}` : "/ride",
       match: (p) => p.startsWith("/ride"),
     },
+    { label: "Groups", icon: "users", to: "/groups", match: (p) => p.startsWith("/groups") },
     { label: "Discover", icon: "compass", to: "/discover", match: (p) => p.startsWith("/discover") },
-    { label: "Profile", icon: "user", to: "/profile", match: (p) => p.startsWith("/profile") },
   ];
 }
 

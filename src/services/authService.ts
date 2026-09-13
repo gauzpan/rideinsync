@@ -125,3 +125,26 @@ export function consumePendingJoinCode(): string | null {
     return null;
   }
 }
+
+const PENDING_GROUP_JOIN_CODE_KEY = "rideinsync:pendingGroupJoinCode";
+
+/** Same purpose as stashPendingJoinCode, for a /groups/join/:code deep link. */
+export function stashPendingGroupJoinCode(code: string): void {
+  try {
+    sessionStorage.setItem(PENDING_GROUP_JOIN_CODE_KEY, code);
+  } catch {
+    // sessionStorage unavailable (e.g. private-mode Safari) — the code can
+    // still survive via the redirect URL itself in the common case.
+  }
+}
+
+/** Same purpose as consumePendingJoinCode, for a /groups/join/:code deep link. */
+export function consumePendingGroupJoinCode(): string | null {
+  try {
+    const code = sessionStorage.getItem(PENDING_GROUP_JOIN_CODE_KEY);
+    if (code) sessionStorage.removeItem(PENDING_GROUP_JOIN_CODE_KEY);
+    return code;
+  } catch {
+    return null;
+  }
+}

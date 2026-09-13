@@ -3,12 +3,14 @@ import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 import { Mark } from "./ui/Logo";
 import { useAuth } from "../hooks/useAuth";
-import { stashPendingJoinCode } from "../services/authService";
+import { stashPendingJoinCode, stashPendingGroupJoinCode } from "../services/authService";
 
 type Props = {
   /** Set when the sign-in sheet is showing over a `/join/:code` deep link —
    *  stashed before a Google redirect so the join resumes on return. */
   joinCode?: string;
+  /** Same idea, for a `/groups/join/:code` group-invite deep link. */
+  groupJoinCode?: string;
 };
 type Step = "phone" | "otp";
 /**
@@ -17,7 +19,7 @@ type Step = "phone" | "otp";
  * true bottom sheet + backdrop) but keeps the sheet visual language — a
  * surface-1 card anchored to the bottom with pill actions.
  */
-export function SignInSheet({ joinCode }: Props) {
+export function SignInSheet({ joinCode, groupJoinCode }: Props) {
   const { signInWithGoogle, signInAsGuest } = useAuth();
   const [pending, setPending] = useState<"google" | "guest" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +31,7 @@ export function SignInSheet({ joinCode }: Props) {
       // Guest sign-in is in-page and needs no round-trip; only the Google
       // redirect can lose the join code, so only stash it here.
       if (joinCode) stashPendingJoinCode(joinCode);
+      if (groupJoinCode) stashPendingGroupJoinCode(groupJoinCode);
       await signInWithGoogle();
       // Web: signInWithGoogle redirects and unloads this page, so this line
       // never runs. If we do reach it — native handed off to the system
@@ -110,7 +113,9 @@ export function SignInSheet({ joinCode }: Props) {
         >
           {joinCode
             ? `Sign in to continue joining with code ${joinCode}. Guests can hop into a ride in seconds — leading a ride needs a Google account.`
-            : "Sign in to lead or join a ride. Guests can hop into a ride in seconds — leading a ride needs a Google account."}
+            : groupJoinCode
+              ? "Sign in to join this group. Guests can hop in in seconds — leading a group needs a Google account."
+              : "Sign in to lead or join a ride. Guests can hop into a ride in seconds — leading a ride needs a Google account."}
         </p>
       </div>
 

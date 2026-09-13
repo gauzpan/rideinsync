@@ -8,7 +8,7 @@ import { Loader } from "./components/ui/Loader";
 import { SosAlertCard } from "./components/SosAlertCard";
 import { SosButton, shouldShowSos } from "./components/SosButton";
 import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
-import { consumePendingJoinCode } from "./services/authService";
+import { consumePendingJoinCode, consumePendingGroupJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
 import { markReached, respondToSos, sosCardState, useSosAlerts, useSosResponses } from "./lib/sos";
 import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
@@ -27,6 +27,7 @@ import { playSignalTone } from "./lib/earcon";
 import { vibrateForTier } from "./lib/haptics";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
+const GROUP_JOIN_PATH_RE = /^\/groups\/join\/([^/]+)$/;
 const FEEDBACK_MS = 3_000;
 const VOICE_ONBOARDING_KEY = "voice.onboarding.seen";
 // Routes a signed-out visitor can browse so they can experience the app
@@ -57,17 +58,23 @@ export function AppLayout() {
   const resumedRef = useRef(false);
 
   const joinCodeFromPath = pathname.match(JOIN_PATH_RE)?.[1];
+  const groupJoinCodeFromPath = pathname.match(GROUP_JOIN_PATH_RE)?.[1];
 
   // Resume a join interrupted by the Google OAuth redirect: the code was
   // stashed (see authService) before leaving the app, and is restored here
-  // once auth resolves — the deep-link `/join/:code` route may not be where
-  // the OAuth provider actually landed us.
+  // once auth resolves — the deep-link `/join/:code` (or `/groups/join/:code`)
+  // route may not be where the OAuth provider actually landed us.
   useEffect(() => {
     if (!isAuthenticated || resumedRef.current) return;
     resumedRef.current = true;
     const pendingCode = consumePendingJoinCode();
     if (pendingCode && pendingCode !== joinCodeFromPath) {
       navigate(`/join/${pendingCode}`, { replace: true });
+      return;
+    }
+    const pendingGroupCode = consumePendingGroupJoinCode();
+    if (pendingGroupCode && pendingGroupCode !== groupJoinCodeFromPath) {
+      navigate(`/groups/join/${pendingGroupCode}`, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
@@ -224,6 +231,7 @@ export function AppLayout() {
   // making an account; everything else bounces to the landing to log in.
   if (!isAuthenticated && !PUBLIC_PATHS.has(pathname)) {
     if (joinCodeFromPath) return <SignInSheet joinCode={joinCodeFromPath} />;
+    if (groupJoinCodeFromPath) return <SignInSheet groupJoinCode={groupJoinCodeFromPath} />;
     return <Navigate to="/" replace />;
   }
   // One-time, right after sign-in: ask for mic access up front so it's already

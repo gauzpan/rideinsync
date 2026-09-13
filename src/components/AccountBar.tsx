@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Logo } from "./ui/Logo";
 import { Icon } from "./ui/Icon";
 import { useVoiceListening } from "../lib/voiceActivity";
 
 /** Top app bar: the RideInSync logo on the left, and a single account icon on
- *  the right. The icon's menu shows the rider's identity, with sign-out as
- *  its last item. */
+ *  the right. The icon's menu shows the rider's identity, a "Profile" item
+ *  (moved here from the tab bar — an identity destination, not primary nav),
+ *  and sign-out last. */
 export function AccountBar() {
   const { profile, isGuest, signOut } = useAuth();
+  const navigate = useNavigate();
   const label = profile?.display_name ?? (isGuest ? "Guest" : "Rider");
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -136,6 +139,42 @@ export function AccountBar() {
                 </span>
               )}
             </div>
+
+            <div
+              aria-hidden
+              style={{
+                height: 1,
+                margin: "var(--space-xs) 0",
+                background: "var(--color-divider)",
+              }}
+            />
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                navigate("/profile");
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-xs)",
+                width: "100%",
+                minHeight: 44,
+                padding: "var(--space-xs) var(--space-sm)",
+                border: "none",
+                borderRadius: "var(--radius-sm)",
+                background: "transparent",
+                color: "var(--color-text-primary)",
+                fontSize: "var(--text-body-size)",
+                textAlign: "left",
+                cursor: "pointer",
+              }}
+            >
+              <Icon name="user" size={18} />
+              Profile
+            </button>
 
             <div
               aria-hidden
