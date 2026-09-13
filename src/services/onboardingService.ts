@@ -4,8 +4,8 @@
 import { supabase } from "../lib/supabase";
 import { demoHomeData } from "../hooks/useHomeData";
 import type {
-  AgeBand,
   Document,
+  AgeBand,
   EmergencyContact,
   Gender,
   JoinRequestStatus,
@@ -18,7 +18,7 @@ import type {
   RideMember,
   RouteStop,
   Vehicle,
-  PlacePoint,
+  PlacePoint
 } from "../lib/models";
 
 import type { IconName } from "../components/ui/Icon";
@@ -43,9 +43,9 @@ export const STOP_ICONS: Record<StopKind, IconName> = {
   scenic: "scenic",
 };
 
+
 export type CreateRideStopInput = {
-  kind: StopKind;
-  label: string;
+    label: string;
   lat?: number;
   lng?: number;
   placeId?: string;
@@ -54,7 +54,7 @@ export type CreateRideStopInput = {
 
 export type CreateRideInput = {
   name: string;
-  /** Scheduled departure date-time (ISO string) */
+    /** Scheduled departure date-time (ISO string) */
   scheduledStart: string;
   /** Optional scheduled end date-time (ISO string | null) */
   scheduledEnd?: string | null;
@@ -64,12 +64,6 @@ export type CreateRideInput = {
   /** For backwards compatibility */
   startLabel?: string;
   destinationLabel?: string;
-  stops: CreateRideStopInput[];
-  /** null/omitted = no capacity limit set. */
-  memberCapacity?: number | null;
-  guidelines?: string | null;
-  permits?: string | null;
-  feeAmount?: number | null;
 };
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I — easy to read aloud
@@ -137,6 +131,7 @@ export function parseJsonPoint(json: unknown): PlacePoint | null {
   };
 }
 
+
 /**
  * Creates a route-based ride: the `rides` row (leader = `leaderId`, status
  * `draft`, a unique generated join code), the leader's own `ride_members`
@@ -149,7 +144,7 @@ export async function createRide(leaderId: string, input: CreateRideInput): Prom
   const startPt = extractPoint(input.start, input.startLabel);
   const destPt = extractPoint(input.destination, input.destinationLabel);
   if (!name) throw new Error("Ride name is required.");
-  if (!input.scheduledStart) throw new Error("Departure date and time is required.");
+    if (!input.scheduledStart) throw new Error("Departure date and time is required.");
   if (!startPt || !startPt.label) throw new Error("Start point is required.");
   if (!destPt || !destPt.label) throw new Error("Destination is required.");
 
@@ -210,7 +205,7 @@ export async function createRide(leaderId: string, input: CreateRideInput): Prom
       stops.map((stop, idx) => ({
         ride_id: ride!.id,
         seq: idx + 1,
-        name: stop.label,
+       name: stop.label,
         location: toLocationJson(stop),
         kind: stop.kind,
       }))
@@ -327,6 +322,7 @@ export async function updateRide(
   return updatedRide;
 }
 
+
 /** Fetches a ride by id — used by the invite screen on a hard refresh, when
  *  the freshly-created ride isn't available via router state. */
 export async function getRideById(rideId: string): Promise<Ride | null> {
@@ -375,6 +371,9 @@ export type RidePreview = {
   createdAt: string;
   scheduledStart: string | null;
   scheduledEnd: string | null;
+  //check btw both which is needed as same names  
+  scheduled_start: string | null;
+  scheduled_end: string | null;
   leaderName: string | null;
   startLabel: string | null;
   destinationLabel: string | null;
@@ -393,8 +392,6 @@ type RidePreviewJson = {
   status: Ride["status"];
   is_demo: boolean;
   created_at: string;
-  scheduled_start: string | null;
-  scheduled_end: string | null;
   leader_name: string | null;
   start_label: string | null;
   destination_label: string | null;
@@ -420,9 +417,9 @@ export async function getRidePreview(code: string): Promise<RidePreview | null> 
     name: j.name,
     status: j.status,
     isDemo: j.is_demo,
-    createdAt: j.created_at,
     scheduledStart: j.scheduled_start,
     scheduledEnd: j.scheduled_end,
+    createdAt: j.created_at,
     leaderName: j.leader_name,
     startLabel: j.start_label,
     destinationLabel: j.destination_label,
@@ -447,13 +444,14 @@ export function deriveDisplayName(firstName: string, lastName?: string | null): 
   return f;
 }
 
+
 /** The minimum rider profile fields gated at join time (per the spec's
- *  progressive-profiling decision): first name, one emergency contact,
+  *  progressive-profiling decision): first name, one emergency contact,
  *  vehicle registration number (last name optional). */
 export type MinimumProfileStatus = {
+  displayName: string;
   firstName: string;
   lastName: string;
-  displayName: string;
   hasEmergencyContact: boolean;
   emergencyContactName: string;
   emergencyContactPhone: string;
@@ -462,7 +460,7 @@ export type MinimumProfileStatus = {
   /** Whether the current consent version has already been granted — see
    *  `grantConsent`/`CONSENT_VERSION` below. */
   hasConsent: boolean;
-  /** True once all minimum fields are present (first name present, emergency contact, vehicle, consent). */
+/** True once all minimum fields are present (first name present, emergency contact, vehicle, consent). */
   isComplete: boolean;
 };
 
@@ -483,7 +481,6 @@ export async function getMinimumProfileStatus(userId: string): Promise<MinimumPr
   if (profileError) throw profileError;
   if (contactError) throw contactError;
   if (vehicleError) throw vehicleError;
-
   const firstName = profile?.first_name?.trim() ?? "";
   const lastName = profile?.last_name?.trim() ?? "";
   const displayName = profile?.display_name && profile.display_name !== "Rider" ? profile.display_name : "";
@@ -499,7 +496,7 @@ export async function getMinimumProfileStatus(userId: string): Promise<MinimumPr
     hasVehicle,
     vehiclePlate: vehicle?.plate ?? "",
     hasConsent,
-    isComplete: !!firstName && hasEmergencyContact && hasVehicle && hasConsent,
+    isComplete: !!firstName && hasEmergencyContact && hasVehicle && hasConsent, 
   };
 }
 
@@ -571,7 +568,7 @@ export async function leaveRide(rideId: string, userId: string): Promise<void> {
 }
 
 export type MinimumProfileInput = {
-  /** First/last name model (join-time flow). When present, display_name is
+    /** First/last name model (join-time flow). When present, display_name is
    *  derived as 'First L.' / 'First'. */
   firstName?: string;
   lastName?: string;
@@ -598,6 +595,7 @@ export async function submitMinimumProfile(userId: string, input: MinimumProfile
   const contactName = input.emergencyContactName.trim();
   const contactPhone = input.emergencyContactPhone.trim();
   const plate = input.vehiclePlate.trim();
+
 
   // Accept either name model: first/last (derive display_name) or a pre-derived
   // displayName. Only the fields the caller actually supplied are written.
@@ -703,7 +701,36 @@ export type RideDetail = {
   pillionLinks: PillionLink[];
 };
 
+/** Retries an idempotent read a few times on transient network failures
+ *  (dropped Wi-Fi, a flapping VPN/DNS, a tunnel crossing cells mid-ride), so a
+ *  single failed fetch doesn't dump the rider to "couldn't load the ride". Only
+ *  network-shaped failures are retried; a real query/RLS error rethrows at once. */
+async function withRetry<T>(run: () => Promise<T>, attempts = 3, delayMs = 600): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await run();
+    } catch (e) {
+      lastError = e;
+      const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
+      const transient =
+        msg.includes("fetch") ||
+        msg.includes("network") ||
+        msg.includes("timeout") ||
+        msg.includes("name_not_resolved") ||
+        msg.includes("failed to load");
+      if (!transient || i === attempts - 1) throw e;
+      await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw lastError;
+}
+
 export async function getRideDetail(rideId: string): Promise<RideDetail | null> {
+    return withRetry(() => getRideDetailOnce(rideId));
+}
+
+async function getRideDetailOnce(rideId: string): Promise<RideDetail | null> {
   const [
     { data: ride, error: rideError },
     { data: stops, error: stopsError },
@@ -874,6 +901,7 @@ export function formatScheduleRange(startIso?: string | null, endIso?: string | 
   return `${startStr} – ${endStr}`;
 }
 
+
 // ---------------------------------------------------------------------------
 // Ticket 05 — lead approval, roster & role assignment
 // ---------------------------------------------------------------------------
@@ -972,7 +1000,6 @@ export async function assignRideRole(rideId: string, userId: string, role: Assig
   });
   if (error) throw error;
 }
-
 /**
  * Leader removes another member from a draft ride via the `remove_ride_member` RPC.
  * Only the ride leader can perform this, only while the ride is in draft, and
@@ -985,6 +1012,7 @@ export async function removeMember(rideId: string, userId: string): Promise<void
   });
   if (error) throw error;
 }
+
 
 // ---------------------------------------------------------------------------
 // Ticket 06 — pillion join, linked to rider
@@ -1068,7 +1096,7 @@ export type MedicalProfileInput = {
 export type VehicleDetailsInput = {
   makeModel: string;
   color: string;
-  plate?: string;
+  plate: string;
 };
 
 export type PersonalDetailsInput = {
@@ -1183,7 +1211,7 @@ export async function submitMedicalProfile(userId: string, input: MedicalProfile
 export async function submitVehicleDetails(userId: string, input: VehicleDetailsInput): Promise<void> {
   const makeModel = input.makeModel.trim();
   const color = input.color.trim();
-  const plate = input.plate !== undefined ? input.plate.trim() : undefined;
+   const plate = input.plate !== undefined ? input.plate.trim() : undefined;
   if (!makeModel && !color && (plate === undefined || !plate)) return;
 
   const { data: existing, error: findError } = await supabase
@@ -1196,7 +1224,7 @@ export async function submitVehicleDetails(userId: string, input: VehicleDetails
   if (findError) throw findError;
 
   if (existing) {
-    const updatePayload: { make_model?: string; color?: string | null; plate?: string | null } = {};
+   const updatePayload: { make_model?: string; color?: string | null; plate?: string | null } = {};
     if (makeModel) updatePayload.make_model = makeModel;
     if (color !== undefined) updatePayload.color = color || null;
     if (plate !== undefined) updatePayload.plate = plate || null;

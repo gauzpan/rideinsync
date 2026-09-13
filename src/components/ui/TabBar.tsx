@@ -21,16 +21,28 @@ type Tab = {
   match: (pathname: string) => boolean;
 };
 
-const TABS: Tab[] = [
-  { label: "Home", icon: "home", to: "/home", match: (p) => p === "/home" || p === "/menu" },
-  { label: "Ride", icon: "map", to: "/ride/demo", match: (p) => p.startsWith("/ride") },
-  { label: "Discover", icon: "compass", to: "/discover", match: (p) => p.startsWith("/discover") },
-  { label: "Profile", icon: "user", to: "/profile", match: (p) => p.startsWith("/profile") },
-];
 
-export function TabBar() {
+// The Ride tab opens the rider's current active ride when there is one;
+// otherwise it falls back to Home (the ride list), rather than a dead route.
+// `activeRideId` is threaded down from AppLayout's `useActiveRide`.
+function buildTabs(activeRideId: string | null): Tab[] {
+  return [
+    { label: "Home", icon: "home", to: "/home", match: (p) => p === "/home" || p === "/menu" },
+    {
+      label: "Ride",
+      icon: "map",
+      to: activeRideId ? `/ride/${activeRideId}` : "/home",
+      match: (p) => p.startsWith("/ride"),
+    },
+    { label: "Discover", icon: "compass", to: "/discover", match: (p) => p.startsWith("/discover") },
+    { label: "Profile", icon: "user", to: "/profile", match: (p) => p.startsWith("/profile") },
+  ];
+}
+
+export function TabBar({ activeRideId = null }: { activeRideId?: string | null }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const TABS = buildTabs(activeRideId);
 
   const bar: CSSProperties = {
     position: "fixed",

@@ -94,7 +94,6 @@ export function LeadViewPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmingRemoveUserId, setConfirmingRemoveUserId] = useState<string | null>(null);
-
   const load = useCallback(async () => {
     if (!rideId) return;
     const [d, p] = await Promise.all([getRideDetail(rideId), getPendingJoinRequests(rideId)]);
@@ -319,14 +318,15 @@ export function LeadViewPage() {
       <SectionTitle>Roster</SectionTitle>
       {detail.roster.map(({ member, profile }) => {
         const canReassign = rosterExcludingLeader.some((r) => r.member.id === member.id);
+
         const canRemove =
           isLeader &&
           detail.ride.status === "draft" &&
           member.user_id !== detail.ride.leader_id &&
           member.role !== "leader";
+
         const currentLabel = ROLE_TO_LABEL[member.role] ?? "Rider";
         const isConfirmingRemove = confirmingRemoveUserId === member.user_id;
-
         return (
           <Card
             key={member.id}
@@ -366,7 +366,8 @@ export function LeadViewPage() {
                 style={busyId === member.user_id ? { opacity: 0.6, pointerEvents: "none" } : undefined}
               />
             )}
-            {canRemove && isConfirmingRemove ? (
+
+                        {canRemove && isConfirmingRemove ? (
               <div
                 style={{
                   marginTop: "var(--space-md)",

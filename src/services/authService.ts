@@ -50,25 +50,6 @@ export async function completeOAuthFromUrl(url: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Sends a one-time passcode (OTP) via SMS to the specified phone number (E.164). */
-export async function sendPhoneOtp(phoneE164: string): Promise<void> {
-  const { error } = await supabase.auth.signInWithOtp({
-    phone: phoneE164,
-  });
-  if (error) throw error;
-}
-
-/** Verifies a phone SMS OTP. Returns the resulting session on success. */
-export async function verifyPhoneOtp(phoneE164: string, token: string): Promise<Session | null> {
-  const { data, error } = await supabase.auth.verifyOtp({
-    phone: phoneE164,
-    token,
-    type: "sms",
-  });
-  if (error) throw error;
-  return data.session;
-}
-
 /** Anonymous (guest) sign-in — resolves immediately with the new session. */
 export async function signInAsGuest() {
   const { data, error } = await supabase.auth.signInAnonymously();
@@ -86,6 +67,23 @@ export async function getSession(): Promise<Session | null> {
   if (error) throw error;
   return data.session;
 }
+
+/** Foreground/background auto-refresh control. supabase-js keeps the access
+ *  token fresh on a JS interval, but a backgrounded Capacitor WebView (or a
+ *  hidden browser tab) suspends that interval — so after the app has been away
+ *  a while the stored token is already expired, and the first authenticated
+ *  query fails with PGRST303 (surfacing as a generic "couldn't load the
+ *  ride"). Restarting on resume runs an immediate refresh tick that renews an
+ *  expired token before any query runs, then revives the interval. Both calls
+ *  are safe to invoke repeatedly. */
+export function startAutoRefresh(): void {
+  void supabase.auth.startAutoRefresh();
+}
+
+export function stopAutoRefresh(): void {
+  void supabase.auth.stopAutoRefresh();
+}
+
 
 export function getUser(session: Session | null): User | null {
   return session?.user ?? null;

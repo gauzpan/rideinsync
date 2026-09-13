@@ -3,20 +3,20 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
-import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { Select, type SelectOption } from "../components/ui/Select";
+import type { AgeBand, Gender } from "../lib/models";
+import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { useAuth } from "../hooks/useAuth";
 import { usePersistedToggle } from "../lib/preference";
 import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
 import { useInstallPrompt } from "../lib/installApp";
-import type { AgeBand, Gender } from "../lib/models";
 import { pickDocumentFile, pickImageFile } from "../services/cameraService";
 import {
   getRichProfile,
   submitMedicalProfile,
   submitMinimumProfile,
-  submitPersonalDetails,
   submitVehicleDetails,
+  submitPersonalDetails,
   uploadAvatar,
   uploadDrivingLicence,
   type RichProfile,
@@ -296,9 +296,10 @@ export function RichProfilePage() {
   }
 
   const initials = (firstName.trim() || displayName || user?.email || "R").slice(0, 1).toUpperCase();
-
+  
   return (
     <div>
+      
       <h1
         style={{
           fontSize: "var(--text-h1)",
@@ -417,6 +418,9 @@ export function RichProfilePage() {
           </SectionCard>
 
           <SectionCard title="Your details" hint="Shown to the rest of your ride, and used to reach your emergency contact if needed.">
+            <Field label="Name">
+              <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
+            </Field>
             <Field label="Email address">
               <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-body-size)" }}>
                 {user?.email ?? "Not signed in with an email"}

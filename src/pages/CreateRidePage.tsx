@@ -8,13 +8,13 @@ import { Icon } from "../components/ui/Icon";
 import { IconButton } from "../components/ui/IconButton";
 import { Geolocation } from "@capacitor/geolocation";
 import { Input } from "../components/ui/Input";
+import { PlaceAutocomplete, type PlacePoint } from "../components/PlaceAutocomplete";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { Stepper } from "../components/ui/Stepper";
-import { PlaceAutocomplete, type PlacePoint } from "../components/PlaceAutocomplete";
 import { useAuth } from "../hooks/useAuth";
 import {
   createRide,
-  updateRide,
+    updateRide,
   getRideDetail,
   parseJsonPoint,
   STOP_KINDS,
@@ -65,17 +65,17 @@ function Field({
         }}
       >
         {label}
-        {required && (
-          <span
-            style={{
-              color: "var(--color-role-sweep)",
-              marginLeft: "var(--space-2xs)",
-            }}
-            aria-hidden="true"
-          >
-            *
-          </span>
-        )}
+          {required && (
+              <span
+                style={{
+                  color: "var(--color-role-sweep)",
+                  marginLeft: "var(--space-2xs)",
+                }}
+                aria-hidden="true"
+              >
+                *
+              </span>
+          )}
       </label>
       {children}
       {hint && (
@@ -177,17 +177,16 @@ function DateTimeInput({
   );
 }
 
+
 export function CreateRidePage() {
   const { rideId } = useParams<{ rideId: string }>();
   const isEdit = Boolean(rideId);
   const { user, isGuest, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
-
+  const [name, setName] = useState("");
   const [loadingRide, setLoadingRide] = useState(isEdit);
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [name, setName] = useState("");
-  const [departure, setDeparture] = useState("");
+    const [departure, setDeparture] = useState("");
   const [expectedEnd, setExpectedEnd] = useState("");
   const [startPoint, setStartPoint] = useState<PlacePoint | null>(null);
   const [destination, setDestination] = useState<PlacePoint | null>(null);
@@ -218,8 +217,8 @@ export function CreateRidePage() {
   // demoable before Google OAuth is configured. Coordinate with Mithul before
   // this reaches main (the Google-only rule is a deliberate product decision).
   const [guestLeaderOverride, setGuestLeaderOverride] = useState(false);
-
-  useEffect(() => {
+  // const showForm = !isGuest || guestLeaderOverride;
+useEffect(() => {
     if (!rideId) return;
     let cancelled = false;
     setLoadingRide(true);
@@ -274,7 +273,7 @@ export function CreateRidePage() {
   }, [rideId, user]);
 
   function addStop() {
-    setStops((s) => [...s, { key: stopKey++, kind: "fuel", point: null }]);
+    setStops((s) => [...s, { key: stopKey++, kind: "fuel", point: null }]);   
   }
   function updateStop(key: number, patch: Partial<DraftStop>) {
     setStops((s) => s.map((stop) => (stop.key === key ? { ...stop, ...patch } : stop)));
@@ -300,7 +299,7 @@ export function CreateRidePage() {
       setError("Ride name, start point and destination are required.");
       return;
     }
-    if (!departure) {
+        if (!departure) {
       setError("Departure date and time is required.");
       return;
     }
@@ -353,7 +352,7 @@ export function CreateRidePage() {
         guidelines: guidelines || null,
         permits: permits || null,
         feeAmount: fee.trim() ? Number(fee) : null,
-      };
+              };
 
       if (isEdit && rideId) {
         const updated = await updateRide(rideId, inputPayload, user.id);
@@ -363,14 +362,31 @@ export function CreateRidePage() {
         navigate(`/ride/${ride.id}/invite`, { state: { ride } });
       }
     } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : isEdit
+          setError(
+            e instanceof Error
+            ? e.message: isEdit
             ? "Couldn't update the ride. Try again."
             : "Couldn't create the ride. Try again."
-      );
-      setSubmitting(false);
+          );
+       setSubmitting(false);
+
+    //   const ride = await createRide(user.id, {
+    //     name,
+    //     startLabel,
+    //     destinationLabel,
+    //     startPoint,
+    //     destinationPoint,
+    //     stops: stops.map(({ label, kind, lat, lng }) => ({ label, kind, lat, lng })),
+    //     memberCapacity: capacity > 0 ? capacity : null,
+    //     guidelines: guidelines || null,
+    //     permits: permits || null,
+    //     feeAmount: fee.trim() ? Number(fee) : null,
+    //   });
+    //   navigate(`/ride/${ride.id}/invite`, { state: { ride } });
+    // } catch (e) {
+    //   setError(e instanceof Error ? e.message : "Couldn't create the ride. Try again.");
+    //   setSubmitting(false);
+    // }
     }
   }
 
@@ -568,7 +584,8 @@ export function CreateRidePage() {
       )}
 
       {((!isEdit && (!isGuest || guestLeaderOverride)) || (isEdit && !loadingRide && !loadError)) &&
-        (MAPS_KEY ? <APIProvider apiKey={MAPS_KEY}>{formBody}</APIProvider> : formBody)}
+        (MAPS_KEY ? <APIProvider apiKey={MAPS_KEY}>{formBody}</APIProvider> : formBody)
+      }
     </div>
   );
 }

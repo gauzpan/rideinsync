@@ -3,8 +3,8 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
-import { IconButton } from "../components/ui/IconButton";
 import { useAuth } from "../hooks/useAuth";
+import { IconButton } from "../components/ui/IconButton";
 import type { Ride } from "../lib/models";
 import { buildJoinUrl, getRideById } from "../services/onboardingService";
 import { generateQrDataUrl } from "../services/qrService";
@@ -16,9 +16,8 @@ export function RideInvitePage() {
   const { rideId } = useParams<{ rideId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user } = useAuth();
   const stateRide = (location.state as { ride?: Ride } | null)?.ride;
-
+  const { user } = useAuth();   
   const [ride, setRide] = useState<Ride | null>(stateRide ?? null);
   const [loading, setLoading] = useState(!stateRide);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -223,6 +222,7 @@ export function RideInvitePage() {
           Edit ride
         </Button>
       )}
+      
     </div>
   );
 }

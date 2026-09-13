@@ -3,9 +3,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
-import { Icon } from "../components/ui/Icon";
 import { useAuth } from "../hooks/useAuth";
+import { Icon } from "../components/ui/Icon";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
+import { LiveOps } from "../components/liveops/LiveOps";
 import {
   formatScheduleDateTime,
   getEligibleRidersForPillion,
@@ -181,7 +182,12 @@ export function RiderViewPage() {
         )}
       </p>
 
-      <Card padding="var(--space-lg)">
+    
+      {/* Flow 3 live map — riders see the same route + live pack as the lead
+          (lead-only controls stay hidden inside LiveOps). */}
+      <LiveOps ride={ride} />
+
+      <Card padding="var(--space-lg)" style={{ marginTop: "var(--space-lg)" }}>
         <p style={{ fontSize: "var(--text-label)", color: "var(--color-text-secondary)", margin: "0 0 var(--space-xs)" }}>
           Route
         </p>
@@ -246,7 +252,7 @@ export function RiderViewPage() {
           Timings
         </p>
         <p style={{ margin: 0 }}>
-          {ride.scheduled_start ? (
+                   {ride.scheduled_start ? (
             <>
               Departs {formatScheduleDateTime(ride.scheduled_start)}
               {ride.scheduled_end && ` · Expected end ${formatScheduleDateTime(ride.scheduled_end)}`}
@@ -266,6 +272,7 @@ export function RiderViewPage() {
         >
           Manage roster & requests
         </Button>
+        
       )}
       {(self?.member.role === "leader" || ride.leader_id === user?.id) && ride.status === "draft" && (
         <Button

@@ -27,9 +27,9 @@ export type {
   AckState,
   PitstopKind,
   ConsentPolicy,
+  TravelMode,
   Gender,
   AgeBand,
-  TravelMode,
   FeedbackSentiment,
   Json,
 } from "./database.types";
@@ -83,7 +83,6 @@ export type GeoPoint = {
   placeId?: string;
 };
 export type PlacePoint = GeoPoint;
-
 // ---- Composite view models (derived on the client, not tables) --------------
 
 /** Client-derived group status for the lead/sweep ops view (no backing table). */

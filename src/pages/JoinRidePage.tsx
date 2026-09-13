@@ -53,7 +53,7 @@ function Field({
         }}
       >
         {label}
-        {required && (
+                {required && (
           <span
             style={{
               color: "var(--color-role-sweep)",
@@ -66,7 +66,7 @@ function Field({
         )}
       </label>
       {children}
-      {error && (
+            {error && (
         <p
           style={{
             fontSize: "var(--text-caption)",
@@ -192,7 +192,7 @@ export function JoinRidePage() {
       const status = await getMinimumProfileStatus(user.id);
       setProfileStatus(status);
       setFirstName(status.firstName);
-      setLastName(status.lastName);
+      setLastName(status.lastName);      
       setContactName(status.emergencyContactName);
       setContactPhone(status.emergencyContactPhone);
       setVehiclePlate(status.vehiclePlate);
@@ -326,7 +326,7 @@ export function JoinRidePage() {
 
   const profileIncomplete =
     mode === "pillion"
-      ? !firstName.trim() || !contactName.trim() || !contactPhone.trim()
+           ? !firstName.trim() || !contactName.trim() || !contactPhone.trim()
       : !firstName.trim() || !contactName.trim() || !contactPhone.trim() || !vehiclePlate.trim();
 
   async function handleWithdraw() {
@@ -438,7 +438,7 @@ export function JoinRidePage() {
             {preview.stopLabels.length > 0 && (
               <SummaryRow label="Stops" value={preview.stopLabels.join(", ")} />
             )}
-            {preview.scheduledStart && (
+                        {preview.scheduledStart && (
               <SummaryRow
                 label="Departure"
                 value={formatScheduleDateTime(preview.scheduledStart)}
@@ -507,12 +507,12 @@ export function JoinRidePage() {
 
       {step === "profile" && (
         <div>
-          <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-sm)" }}>
+            <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-sm)" }}>
             {mode === "pillion"
               ? "Before you join as pillion, the group needs a name and an emergency contact."
               : "Before you join, the group needs a name, an emergency contact and your vehicle's registration number."}
           </p>
-          <p
+                    <p
             style={{
               fontSize: "var(--text-caption)",
               color: "var(--color-text-tertiary)",
@@ -550,8 +550,8 @@ export function JoinRidePage() {
               aria-required="true"
             />
           </Field>
-          <Field label="Emergency contact phone" required>
-            <Input
+          <Field label="Emergency contact phone" required>            
+          <Input
               type="tel"
               inputMode="tel"
               value={contactPhone}
@@ -598,6 +598,7 @@ export function JoinRidePage() {
               type="checkbox"
               checked={consentChecked}
               onChange={(e) => setConsentChecked(e.target.checked)}
+              aria-required="true"
               style={{
                 width: 20,
                 height: 20,
@@ -605,7 +606,6 @@ export function JoinRidePage() {
                 flexShrink: 0,
                 accentColor: "var(--color-accent)",
               }}
-              aria-required="true"
             />
             <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-body-size)" }}>
               I agree to RideInSync handling my data (including for emergencies) per its terms and
@@ -637,7 +637,7 @@ export function JoinRidePage() {
 
       {step === "linkRider" && (
         <div>
-          <p
+                  <p
             style={{
               fontSize: "var(--text-caption)",
               color: "var(--color-text-tertiary)",
