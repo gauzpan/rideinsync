@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { BackLink } from "../components/ui/BackLink";
 import { APIProvider } from "@vis.gl/react-google-maps";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -529,12 +530,9 @@ useEffect(() => {
 
   return (
     <div>
-      <Link
-        to={isEdit && rideId ? `/ride/${rideId}/invite` : "/"}
-        style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}
-      >
-        ‹ {isEdit ? "Back to invite" : "Home"}
-      </Link>
+      <BackLink to={isEdit && rideId ? `/ride/${rideId}/invite` : "/"}>
+        {isEdit ? "Back to invite" : "Home"}
+      </BackLink>
       <h1
         style={{
           fontSize: "var(--text-h1)",

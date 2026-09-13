@@ -16,11 +16,15 @@ export function Card({
   style,
   ...rest
 }: Props) {
+  const surface = elevated ? "var(--color-surface-1)" : "var(--color-surface-2)";
   const s: CSSProperties = {
-    background: elevated ? "var(--color-surface-1)" : "var(--color-surface-2)",
+    // grad-surface top-light layered over the existing surface colour.
+    background: `var(--grad-surface), ${surface}`,
     borderRadius: "var(--radius-lg)",
+    border: "1px solid rgba(255, 255, 255, 0.06)",
+    borderTop: "1px solid rgba(255, 255, 255, 0.12)",
     padding,
-    boxShadow: glow ? "var(--glow-accent)" : "var(--shadow-card)",
+    boxShadow: glow ? "var(--glow-accent), var(--shadow-raised)" : "var(--shadow-raised)",
     color: "var(--color-text-primary)",
     ...style,
   };

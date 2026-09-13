@@ -26,6 +26,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Page H1 titles are the brand voice — Roadspur Display. Pages set size/weight
+   via inline styles (var(--text-h1) etc.); only the family + tracking are set
+   here so a single rule covers every H1 without touching each page. Title case
+   is preserved (no text-transform). Inline font-family (e.g. the Landing hero)
+   still wins where a page sets it explicitly. */
+h1 {
+  font-family: var(--font-brand);
+  font-weight: 700;
+  letter-spacing: var(--font-brand-tracking, .01em);
+}
+
 a {
   color: var(--color-accent);
   text-decoration: none;
@@ -43,10 +54,83 @@ a {
   box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
+/* Home-only night-bike wallpaper image layer (see components/HomeWallpaper.tsx).
+   image-set() serves the 540px art to 1x screens and the 1080px art to 2x/retina;
+   the -webkit- form is kept first for the iOS-installed PWA (Safari). BASE is "/"
+   (manifest scope), so the public/ assets resolve at the site root. */
+.home-wallpaper__img {
+  background-position: center bottom;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-image: -webkit-image-set(
+    url("/wallpaper/home-bike@0.5.webp") 1x,
+    url("/wallpaper/home-bike.webp") 2x
+  );
+  background-image: image-set(
+    url("/wallpaper/home-bike@0.5.webp") 1x,
+    url("/wallpaper/home-bike.webp") 2x
+  );
+}
+
 /* Height of the fixed bottom TabBar (excludes the safe-area inset it adds as
    its own padding); the SOS footer and page padding offset above it. */
 :root {
   --tabbar-height: calc(var(--control-height) + 2 * var(--space-xs));
+
+  /* "Soft raised" depth (founder-approved), key-cap strength. Not neumorphic,
+     not glossy: a bright top-light inset, a thin dark under-lip inset, then the
+     load-bearing hard "0 3px 0" bottom edge that reads as the moulded side of
+     the cap, over a deep soft drop. The hard edge is coloured per variant so a
+     lime/red cap and its edge look like one moulded piece:
+       raised        — neutral black edge (secondary / card / back chip)
+       raised-accent — dark lime edge #7FA800 (derived from --color-accent-deep
+                       #A8E000, one stop darker) for the primary lime pill
+       raised-danger — dark red edge #9E1F17 (one stop below --color-danger-deep
+                       #C4271D) for the SOS button. */
+  --shadow-raised: inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.35), 0 3px 0 rgba(0, 0, 0, 0.55),
+    0 10px 22px rgba(0, 0, 0, 0.55);
+  --shadow-raised-accent: inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.35), 0 3px 0 #7FA800,
+    0 10px 22px rgba(0, 0, 0, 0.55);
+  --shadow-raised-danger: inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.35), 0 3px 0 #9E1F17,
+    0 10px 22px rgba(0, 0, 0, 0.55);
+  --shadow-pressed: inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 2px 4px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+  --grad-surface: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.02) 45%,
+    rgba(0, 0, 0, 0.18) 100%
+  );
+  --grad-accent: linear-gradient(
+    180deg,
+    var(--color-accent-bright) 0%,
+    var(--color-accent) 45%,
+    var(--color-accent-deep) 100%
+  );
+  --grad-danger: linear-gradient(
+    180deg,
+    #ff6a61 0%,
+    var(--color-danger) 45%,
+    var(--color-danger-deep) 100%
+  );
+  --shadow-nav: 0 -8px 24px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Press-in state for raised controls. Buttons set their raised box-shadow via
+   inline style, so the pressed shadow must win with !important; the translate is
+   transform-only (no layout shift). The 3px drop matches the 3px hard edge, so
+   the cap visibly sinks flush on tap. Applied by Button, SosButton, BackLink. */
+.ui-raised {
+  transition: transform 0.06s ease, box-shadow 0.06s ease;
+}
+.ui-raised:active {
+  transform: translateY(3px);
+  box-shadow: var(--shadow-pressed) !important;
 }
 
 /* Mic button while the "sync" wake-word listener is actively armed. */

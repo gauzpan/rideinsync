@@ -56,7 +56,11 @@ export function SignInSheet({ joinCode }: Props) {
         inset: 0,
         display: "flex",
         flexDirection: "column",
-        background: "var(--color-bg-base)",
+        // Transparent so the Home wallpaper (AppLayout, z0) shows behind the
+        // sign-in view on "/". On routes with no wallpaper the body's own
+        // --color-bg-base canvas shows through unchanged. Form controls keep
+        // their own opaque surface-1 card below, so legibility is unaffected.
+        background: "transparent",
         zIndex: 100,
       }}
     >

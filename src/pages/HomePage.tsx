@@ -164,7 +164,7 @@ function ActiveRideHero({ ride, onResume }: { ride: ActiveRide; onResume: () => 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-sm)" }}>
         <div>
           <Eyebrow>{isDraft ? "Not started yet" : "Active ride"}</Eyebrow>
-          <h2 style={{ margin: "var(--space-2xs) 0 0", fontSize: "var(--text-h2)", lineHeight: "var(--lh-h2)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
+          <h2 style={{ margin: "var(--space-2xs) 0 0", fontFamily: "var(--font-brand)", fontSize: "calc(var(--text-h2) + 2px)", lineHeight: "var(--lh-h2)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
             {ride.name}
           </h2>
         </div>

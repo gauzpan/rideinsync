@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-
+import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
@@ -357,7 +357,7 @@ export function JoinRidePage() {
 
   return (
     <div>
-      <Link
+      <BackLink
         to="/"
         onClick={(e) => {
           if (step === "linkRider") {
@@ -375,10 +375,9 @@ export function JoinRidePage() {
             setPreview(null);
           }
         }}
-        style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}
       >
-        ‹ {step === "code" || step === "pending" ? "Home" : "Back"}
-      </Link>
+        {step === "code" || step === "pending" ? "Home" : "Back"}
+      </BackLink>
       <h1
         style={{
           fontSize: "var(--text-h1)",

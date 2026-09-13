@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
@@ -210,9 +211,7 @@ export function LeadViewPage() {
   if (error || !detail) {
     return (
       <div>
-        <Link to="/" style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
-          ‹ Home
-        </Link>
+        <BackLink to="/">Home</BackLink>
         <Card padding="var(--space-lg)" style={{ marginTop: "var(--space-lg)" }}>
           <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>{error ?? "Ride not found."}</p>
         </Card>
@@ -223,9 +222,7 @@ export function LeadViewPage() {
   if (!isLead) {
     return (
       <div>
-        <Link to={`/ride/${rideId}`} style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
-          ‹ Ride detail
-        </Link>
+        <BackLink to={`/ride/${rideId}`}>Ride detail</BackLink>
         <Card padding="var(--space-lg)" style={{ marginTop: "var(--space-lg)" }}>
           <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>
             Only the lead or co-lead can manage the roster.
@@ -239,9 +236,7 @@ export function LeadViewPage() {
 
   return (
     <div>
-      <Link to={`/ride/${rideId}`} style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
-        ‹ Ride detail
-      </Link>
+      <BackLink to={`/ride/${rideId}`}>Ride detail</BackLink>
       <h1
         style={{
           fontSize: "var(--text-h1)",

@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { DEMO_RIDE_ID } from "../lib/activeRide";
 import { useAuth } from "./useAuth";
 import type { MemberRole } from "../lib/models";
+
+// Demo mode: no Supabase keys, lib/activeRide short-circuits to the seed ride so
+// the SOS button shows. Home must be self-consistent and render that same seed
+// ride (Nandi Hills Sunrise Run, DEMO01, seed.sql) as the active card rather
+// than hang querying an absent backend.
+const DEMO = import.meta.env.VITE_DEMO_SESSION === "1";
 
 // Data backing the post-login landing (/home). Queries are defensive: a missing
 // backend, a dev session, or empty tables all resolve to quiet empty state
@@ -47,21 +54,48 @@ export type HomeData = {
 
 const COMPLETENESS_TOTAL = 4; // avatar · vehicle · medical · driving licence
 
-export function useHomeData(): HomeData {
-  const { user, profile } = useAuth();
-  const [state, setState] = useState<HomeData>({
-    loading: true,
-    activeRide: null,
+/**
+ * The resolved-immediately Home state for demo mode: the seed ride (values from
+ * supabase/seed.sql) as the active ride, no history, demo stats. Exported as a
+ * pure seam so it can be asserted without a live backend or env override.
+ */
+export function demoHomeData(): HomeData {
+  return {
+    loading: false,
+    activeRide: {
+      id: DEMO_RIDE_ID,
+      name: "Nandi Hills Sunrise Run",
+      code: "DEMO01",
+      role: "leader",
+      riderCount: 4,
+    },
     completeness: { done: 0, total: COMPLETENESS_TOTAL },
     stats: DEMO_STATS,
     pastRides: [],
     isEmpty: false,
-  });
+  };
+}
+
+export function useHomeData(): HomeData {
+  const { user, profile } = useAuth();
+  const [state, setState] = useState<HomeData>(
+    DEMO
+      ? demoHomeData()
+      : {
+          loading: true,
+          activeRide: null,
+          completeness: { done: 0, total: COMPLETENESS_TOTAL },
+          stats: DEMO_STATS,
+          pastRides: [],
+          isEmpty: false,
+        },
+  );
 
   const userId = user?.id;
   const avatarDone = !!profile?.avatar_url;
 
   useEffect(() => {
+    if (DEMO) return; // demo state is resolved synchronously; never query
     if (!userId) return;
     let cancelled = false;
 
