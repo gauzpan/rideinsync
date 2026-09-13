@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
@@ -78,9 +79,7 @@ export function RideInvitePage() {
   if (loadError || !ride) {
     return (
       <div>
-        <Link to="/" style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
-          ‹ Home
-        </Link>
+        <BackLink to="/">Home</BackLink>
         <Card padding="var(--space-lg)" style={{ marginTop: "var(--space-lg)" }}>
           <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>
             {loadError ?? "Ride not found."}
@@ -92,9 +91,7 @@ export function RideInvitePage() {
 
   return (
     <div>
-      <Link to="/" style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
-        ‹ Home
-      </Link>
+      <BackLink to="/">Home</BackLink>
       <h1
         style={{
           fontSize: "var(--text-h1)",

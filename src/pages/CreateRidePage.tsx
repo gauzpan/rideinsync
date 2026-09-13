@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { Link } from "react-router-dom";
+import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
@@ -122,59 +122,7 @@ export function CreateRidePage() {
   // demoable before Google OAuth is configured. Coordinate with Mithul before
   // this reaches main (the Google-only rule is a deliberate product decision).
   const [guestLeaderOverride, setGuestLeaderOverride] = useState(false);
-
-  useEffect(() => {
-    if (!rideId) return;
-    let cancelled = false;
-    setLoadingRide(true);
-    setLoadError(null);
-
-    getRideDetail(rideId)
-      .then((detail) => {
-        if (cancelled) return;
-        if (!detail) {
-          setLoadError("Ride not found.");
-          return;
-        }
-        if (user && detail.ride.leader_id !== user.id) {
-          setLoadError("Only the ride's leader can edit this ride.");
-          return;
-        }
-        if (detail.ride.status !== "draft") {
-          setLoadError("Only draft rides can be edited.");
-          return;
-        }
-
-        setName(detail.ride.name);
-        setDeparture(isoToDateTimeLocal(detail.ride.scheduled_start));
-        setExpectedEnd(isoToDateTimeLocal(detail.ride.scheduled_end));
-        setStartPoint(parseJsonPoint(detail.ride.start_point));
-        setDestination(parseJsonPoint(detail.ride.destination));
-        setStops(
-          detail.stops.map((stop) => ({
-            key: stopKey++,
-            kind: (stop.kind as StopKind) || "fuel",
-            point: parseJsonPoint(stop.location) ?? (stop.name ? { label: stop.name } : null),
-          }))
-        );
-        setCapacity(detail.ride.member_capacity ?? 0);
-        setGuidelines(detail.ride.guidelines ?? "");
-        const permitNote =
-          (detail.ride.permits as { note?: string } | null)?.note ??
-          (typeof detail.ride.permits === "string" ? detail.ride.permits : "");
-        setPermits(permitNote);
-      })
-      .catch((e) => {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : "Couldn't load ride.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingRide(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [rideId, user]);
+  const showForm = !isGuest || guestLeaderOverride;
 
   function addStop() {
     setStops((s) => [...s, { key: stopKey++, label: "", kind: "fuel" }]);
@@ -215,155 +163,17 @@ export function CreateRidePage() {
         memberCapacity: capacity > 0 ? capacity : null,
         guidelines: guidelines || null,
         permits: permits || null,
-      };
-
-      if (isEdit && rideId) {
-        const updated = await updateRide(rideId, inputPayload, user.id);
-        navigate(`/ride/${rideId}/invite`, { state: { ride: updated } });
-      } else {
-        const ride = await createRide(user.id, inputPayload);
-        navigate(`/ride/${ride.id}/invite`, { state: { ride } });
-      }
+      });
+      navigate(`/ride/${ride.id}/invite`, { state: { ride } });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't create the ride. Try again.");
       setSubmitting(false);
     }
   }
 
-  const formBody = (
-    <div>
-      <p
-        style={{
-          fontSize: "var(--text-caption)",
-          color: "var(--color-text-tertiary)",
-          margin: "0 0 var(--space-md)",
-        }}
-      >
-        * required
-      </p>
-      <Field label="Ride name" required>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Coastal loop"
-          aria-required="true"
-        />
-      </Field>
-      <Field label="Departure" required hint="When riders will set off">
-        <DateTimeInput
-          value={departure}
-          onChange={setDeparture}
-          ariaLabel="Departure date and time"
-          ariaRequired
-        />
-      </Field>
-      <Field label="Expected end" hint="Optional approximate return or finish time">
-        <DateTimeInput
-          value={expectedEnd}
-          onChange={setExpectedEnd}
-          ariaLabel="Expected end date and time"
-        />
-      </Field>
-      <PlaceAutocomplete
-        label="Start point"
-        required
-        value={startPoint}
-        onChange={setStartPoint}
-        placeholder="e.g. City centre car park"
-      />
-      <button
-        type="button"
-        onClick={() => void useCurrentLocation()}
-        disabled={locating}
-        style={{
-          margin: "calc(-1 * var(--space-sm)) 0 var(--space-md)",
-          background: "none",
-          border: "none",
-          padding: 0,
-          color: "var(--color-accent)",
-          fontSize: "var(--text-label)",
-          fontWeight: "var(--weight-semibold)" as unknown as number,
-          cursor: locating ? "default" : "pointer",
-        }}
-      >
-        {locating ? "Getting your location…" : "◎ Use my current location"}
-      </button>
-      <PlaceAutocomplete
-        label="Destination"
-        required
-        value={destination}
-        onChange={setDestination}
-        placeholder="e.g. Lighthouse point"
-      />
-
-      <SectionTitle>Route stops</SectionTitle>
-      {stops.map((stop) => (
-        <Card key={stop.key} padding="var(--space-md)" style={{ marginBottom: "var(--space-sm)" }}>
-          <div style={{ display: "flex", gap: "var(--space-sm)", alignItems: "center" }}>
-            <div style={{ flex: 1 }}>
-              <PlaceAutocomplete
-                value={stop.point}
-                onChange={(point) => updateStop(stop.key, { point })}
-                placeholder="Stop name"
-              />
-            </div>
-            <IconButton name="x" size={40} onClick={() => removeStop(stop.key)} />
-          </div>
-          <div style={{ marginTop: "var(--space-sm)" }}>
-            <SegmentedControl
-              options={STOP_OPTIONS}
-              value={stop.kind}
-              onChange={(kind) => updateStop(stop.key, { kind: kind as StopKind })}
-            />
-          </div>
-        </Card>
-      ))}
-      <Button variant="secondary" onClick={addStop} style={{ marginBottom: "var(--space-md)" }}>
-        + Add stop
-      </Button>
-
-      <SectionTitle>Optional details</SectionTitle>
-      <Field label="Expected capacity" hint="0 = no limit">
-        <Stepper
-          value={capacity}
-          min={0}
-          max={50}
-          display={capacity === 0 ? "No limit" : `${capacity} riders`}
-          onChange={setCapacity}
-        />
-      </Field>
-      <Field label="Guidelines">
-        <textarea
-          value={guidelines}
-          onChange={(e) => setGuidelines(e.target.value)}
-          placeholder="Helmets on, no overtaking the lead, regroup at every stop…"
-          style={textareaStyle}
-        />
-      </Field>
-      <Field label="Permits">
-        <Input
-          value={permits}
-          onChange={(e) => setPermits(e.target.value)}
-          placeholder="e.g. Forest entry permit required"
-        />
-      </Field>
-
-      {error && (
-        <p style={{ color: "var(--color-role-sweep)", marginBottom: "var(--space-md)" }}>
-          {error}
-        </p>
-      )}
-      <Button onClick={() => void handleSubmit()} loading={submitting}>
-        {isEdit ? "Save changes" : "Create ride"}
-      </Button>
-    </div>
-  );
-
   return (
     <div>
-      <Link to="/" style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
-        ‹ Home
-      </Link>
+      <BackLink to="/">Home</BackLink>
       <h1
         style={{
           fontSize: "var(--text-h1)",
@@ -503,15 +313,6 @@ export function CreateRidePage() {
               value={permits}
               onChange={(e) => setPermits(e.target.value)}
               placeholder="e.g. Forest entry permit required"
-            />
-          </Field>
-          <Field label="Fee">
-            <Input
-              type="number"
-              inputMode="decimal"
-              value={fee}
-              onChange={(e) => setFee(e.target.value)}
-              placeholder="0.00"
             />
           </Field>
 

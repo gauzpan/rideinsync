@@ -39,6 +39,20 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS;
 
+/** Pure render seam: returns the inner SVG markup for `name`.
+ *  With `fill` set (any CSS colour), the same path data is emitted twice — a
+ *  filled, stroke-less layer first, then the normal stroke layer on top — for a
+ *  "duotone" glyph (translucent fill behind the outline). Without `fill` the
+ *  raw stroke-only paths are returned unchanged, so existing consumers are
+ *  unaffected. */
+export function iconLayers(name: IconName, opts?: { fill?: string }): string {
+  const paths = PATHS[name] ?? "";
+  if (opts?.fill) {
+    return `<g fill="${opts.fill}" stroke="none">${paths}</g>${paths}`;
+  }
+  return paths;
+}
+
 type Props = Omit<SVGProps<SVGSVGElement>, "name"> & {
   name: IconName;
   /** px size, default 24 */
@@ -46,10 +60,12 @@ type Props = Omit<SVGProps<SVGSVGElement>, "name"> & {
   /** stroke color, default currentColor */
   color?: string;
   strokeWidth?: number;
+  /** optional duotone fill behind the strokes; omit for plain outline */
+  fill?: string;
   style?: CSSProperties;
 };
 
-export function Icon({ name, size = 24, color = "currentColor", strokeWidth = 2, style, ...rest }: Props) {
+export function Icon({ name, size = 24, color = "currentColor", strokeWidth = 2, fill, style, ...rest }: Props) {
   return (
     <svg
       width={size}
@@ -61,7 +77,7 @@ export function Icon({ name, size = 24, color = "currentColor", strokeWidth = 2,
       strokeLinecap="round"
       strokeLinejoin="round"
       style={{ display: "block", flex: "none", ...style }}
-      dangerouslySetInnerHTML={{ __html: PATHS[name] ?? "" }}
+      dangerouslySetInnerHTML={{ __html: iconLayers(name, { fill }) }}
       {...rest}
     />
   );

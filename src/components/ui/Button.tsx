@@ -28,14 +28,24 @@ const base: CSSProperties = {
 };
 
 const variants: Record<Variant, CSSProperties> = {
-  primary: { background: "var(--color-accent)", color: "var(--color-text-on-accent)" },
+  primary: {
+    background: "var(--grad-accent)",
+    color: "var(--color-text-on-accent)",
+    boxShadow: "var(--shadow-raised-accent)",
+  },
   secondary: {
-    background: "var(--color-surface-2)",
+    // grad-surface top-light layered over the existing surface colour.
+    background: "var(--grad-surface), var(--color-surface-2)",
     color: "var(--color-text-primary)",
     border: "1px solid var(--color-divider)",
+    boxShadow: "var(--shadow-raised)",
   },
   ghost: { background: "transparent", color: "var(--color-text-primary)" },
-  danger: { background: "var(--color-danger)", color: "var(--color-text-on-danger)" },
+  danger: {
+    background: "var(--grad-danger)",
+    color: "var(--color-text-on-danger)",
+    boxShadow: "var(--shadow-raised-danger)",
+  },
 };
 
 export function Button({
@@ -49,13 +59,20 @@ export function Button({
   ...rest
 }: Props) {
   const disabledStyle: CSSProperties | null = disabled
-    ? { background: "var(--color-surface-3)", color: "var(--color-text-tertiary)", border: "none" }
+    ? {
+        background: "var(--color-surface-3)",
+        color: "var(--color-text-tertiary)",
+        border: "none",
+        boxShadow: "none", // disabled reads flat — no raised depth
+      }
     : null;
+  // Raised variants get the press-in class; ghost and disabled stay flat.
+  const raised = !disabled && variant !== "ghost";
   return (
     <button
       type="button"
       disabled={disabled || loading}
-      className={["btn", className].filter(Boolean).join(" ")}
+      className={["btn", raised && "ui-raised", className].filter(Boolean).join(" ")}
       style={{
         ...base,
         width: fullWidth ? "100%" : "auto",

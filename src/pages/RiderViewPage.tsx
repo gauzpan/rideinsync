@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { useAuth } from "../hooks/useAuth";
@@ -122,9 +123,7 @@ export function RiderViewPage() {
   if (error || !detail) {
     return (
       <div>
-        <Link to="/" style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
-          ‹ Home
-        </Link>
+        <BackLink to="/">Home</BackLink>
         <Card padding="var(--space-lg)" style={{ marginTop: "var(--space-lg)" }}>
           <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>{error ?? "Ride not found."}</p>
         </Card>
@@ -151,9 +150,7 @@ export function RiderViewPage() {
 
   return (
     <div>
-      <Link to="/" style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
-        ‹ Home
-      </Link>
+      <BackLink to="/">Home</BackLink>
       <h1
         style={{
           fontSize: "var(--text-h1)",

@@ -5,6 +5,7 @@ import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
 import { SosAlertCard } from "./components/SosAlertCard";
+import { SosButton, shouldShowSos } from "./components/SosButton";
 import { consumePendingJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
 import { markReached, respondToSos, sosCardState, useSosAlerts, useSosResponses } from "./lib/sos";
@@ -26,6 +27,21 @@ import { vibrateForTier } from "./lib/haptics";
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
 const FEEDBACK_MS = 3_000;
 const VOICE_ONBOARDING_KEY = "voice.onboarding.seen";
+
+// Floating-SOS footprint above the tab bar, read (read-only) from SosButton.tsx:
+// the button sits `var(--space-md)` above the nav+safe-area and is
+// SOS_BUTTON_SIZE px tall. When it is shown, the scrolling content wrapper must
+// clear that whole footprint (plus a normal `var(--space-lg)` gap) so a control
+// at the very bottom of a page can always scroll clear of the button instead of
+// sitting under it. When SOS is hidden the padding is unchanged — just the nav
+// clearance. Pure seam so the arithmetic is unit-tested.
+export const SOS_BUTTON_SIZE = 60;
+export function contentBottomPadding(showSos: boolean): string {
+  const navClearance = "var(--tabbar-height) + env(safe-area-inset-bottom)";
+  return showSos
+    ? `calc(${navClearance} + var(--space-md) + ${SOS_BUTTON_SIZE}px + var(--space-lg))`
+    : `calc(${navClearance} + var(--space-lg))`;
+}
 
 export function AppLayout() {
   const { loading, isAuthenticated, user } = useAuth();
@@ -57,7 +73,7 @@ export function AppLayout() {
   // global so an alert already in progress is never missed on another tab.
   const userId = isAuthenticated ? user?.id ?? null : null;
   const inApp = isAuthenticated && pathname !== "/";
-  const { rideId } = useActiveRide(inApp ? userId : null);
+  const { rideId } = useActiveRide(inApp ? userId : null, location.pathname);
   const alerts = useSosAlerts(inApp ? rideId : null, userId);
   const responsesByAlert = useSosResponses(inApp ? rideId : null);
 
@@ -206,6 +222,8 @@ export function AppLayout() {
     return <VoicePermissionSheet onDone={() => setVoiceOnboardingSeen(true)} />;
   }
 
+  const showSos = shouldShowSos(inApp, rideId, location.pathname);
+
   return (
     <>
       <div
@@ -214,9 +232,10 @@ export function AppLayout() {
           minHeight: "100%",
           margin: "0 auto",
           padding: "var(--space-lg) var(--gutter)",
-          // Clear the fixed TabBar.
+          // Clear the fixed TabBar — and, when the floating SOS button is shown,
+          // its footprint too, so a bottom-edge control can scroll clear of it.
           paddingBottom: isAuthenticated
-            ? "calc(var(--tabbar-height) + var(--space-2xl) + env(safe-area-inset-bottom))"
+            ? contentBottomPadding(showSos)
             : "calc(var(--space-2xl) + env(safe-area-inset-bottom))",
         }}
       >
@@ -283,6 +302,24 @@ export function AppLayout() {
             {voiceFeedback}
           </span>
         </div>
+      )}
+
+      {showSos && (
+        // Floating corner SOS: shown ONLY to a member of a started ride, and
+        // never on the /sos screen itself (that screen has its own Send SOS
+        // button). Taps open the /sos confirm screen. z-index 40 keeps it above
+        // page content but below the SosAlert stack (41) and voice feedback
+        // (42). Voice toggle is intentionally off here — this branch drives
+        // voice via VoicePermissionSheet + the persisted VOICE_COMMANDS toggle,
+        // not a mic button (see handoff).
+        <SosButton
+          showVoiceToggle={false}
+          voiceOn={voiceOn}
+          voiceSupported={voice.supported}
+          voiceListening={voice.listening}
+          voiceError={voice.error}
+          onToggleVoice={() => {}}
+        />
       )}
 
       {isAuthenticated && <TabBar />}
