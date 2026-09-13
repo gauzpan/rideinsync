@@ -13,10 +13,13 @@
   --color-surface-3:#2A2A2D;
   --color-surface-4:#3A3A3C;
 
-  /* Text */
+  /* Text — secondary/tertiary brightened per the 2026-09 visual-polish pass
+     (docs/plan-update-visual.md §2): the previous values read as too dim for
+     supporting copy that's often load-bearing (setup nudge, stats labels). */
   --color-text-primary:#FFFFFF;
-  --color-text-secondary:#9A9A9E;
-  --color-text-tertiary:#6B6B70;
+  --color-text-secondary:#B7B7BC;
+  --color-text-tertiary:#85858B;
+  --color-text-disabled:#626267;
   --color-text-on-accent:#0A0A0B;
   --color-text-on-inverse:#000000;
 

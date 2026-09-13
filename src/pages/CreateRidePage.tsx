@@ -6,6 +6,7 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Icon } from "../components/ui/Icon";
 import { IconButton } from "../components/ui/IconButton";
+import { LoadingState } from "../components/ui/Loader";
 import { Geolocation } from "@capacitor/geolocation";
 import { Input } from "../components/ui/Input";
 import { PlaceAutocomplete, type PlacePoint } from "../components/PlaceAutocomplete";
@@ -567,11 +568,7 @@ useEffect(() => {
         {isEdit ? "Edit ride" : "Create ride"}
       </h1>
 
-      {loadingRide && (
-        <p style={{ color: "var(--color-text-secondary)", margin: "var(--space-md) 0" }}>
-          Loading ride…
-        </p>
-      )}
+      {loadingRide && <LoadingState label="Loading ride…" />}
 
       {loadError && (
         <Card padding="var(--space-lg)" style={{ marginTop: "var(--space-md)" }}>

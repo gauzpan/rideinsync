@@ -4,6 +4,7 @@ import { useAuth } from "./hooks/useAuth";
 import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
+import { Loader } from "./components/ui/Loader";
 import { SosAlertCard } from "./components/SosAlertCard";
 import { SosButton, shouldShowSos } from "./components/SosButton";
 import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
@@ -201,9 +202,13 @@ export function AppLayout() {
   }, [voice.error]);
 
   if (loading) {
-    // Brief, unstyled beat while the initial session check resolves — avoids
-    // flashing the landing/login for an already-authenticated user.
-    return null;
+    // Brief beat while the initial session check resolves — avoids flashing
+    // the landing/login for an already-authenticated user.
+    return (
+      <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Loader size={64} />
+      </div>
+    );
   }
 
   const onLanding = pathname === "/";

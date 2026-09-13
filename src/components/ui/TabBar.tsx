@@ -91,7 +91,10 @@ export function TabBar({ activeRideId = null }: { activeRideId?: string | null }
             borderRadius: "var(--radius-md)",
             cursor: "pointer",
             background: "transparent",
-            color: active ? "var(--color-accent)" : "var(--color-text-tertiary)",
+            // Label goes white when active (icon stays lime, set explicitly
+            // below) — docs/plan-update-visual.md §12: icon carries the
+            // accent, the label reads as "selected", not another accent use.
+            color: active ? "var(--color-text-primary)" : "var(--color-text-tertiary)",
             fontSize: "var(--text-label)",
             lineHeight: "var(--lh-label)",
             fontFamily: "var(--font-ui)",
@@ -110,8 +113,13 @@ export function TabBar({ activeRideId = null }: { activeRideId?: string | null }
               <Icon
                 name={tab.icon}
                 size={24}
+                color={active ? "var(--color-accent)" : "currentColor"}
                 fill={TAB_ICON_FILL}
-                style={active ? { filter: "drop-shadow(0 0 6px var(--color-accent-glow))" } : undefined}
+                style={
+                  active
+                    ? { color: "var(--color-accent)", filter: "drop-shadow(0 0 6px var(--color-accent-glow))" }
+                    : undefined
+                }
               />
               <span>{tab.label}</span>
             </button>

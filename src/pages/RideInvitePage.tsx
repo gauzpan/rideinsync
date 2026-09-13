@@ -5,6 +5,7 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { useAuth } from "../hooks/useAuth";
 import { IconButton } from "../components/ui/IconButton";
+import { LoadingState } from "../components/ui/Loader";
 import type { Ride } from "../lib/models";
 import { buildJoinUrl, getRideById } from "../services/onboardingService";
 import { generateQrDataUrl } from "../services/qrService";
@@ -74,7 +75,7 @@ export function RideInvitePage() {
   }
 
   if (loading) {
-    return <p style={{ color: "var(--color-text-secondary)" }}>Loading invite…</p>;
+    return <LoadingState label="Loading invite…" />;
   }
 
   if (loadError || !ride) {

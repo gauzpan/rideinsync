@@ -12,6 +12,7 @@ import { RideSummaryPage } from "./pages/RideSummaryPage";
 import { DemoControlsPage } from "./pages/DemoControlsPage";
 import { RichProfilePage } from "./pages/RichProfilePage";
 import { DiscoverPage } from "./pages/DiscoverPage";
+import { PickDetailPage } from "./pages/PickDetailPage";
 import { SosPage } from "./pages/SosPage";
 import { RiderJoinPage } from "./pages/RiderJoinPage";
 
@@ -40,6 +41,7 @@ export const router = createBrowserRouter([
       { path: "ride/:rideId", element: <RiderViewPage /> },
       { path: "profile", element: <RichProfilePage /> },
       { path: "discover", element: <DiscoverPage /> },
+      { path: "discover/pick/:pickId", element: <PickDetailPage /> },
       { path: "ride/:rideId/lead", element: <LeadViewPage /> },
       { path: "ride/:rideId/summary", element: <RideSummaryPage /> },
       { path: "ride/demo", element: <DemoControlsPage /> },

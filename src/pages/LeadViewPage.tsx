@@ -4,6 +4,7 @@ import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
+import { LoadingState } from "../components/ui/Loader";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { useAuth } from "../hooks/useAuth";
 import { LiveOps } from "../components/liveops/LiveOps";
@@ -205,7 +206,7 @@ export function LeadViewPage() {
   }
 
   if (loading) {
-    return <p style={{ color: "var(--color-text-secondary)" }}>Loading roster…</p>;
+    return <LoadingState label="Loading roster…" />;
   }
 
   if (error || !detail) {

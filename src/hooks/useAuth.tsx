@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -36,6 +37,9 @@ type AuthState = {
   /** Local-dev only: fake session so you can explore screens without a backend. */
   signInDev: () => void;
   signOut: () => Promise<void>;
+  /** Re-fetches the `profiles` row for the signed-in user — call after an
+   *  edit elsewhere (e.g. RichProfilePage) so `profile` reflects the change. */
+  refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -113,31 +117,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
 
+  // The `handle_new_user()` trigger provisions the row at sign-up time; a
+  // couple of retries absorb the brief window right after first sign-in.
+  const fetchProfile = useCallback(async (userId: string, retry = true) => {
+    const token = ++fetchToken.current;
+    for (let attempt = 0; attempt < (retry ? 3 : 1); attempt++) {
+      const { data } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+      if (fetchToken.current !== token) return;
+      if (data) {
+        setProfile(data);
+        return;
+      }
+      if (retry) await new Promise((r) => setTimeout(r, 400));
+    }
+  }, []);
+
+  const activeUserId = session?.user?.id ?? (devAuthed ? DEV_USER.id : undefined);
+
   useEffect(() => {
-    const userId = session?.user?.id;
-    if (!userId) {
+    if (!activeUserId) {
       setProfile(null);
       return;
     }
-    const token = ++fetchToken.current;
-    // The `handle_new_user()` trigger provisions this row at sign-up time; a
-    // couple of retries absorb the brief window right after first sign-in.
-    (async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const { data } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", userId)
-          .maybeSingle();
-        if (fetchToken.current !== token) return;
-        if (data) {
-          setProfile(data);
-          return;
-        }
-        await new Promise((r) => setTimeout(r, 400));
-      }
-    })();
-  }, [session?.user?.id]);
+    void fetchProfile(activeUserId);
+  }, [activeUserId, fetchProfile]);
 
   const value = useMemo<AuthState>(
     () => ({
@@ -169,8 +172,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDevAuthed(false);
         if (session) await signOutService();
       },
+      refreshProfile: async () => {
+        if (!activeUserId) return;
+        // A refresh after a known write shouldn't need the sign-up-race
+        // retries — fetch once so the caller's `await` resolves promptly.
+        await fetchProfile(activeUserId, false);
+      },
     }),
-    [loading, session, profile, devAuthed]
+    [loading, session, profile, devAuthed, activeUserId, fetchProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

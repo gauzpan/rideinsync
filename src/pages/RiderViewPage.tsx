@@ -5,6 +5,7 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { useAuth } from "../hooks/useAuth";
 import { Icon } from "../components/ui/Icon";
+import { Loader, LoadingState } from "../components/ui/Loader";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import { LiveOps } from "../components/liveops/LiveOps";
 import {
@@ -123,7 +124,7 @@ export function RiderViewPage() {
   }
 
   if (loading) {
-    return <p style={{ color: "var(--color-text-secondary)" }}>Loading ride…</p>;
+    return <LoadingState label="Loading ride…" />;
   }
 
   if (error || !detail) {
@@ -350,7 +351,9 @@ export function RiderViewPage() {
       {pillionPickerOpen && (
         <Card padding="var(--space-lg)" style={{ marginBottom: "var(--space-md)" }}>
           {linking && eligibleRiders.length === 0 && !linkError ? (
-            <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>Loading roster…</p>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", color: "var(--color-text-secondary)" }}>
+              <Loader size={20} label="Loading roster" /> Loading roster…
+            </span>
           ) : eligibleRiders.length === 0 ? (
             <>
               <p style={{ margin: "0 0 var(--space-sm)" }}>None of the riders in this ride have joined yet.</p>

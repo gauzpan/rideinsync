@@ -4,6 +4,7 @@ import { useHomeData, type ActiveRide, type PastRide } from "../hooks/useHomeDat
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Icon } from "../components/ui/Icon";
+import { LoadingState } from "../components/ui/Loader";
 import { RoleBadge, toBadgeRole } from "../components/ui/RoleBadge";
 
 /** Base page for the Ride tab: the active ride (if any), past rides, and the
@@ -33,9 +34,7 @@ export function RidesPage() {
         Rides
       </h1>
 
-      {loading && (
-        <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>Loading…</p>
-      )}
+      {loading && <LoadingState label="Loading…" />}
 
       {!loading && activeRide && (
         <ActiveRideHero ride={activeRide} onResume={() => navigate(resumePath(activeRide))} />

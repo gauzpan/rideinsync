@@ -42,5 +42,7 @@ src/
 | `/ride/:rideId`      | Rider view         |
 | `/ride/:rideId/lead` | Lead / sweep view  |
 | `/demo`              | Demo controls      |
+| `/discover`          | Discover feed      |
+| `/discover/pick/:pickId` | Editor's pick detail |
 
 Design system: `design/rideinsync-design-system.md`. Product scope: `PRD/PRD.md`.

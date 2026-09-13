@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
+import { LoadingState } from "../components/ui/Loader";
 import { Select, type SelectOption } from "../components/ui/Select";
 import type { AgeBand, Gender } from "../lib/models";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
@@ -202,6 +203,7 @@ export function RichProfilePage() {
         ageBand: (ageBand as AgeBand) || null,
       });
       setPersonalSaved(true);
+      window.setTimeout(() => setPersonalSaved(false), 1000);
       await refreshProfile();
     } catch (e) {
       setPersonalError(e instanceof Error ? e.message : "Couldn't save personal details.");
@@ -242,6 +244,7 @@ export function RichProfilePage() {
         vehiclePlate: "",
       });
       setBasicSaved(true);
+      window.setTimeout(() => setBasicSaved(false), 1000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save your details.");
     } finally {
@@ -257,6 +260,7 @@ export function RichProfilePage() {
     try {
       await submitVehicleDetails(user.id, { makeModel, color, plate });
       setVehicleSaved(true);
+      window.setTimeout(() => setVehicleSaved(false), 1000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save vehicle details.");
     } finally {
@@ -272,6 +276,7 @@ export function RichProfilePage() {
     try {
       await submitMedicalProfile(user.id, { bloodType, allergies, medications, notes });
       setMedicalSaved(true);
+      window.setTimeout(() => setMedicalSaved(false), 1000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save your medical profile.");
     } finally {
@@ -315,7 +320,7 @@ export function RichProfilePage() {
         blocks you from joining or riding.
       </p>
 
-      {loading && <p style={{ color: "var(--color-text-secondary)" }}>Loading…</p>}
+      {loading && <LoadingState label="Loading…" />}
 
       {!loading && (
         <>
@@ -374,12 +379,7 @@ export function RichProfilePage() {
                 {personalError}
               </p>
             )}
-            {personalSaved && (
-              <p style={{ color: "var(--color-accent)", fontSize: "var(--text-caption)", margin: "0 0 var(--space-md)" }}>
-                Saved.
-              </p>
-            )}
-            <Button variant="secondary" onClick={() => void handleSavePersonal()} loading={personalSaving}>
+            <Button variant="secondary" onClick={() => void handleSavePersonal()} loading={personalSaving} success={personalSaved}>
               Save personal details
             </Button>
           </SectionCard>
@@ -435,12 +435,7 @@ export function RichProfilePage() {
             <Field label="Emergency contact phone">
               <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="e.g. 98765 43210" />
             </Field>
-            {basicSaved && (
-              <p style={{ color: "var(--color-accent)", fontSize: "var(--text-caption)", margin: "0 0 var(--space-md)" }}>
-                Saved.
-              </p>
-            )}
-            <Button variant="secondary" onClick={() => void handleSaveBasic()} loading={basicSaving}>
+            <Button variant="secondary" onClick={() => void handleSaveBasic()} loading={basicSaving} success={basicSaved}>
               Save details
             </Button>
           </SectionCard>
@@ -518,12 +513,7 @@ export function RichProfilePage() {
                 placeholder="e.g. Black"
               />
             </Field>
-            {vehicleSaved && (
-              <p style={{ color: "var(--color-accent)", fontSize: "var(--text-caption)", margin: "0 0 var(--space-md)" }}>
-                Saved.
-              </p>
-            )}
-            <Button variant="secondary" onClick={() => void handleSaveVehicle()} loading={vehicleSaving}>
+            <Button variant="secondary" onClick={() => void handleSaveVehicle()} loading={vehicleSaving} success={vehicleSaved}>
               Save vehicle details
             </Button>
           </SectionCard>
@@ -541,12 +531,7 @@ export function RichProfilePage() {
             <Field label="Notes">
               <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything else responders should know" />
             </Field>
-            {medicalSaved && (
-              <p style={{ color: "var(--color-accent)", fontSize: "var(--text-caption)", margin: "0 0 var(--space-md)" }}>
-                Saved.
-              </p>
-            )}
-            <Button variant="secondary" onClick={() => void handleSaveMedical()} loading={medicalSaving}>
+            <Button variant="secondary" onClick={() => void handleSaveMedical()} loading={medicalSaving} success={medicalSaved}>
               Save medical profile
             </Button>
           </SectionCard>

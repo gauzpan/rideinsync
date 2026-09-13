@@ -21,8 +21,10 @@ export function Card({
     // grad-surface top-light layered over the existing surface colour.
     background: `var(--grad-surface), ${surface}`,
     borderRadius: "var(--radius-lg)",
-    border: "1px solid rgba(255, 255, 255, 0.06)",
-    borderTop: "1px solid rgba(255, 255, 255, 0.12)",
+    // Bumped into the 0.10-0.14 range (docs/plan-update-visual.md §5) so the
+    // card edge reads as a deliberate hairline rather than barely-there.
+    border: "1px solid rgba(255, 255, 255, 0.10)",
+    borderTop: "1px solid rgba(255, 255, 255, 0.14)",
     padding,
     boxShadow: glow ? "var(--glow-accent), var(--shadow-raised)" : "var(--shadow-raised)",
     color: "var(--color-text-primary)",

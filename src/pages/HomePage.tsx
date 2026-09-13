@@ -37,10 +37,12 @@ export function HomePage() {
 
   return (
     <div style={col}>
-      {/* 1. Greeting — identity/avatar now live in the top AccountBar */}
+      {/* 1. Greeting — identity/avatar now live in the top AccountBar. Stacked
+          rather than run-in, per docs/plan-update-visual.md §3, so the name
+          reads as the emphasized half rather than a continuation of "Hey,". */}
       <h1 style={{ margin: 0, fontSize: "var(--text-h1)", lineHeight: "var(--lh-h1)", fontWeight: "var(--weight-regular)" as unknown as number }}>
-        <span style={{ color: "var(--color-text-secondary)" }}>Hey, </span>
-        <span style={{ color: "var(--color-text-primary)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
+        <span style={{ display: "block", color: "var(--color-text-secondary)" }}>Hey,</span>
+        <span style={{ display: "block", color: "var(--color-text-primary)", fontWeight: "var(--weight-bold)" as unknown as number }}>
           {firstName}
         </span>
       </h1>
@@ -66,10 +68,10 @@ export function HomePage() {
           <Card padding="var(--space-md)">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-sm)" }}>
               <div>
-                <div style={{ fontSize: "var(--text-body-size)", fontWeight: "var(--weight-medium)" as unknown as number }}>
+                <div style={{ fontSize: "var(--text-body-size)", lineHeight: "22px", fontWeight: "var(--weight-semibold)" as unknown as number, color: "var(--color-text-primary)" }}>
                   Finish your rider setup
                 </div>
-                <div style={{ marginTop: "var(--space-2xs)", fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>
+                <div style={{ marginTop: "var(--space-2xs)", fontSize: "var(--text-label)", fontWeight: "var(--weight-medium)" as unknown as number, color: "var(--color-text-secondary)" }}>
                   <span style={{ fontVariantNumeric: "tabular-nums" }}>
                     {completeness.done} of {completeness.total}
                   </span>{" "}
@@ -97,7 +99,10 @@ export function HomePage() {
                   width: 40,
                   height: 40,
                   borderRadius: "var(--radius-full)",
-                  background: "var(--color-surface-2)",
+                  // Lime-tinted badge (docs/plan-update-visual.md §8) instead
+                  // of a neutral surface — ties the icon's own accent color
+                  // into its background rather than floating on plain grey.
+                  background: "color-mix(in srgb, var(--color-accent) 16%, transparent)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -107,10 +112,10 @@ export function HomePage() {
                 <Icon name="mic" size={20} />
               </div>
               <div>
-                <div style={{ fontSize: "var(--text-body-size)", fontWeight: "var(--weight-medium)" as unknown as number }}>
+                <div style={{ fontSize: "var(--text-body-size)", lineHeight: "22px", fontWeight: "var(--weight-semibold)" as unknown as number, color: "var(--color-text-primary)" }}>
                   Turn on voice commands
                 </div>
-                <div style={{ marginTop: "var(--space-2xs)", fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>
+                <div style={{ marginTop: "var(--space-2xs)", fontSize: "var(--text-label)", fontWeight: "var(--weight-medium)" as unknown as number, color: "var(--color-text-secondary)" }}>
                   Say "sync" to signal your group hands-free.
                 </div>
               </div>
@@ -119,9 +124,11 @@ export function HomePage() {
         </button>
       )}
 
-      {/* 4. Stats strip — stubbed demo constants until Flow 2's user_stats lands */}
+      {/* 4. Stats strip — stubbed demo constants until Flow 2's user_stats lands.
+          Sentence case, no caps (docs/plan-update-visual.md §10) — "sample
+          data" dropped from the visible label, still true in the code comment. */}
       <section>
-        <Eyebrow>Your riding · sample data</Eyebrow>
+        <SectionLabel>Your riding</SectionLabel>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--space-sm)", marginTop: "var(--space-sm)" }}>
           <StatCard value={String(stats.rides)} label="Rides" />
           <StatCard value={String(stats.distanceKm)} unit="km" label="Distance" />
@@ -141,17 +148,19 @@ function StatCard({ value, unit, label }: { value: string; unit?: string; label:
   return (
     <Card padding="var(--space-md)">
       <div style={{ display: "flex", alignItems: "baseline", gap: 4, fontVariantNumeric: "tabular-nums" }}>
-        <span style={{ fontSize: "var(--text-metric)", lineHeight: "var(--lh-metric)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
+        <span style={{ fontSize: "var(--text-metric)", lineHeight: "var(--lh-metric)", fontWeight: "var(--weight-bold)" as unknown as number, color: "var(--color-text-primary)" }}>
           {value}
         </span>
-        {unit && <span style={{ fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>{unit}</span>}
+        {unit && <span style={{ fontSize: "var(--text-label)", fontWeight: "var(--weight-medium)" as unknown as number, color: "var(--color-text-secondary)" }}>{unit}</span>}
       </div>
-      <div style={{ marginTop: "var(--space-2xs)", fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>{label}</div>
+      <div style={{ marginTop: "var(--space-2xs)", fontSize: "var(--text-label)", fontWeight: "var(--weight-medium)" as unknown as number, color: "var(--color-text-secondary)" }}>{label}</div>
     </Card>
   );
 }
 
-/** Four-segment progress meter for the setup nudge — tokens only, no accent. */
+/** Four-segment progress meter for the setup nudge. Done segments use the
+ *  accent (docs/plan-update-visual.md §7 — "feel actionable rather than
+ *  disabled") instead of a flat grey that read as inert. */
 function SetupMeter({ done, total }: { done: number; total: number }) {
   return (
     <div style={{ flex: "none", display: "flex", gap: 4 }} aria-hidden>
@@ -162,7 +171,7 @@ function SetupMeter({ done, total }: { done: number; total: number }) {
             width: 8,
             height: 24,
             borderRadius: "var(--radius-sm)",
-            background: i < done ? "var(--color-text-secondary)" : "var(--color-surface-4)",
+            background: i < done ? "var(--color-accent)" : "var(--color-surface-4)",
           }}
         />
       ))}
@@ -170,9 +179,11 @@ function SetupMeter({ done, total }: { done: number; total: number }) {
   );
 }
 
-function Eyebrow({ children }: { children: React.ReactNode }) {
+/** Sentence-case section label — no all-caps/letter-spacing treatment
+ *  (docs/plan-update-visual.md §10). */
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ fontSize: "var(--text-caption)", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--color-text-tertiary)" }}>
+    <div style={{ fontSize: "var(--text-label)", fontWeight: "var(--weight-medium)" as unknown as number, color: "var(--color-text-secondary)" }}>
       {children}
     </div>
   );

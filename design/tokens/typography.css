@@ -7,12 +7,16 @@
   /* size / line-height / weight roles. Caption bumped 12->13px (lh 16->18px):
      Bricolage Grotesque's lowercase x-height reads smaller than Inter's at the
      same size, and 12px sits below comfortable reading size for the
-     secondary/tertiary-colored meta text it's mostly used for. */
+     secondary/tertiary-colored meta text it's mostly used for.
+     --text-h1/--text-metric bumped per the 2026-09 visual-polish pass
+     (docs/plan-update-visual.md) for a stronger screen-heading/stat hierarchy;
+     --text-button is a dedicated role so Button.tsx doesn't share body's size. */
   --text-display:44px;   --lh-display:48px;
-  --text-h1:24px;        --lh-h1:30px;
+  --text-h1:26px;        --lh-h1:32px;
   --text-h2:20px;        --lh-h2:26px;
-  --text-metric:28px;    --lh-metric:32px;
+  --text-metric:32px;    --lh-metric:34px;
   --text-body-size:16px; --lh-body:24px;
+  --text-button:17px;
   --text-label:14px;     --lh-label:20px;
   --text-caption:13px;   --lh-caption:18px;
 

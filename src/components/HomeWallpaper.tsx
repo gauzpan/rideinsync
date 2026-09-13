@@ -9,12 +9,13 @@ export function shouldShowWallpaper(pathname: string): boolean {
 
 const BASE = import.meta.env.BASE_URL;
 
-// Scrim tuned by eye over the founder-approved art: near-black at the very top
-// (header text), lifting to let the bike read through the mid-band, then
+// Scrim tuned by eye over the founder-approved art: darkest at the very top
+// (header text needs the most contrast), lifting through a mid-band so the
+// bike reads as an atmospheric layer rather than fighting the UI, then
 // deepening again so the card/button band and the nav clearance sit on almost
 // -black. rgba base (11,11,12) ~= --color-bg-base #0A0A0B.
 const SCRIM =
-  "linear-gradient(180deg, rgba(11,11,12,.55) 0%, rgba(11,11,12,.35) 40%, rgba(11,11,12,.72) 70%, rgba(11,11,12,.92) 100%)";
+  "linear-gradient(180deg, rgba(11,11,12,.88) 0%, rgba(11,11,12,.55) 35%, rgba(11,11,12,.4) 55%, rgba(11,11,12,.75) 75%, rgba(11,11,12,.94) 100%)";
 
 const fill: CSSProperties = { position: "absolute", inset: 0 };
 
