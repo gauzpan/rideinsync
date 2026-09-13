@@ -556,7 +556,7 @@ function StopPin({ index }: { index: number }) {
         justifyContent: "center",
         fontWeight: 700,
         fontSize: 12,
-        fontFamily: "system-ui, sans-serif",
+        fontFamily: "var(--font-ui)",
         boxShadow: "0 1px 5px rgba(0,0,0,.5)",
       }}
     >
@@ -613,7 +613,7 @@ function RiderPin({ rider }: { rider: RiderOnMap }) {
         justifyContent: "center",
         fontWeight: 600,
         fontSize: 14,
-        fontFamily: "system-ui, sans-serif",
+        fontFamily: "var(--font-ui)",
         opacity: rider.status === "stale" ? 0.65 : 1,
       }}
     >

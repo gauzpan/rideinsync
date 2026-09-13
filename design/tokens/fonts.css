@@ -1,3 +1,4 @@
-/* Wayix webfonts — SUBSTITUTED from Google Fonts (Poppins for brand, Inter for UI).
-   Original app used a rounded geometric brand face + Inter/SF Pro. Replace with licensed files if available. */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap');
+/* Wayix webfonts — SUBSTITUTED from Google Fonts. Bricolage Grotesque covers both
+   the brand and UI roles (variable font, wght 200-800) — flagged per design/readme.md
+   §4 as a placeholder until a licensed brand face is chosen. */
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@6..144,200..800&display=swap');

@@ -26,15 +26,26 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Page H1 titles are the brand voice — Roadspur Display. Pages set size/weight
-   via inline styles (var(--text-h1) etc.); only the family + tracking are set
-   here so a single rule covers every H1 without touching each page. Title case
-   is preserved (no text-transform). Inline font-family (e.g. the Landing hero)
-   still wins where a page sets it explicitly. */
+/* Form controls don't inherit body's font-family by default (the UA
+   stylesheet sets its own — Arial on Chrome/Windows, etc.), so every
+   <input>/<button>/<select>/<textarea> would otherwise render off-brand
+   regardless of the --font-ui token. */
+input,
+button,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/* Page H1 titles are the brand voice — Bricolage Grotesque. Pages set size via
+   inline styles (var(--text-h1) etc.); only the family, weight and tracking
+   are set here so a single rule covers every H1 without touching each page.
+   Title case is preserved (no text-transform). Inline font-family (e.g. the
+   Landing hero) still wins where a page sets it explicitly. */
 h1 {
   font-family: var(--font-brand);
-  font-weight: 700;
-  letter-spacing: var(--font-brand-tracking, .01em);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--font-brand-tracking, -.01em);
 }
 
 a {
@@ -72,10 +83,13 @@ a {
   );
 }
 
-/* Height of the fixed bottom TabBar (excludes the safe-area inset it adds as
-   its own padding); the SOS footer and page padding offset above it. */
+/* Clearance needed for the floating bottom TabBar: its own height (control
+   row + top/bottom padding) plus the gap it floats above the safe area with
+   (TabBar.tsx positions itself at `env(safe-area-inset-bottom) + --space-sm`,
+   added separately by consumers) — excludes the safe-area inset itself, which
+   every consumer adds on top. SOS footer and page padding offset above it. */
 :root {
-  --tabbar-height: calc(var(--control-height) + 2 * var(--space-xs));
+  --tabbar-height: calc(var(--control-height) + 2 * var(--space-xs) + var(--space-sm));
 
   /* "Soft raised" depth (founder-approved), key-cap strength. Not neumorphic,
      not glossy: a bright top-light inset, a thin dark under-lip inset, then the

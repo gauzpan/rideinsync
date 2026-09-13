@@ -28,6 +28,11 @@ import { vibrateForTier } from "./lib/haptics";
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
 const FEEDBACK_MS = 3_000;
 const VOICE_ONBOARDING_KEY = "voice.onboarding.seen";
+// Routes a signed-out visitor can browse so they can experience the app
+// before creating an account. Anything that would reveal a ride's sharing
+// code (the /ride/:id/invite screen reached after a successful create/join)
+// stays behind the sign-in gate below.
+const PUBLIC_PATHS = new Set(["/", "/ride/create", "/create"]);
 
 // Floating-SOS footprint above the tab bar, read (read-only) from SosButton.tsx:
 // the button sits `var(--space-md)` above the nav+safe-area and is
@@ -201,19 +206,6 @@ export function AppLayout() {
     return null;
   }
 
-  // if (!isAuthenticated) {
-  //   // Home wallpaper renders on "/" and "/home" regardless of auth state, so
-  //   // the sign-in view sits on the same night-bike backdrop. NOTE: SignInSheet
-  //   // paints an opaque `background: var(--color-bg-base)` over inset:0, so the
-  //   // wallpaper behind it is only *visible* once that root background is made
-  //   // transparent (SignInSheet.tsx — outside this lane's file scope; reported).
-  //   return (
-  //     <>
-  //       {shouldShowWallpaper(location.pathname) && <HomeWallpaper />}
-  //       <SignInSheet joinCode={joinCodeFromPath} />
-  //     </>
-  //   );
-  // }
   const onLanding = pathname === "/";
 
   // Landing ("/") is the public login entry. Signed-in users skip it and go
@@ -222,9 +214,10 @@ export function AppLayout() {
     return <Navigate to="/home" replace />;
   }
   // A protected route without a session: keep the join deep-link's sign-in
-  // sheet (it stashes the code across the Google redirect); everything else
-  // bounces to the landing to log in.
-  if (!isAuthenticated && !onLanding) {
+  // sheet (it stashes the code across the Google redirect); PUBLIC_PATHS
+  // (landing, create) stay browsable so a visitor can try the app before
+  // making an account; everything else bounces to the landing to log in.
+  if (!isAuthenticated && !PUBLIC_PATHS.has(pathname)) {
     if (joinCodeFromPath) return <SignInSheet joinCode={joinCodeFromPath} />;
     return <Navigate to="/" replace />;
   }
@@ -341,26 +334,6 @@ export function AppLayout() {
           onToggleVoice={() => {}}
         />
       )}
-
-      {showSos && (
-        // Floating corner SOS: shown ONLY to a member of a started ride, and
-        // never on the /sos screen itself (that screen has its own Send SOS
-        // button). Taps open the /sos confirm screen. z-index 40 keeps it above
-        // page content but below the SosAlert stack (41) and voice feedback
-        // (42). Voice toggle is intentionally off here — this branch drives
-        // voice via VoicePermissionSheet + the persisted VOICE_COMMANDS toggle,
-        // not a mic button (see handoff).
-        <SosButton
-          showVoiceToggle={false}
-          voiceOn={voiceOn}
-          voiceSupported={voice.supported}
-          voiceListening={voice.listening}
-          voiceError={voice.error}
-          onToggleVoice={() => {}}
-        />
-      )}
-
-      {isAuthenticated && <TabBar />}
     </>
   );
 }

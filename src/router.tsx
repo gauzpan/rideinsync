@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AppLayout } from "./AppLayout";
 import { LandingPage } from "./pages/LandingPage";
 import { HomePage } from "./pages/HomePage";
+import { RidesPage } from "./pages/RidesPage";
 import { CreateRidePage } from "./pages/CreateRidePage";
 import { RideInvitePage } from "./pages/RideInvitePage";
 import { JoinRidePage } from "./pages/JoinRidePage";
@@ -24,7 +25,14 @@ export const router = createBrowserRouter([
       { path: "home", element: <HomePage /> },
       // Legacy alias — earlier links pointed at /menu.
       { path: "menu", element: <Navigate to="/home" replace /> },
-      { path: "create", element: <CreateRidePage /> },
+      // Base page for the Ride tab: active + past rides, empty state when
+      // there's no active ride. Distinct from "ride/:rideId" below.
+      { path: "ride", element: <RidesPage /> },
+      // Create lives under Ride now — it's a sub-flow reached from a primary
+      // button on Home or on the Ride page, not a standalone base route.
+      { path: "ride/create", element: <CreateRidePage /> },
+      // Legacy alias — earlier links pointed at /create.
+      { path: "create", element: <Navigate to="/ride/create" replace /> },
       { path: "ride/:rideId/edit", element: <CreateRidePage /> },
       { path: "ride/:rideId/invite", element: <RideInvitePage /> },
       { path: "join", element: <JoinRidePage /> },

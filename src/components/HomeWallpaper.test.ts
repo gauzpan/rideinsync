@@ -7,7 +7,7 @@ for (const p of [
   "/",
   "/home",
   "/discover",
-  "/create",
+  "/ride/create",
   "/join",
   "/profile",
   "/ride/x",

@@ -39,3 +39,5 @@ src/lib/flow6.mock.ts
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.playwright-mcp 

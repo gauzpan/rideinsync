@@ -99,7 +99,7 @@ function RiderPin({ rider }: { rider: RiderOnMap }) {
           justifyContent: "center",
           fontWeight: 600,
           fontSize: 15,
-          fontFamily: "system-ui, sans-serif",
+          fontFamily: "var(--font-ui)",
           opacity: rider.status === "stale" ? 0.65 : 1,
         }}
       >

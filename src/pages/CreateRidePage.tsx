@@ -212,11 +212,17 @@ export function CreateRidePage() {
       setLocating(false);
     }
   }
-  // Dev-only fallback: let a guest lead a ride so the form→tracker path is
-  // demoable before Google OAuth is configured. Coordinate with Mithul before
-  // this reaches main (the Google-only rule is a deliberate product decision).
-  const [guestLeaderOverride, setGuestLeaderOverride] = useState(false);
-  // const showForm = !isGuest || guestLeaderOverride;
+  // Dev builds skip the Google-only leader requirement entirely so every flow
+  // is reachable without configuring OAuth locally (the requirement itself —
+  // leading needs a durable, non-anonymous account — is a deliberate product
+  // decision for production).
+  const guestLeaderOverride = import.meta.env.DEV;
+  // Shown only once someone who isn't eligible to lead (signed out entirely,
+  // or signed in as an anonymous guest) actually tries to submit — the form
+  // itself stays fully explorable either way, per product decision: only the
+  // ride's sharing code (revealed after a successful create, on the invite
+  // screen) needs to sit behind an account.
+  const [showAccountGate, setShowAccountGate] = useState(false);
 useEffect(() => {
     if (!rideId) return;
     let cancelled = false;
@@ -257,7 +263,6 @@ useEffect(() => {
           (detail.ride.permits as { note?: string } | null)?.note ??
           (typeof detail.ride.permits === "string" ? detail.ride.permits : "");
         setPermits(permitNote);
-        setFee(detail.ride.fee_amount != null ? String(detail.ride.fee_amount) : "");
       })
       .catch((e) => {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : "Couldn't load ride.");
@@ -292,7 +297,24 @@ useEffect(() => {
   }
 
   async function handleSubmit() {
-    if (!user) return;
+    // Leading a ride needs a durable account: block here (at submit, not on
+    // page load) so a signed-out visitor can still fill out and explore the
+    // whole form — only the resulting sharing code needs an account.
+    if (!isEdit && (!user || isGuest) && !guestLeaderOverride) {
+      setShowAccountGate(true);
+      return;
+    }
+    if (!user) {
+      // Dev builds skip the Google gate above but still need *some* user id to
+      // write the ride under — use the landing page's "Continue as developer
+      // (dev)" button (see LandingPage.tsx) to get one.
+      setError(
+        import.meta.env.DEV
+          ? 'Tap "Continue as developer (dev)" on the home screen first, then come back and try again.'
+          : "Please sign in to continue.",
+      );
+      return;
+    }
     setError(null);
     if (!name.trim() || !startPoint?.label.trim() || !destination?.label.trim()) {
       setError("Ride name, start point and destination are required.");
@@ -378,7 +400,6 @@ useEffect(() => {
     //     memberCapacity: capacity > 0 ? capacity : null,
     //     guidelines: guidelines || null,
     //     permits: permits || null,
-    //     feeAmount: fee.trim() ? Number(fee) : null,
     //   });
     //   navigate(`/ride/${ride.id}/invite`, { state: { ride } });
     // } catch (e) {
@@ -505,21 +526,25 @@ useEffect(() => {
           placeholder="e.g. Forest entry permit required"
         />
       </Field>
-      <Field label="Fee">
-        <Input
-          type="number"
-          inputMode="decimal"
-          value={fee}
-          onChange={(e) => setFee(e.target.value)}
-          placeholder="0.00"
-        />
-      </Field>
 
       {error && (
         <p style={{ color: "var(--color-role-sweep)", marginBottom: "var(--space-md)" }}>
           {error}
         </p>
       )}
+
+      {showAccountGate && (
+        <Card padding="var(--space-lg)" style={{ marginBottom: "var(--space-md)" }}>
+          <p style={{ margin: "0 0 var(--space-md)", color: "var(--color-text-secondary)" }}>
+            Leading a ride needs a Google account, so riders are never following a ride owned by
+            an account that could disappear. Joining stays open to guests.
+          </p>
+          <Button onClick={() => void handleGoogleUpgrade()} loading={googlePending}>
+            Continue with Google
+          </Button>
+        </Card>
+      )}
+
       <Button onClick={() => void handleSubmit()} loading={submitting}>
         {isEdit ? "Save changes" : "Create ride"}
       </Button>
@@ -528,8 +553,8 @@ useEffect(() => {
 
   return (
     <div>
-      <BackLink to={isEdit && rideId ? `/ride/${rideId}/invite` : "/"}>
-        {isEdit ? "Back to invite" : "Home"}
+      <BackLink to={isEdit && rideId ? `/ride/${rideId}/invite` : "/ride"}>
+        {isEdit ? "Back to invite" : "Rides"}
       </BackLink>
       <h1
         style={{
@@ -554,34 +579,7 @@ useEffect(() => {
         </Card>
       )}
 
-      {!isEdit && isGuest && !guestLeaderOverride && (
-        <Card padding="var(--space-lg)">
-          <p style={{ margin: "0 0 var(--space-md)", color: "var(--color-text-secondary)" }}>
-            Leading a ride needs a Google account, so riders are never following a ride owned by
-            an account that could disappear. Joining stays open to guests.
-          </p>
-          <Button onClick={() => void handleGoogleUpgrade()} loading={googlePending}>
-            Continue with Google
-          </Button>
-          {error && (
-            <p style={{ color: "var(--color-role-sweep)", marginTop: "var(--space-sm)" }}>
-              {error}
-            </p>
-          )}
-          {/* Dev fallback — bypasses the Google-only rule for testing without OAuth.
-              Also the only viable leader path inside the WebView, since Google
-              blocks OAuth in embedded WebViews. */}
-          <Button
-            variant="secondary"
-            onClick={() => setGuestLeaderOverride(true)}
-            style={{ marginTop: "var(--space-sm)" }}
-          >
-            Create as guest (dev)
-          </Button>
-        </Card>
-      )}
-
-      {((!isEdit && (!isGuest || guestLeaderOverride)) || (isEdit && !loadingRide && !loadError)) &&
+      {(!isEdit || (!loadingRide && !loadError)) &&
         (MAPS_KEY ? <APIProvider apiKey={MAPS_KEY}>{formBody}</APIProvider> : formBody)
       }
     </div>
