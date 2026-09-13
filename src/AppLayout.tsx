@@ -284,8 +284,9 @@ export function AppLayout() {
           </span>
         </div>
       )}
+      {isAuthenticated && <TabBar activeRideId={rideId} />}
 
-      {isAuthenticated && <TabBar />}
+      //bottom nav from rajat branch
     </>
   );
 }
