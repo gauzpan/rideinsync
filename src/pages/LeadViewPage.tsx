@@ -7,6 +7,7 @@ import { IconButton } from "../components/ui/IconButton";
 import { LoadingState } from "../components/ui/Loader";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { useAuth } from "../hooks/useAuth";
+import { useNavigateOnRideEnd } from "../hooks/useNavigateOnRideEnd";
 import { LiveOps } from "../components/liveops/LiveOps";
 import type { MemberRole } from "../lib/models";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
@@ -86,6 +87,7 @@ function Avatar({ name, url }: { name: string; url: string | null }) {
 
 export function LeadViewPage() {
   const { rideId } = useParams<{ rideId: string }>();
+  useNavigateOnRideEnd(rideId);
   const { user } = useAuth();
 
   const [detail, setDetail] = useState<RideDetail | null>(null);
@@ -146,7 +148,7 @@ export function LeadViewPage() {
 
   async function handleApprove(requestId: string) {
     if (isFull) {
-      setActionError(`This ride is full (${memberCount}/${capacity}). Free up a spot before approving.`);
+      setActionError("This ride is full. Raise the capacity to admit more riders.");
       return;
     }
     setActionError(null);
@@ -155,7 +157,11 @@ export function LeadViewPage() {
       await approveJoinRequest(requestId);
       await refresh();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Couldn't approve that request.");
+      if (e instanceof Error && e.message.includes("This ride is full")) {
+        setActionError("This ride is full. Raise the capacity to admit more riders.");
+      } else {
+        setActionError(e instanceof Error ? e.message : "Couldn't approve that request.");
+      }
     } finally {
       setBusyId(null);
     }

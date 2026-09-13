@@ -20,6 +20,7 @@ import { GroupInvitePage } from "./pages/GroupInvitePage";
 import { GroupJoinPage } from "./pages/GroupJoinPage";
 import { SosPage } from "./pages/SosPage";
 import { RiderJoinPage } from "./pages/RiderJoinPage";
+import { MyRidesPage } from "./pages/MyRidesPage";
 
 // Route shells only — no functionality yet. Pages map to the PRD's PWA structure.
 export const router = createBrowserRouter([
@@ -43,6 +44,7 @@ export const router = createBrowserRouter([
       { path: "ride/:rideId/invite", element: <RideInvitePage /> },
       { path: "join", element: <JoinRidePage /> },
       { path: "join/:code", element: <JoinRidePage /> },
+      { path: "rides", element: <MyRidesPage /> },
       { path: "ride/:rideId", element: <RiderViewPage /> },
       { path: "profile", element: <RichProfilePage /> },
       { path: "groups", element: <GroupsPage /> },

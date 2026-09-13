@@ -11,7 +11,7 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 
 // ---- Enums (mirror the Postgres enum types) --------------------------------
 export type MemberRole = "leader" | "co_leader" | "sweep" | "rider";
-export type RideStatus = "draft" | "active" | "ended";
+export type RideStatus = "draft" | "active" | "ended" | "cancelled";
 export type MemberStatus = "riding" | "stopped" | "rejoining" | "leaving" | "arrived";
 export type EventType =
   | "sos" | "hazard" | "route_change" | "stop" | "rejoin"

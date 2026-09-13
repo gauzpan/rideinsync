@@ -172,6 +172,10 @@ export function JoinRidePage() {
   // asking for any profile fields, so a pillion never sees the vehicle field.
   function handleContinueFromPreview() {
     if (!preview) return;
+    if (preview.status === "cancelled") {
+      setError("This ride was cancelled by the leader.");
+      return;
+    }
     if (preview.alreadyMember) {
       navigate(`/ride/${preview.rideId}`);
       return;
@@ -207,7 +211,11 @@ export function JoinRidePage() {
         setStep("profile");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't check your profile.");
+      if (e instanceof Error && e.message.includes("This ride is full")) {
+        setError("This ride is full. Ask the lead to raise the capacity, or try another ride.");
+      } else {
+        setError(e instanceof Error ? e.message : "Couldn't check your profile.");
+      }
     } finally {
       setLoading(false);
     }
@@ -230,27 +238,35 @@ export function JoinRidePage() {
 
   async function completeJoin() {
     if (!preview || !user) return;
-    const joined = await joinRideByCode(preview.code, user.id);
-    if (joined.member) {
-      // Demo ride (or already-approved): membership materialised immediately.
-      if (mode === "pillion") {
-        // Now a ride member, so the roster is readable under RLS — move to
-        // picking which rider's bike they're on.
-        setJoinedRideId(joined.rideId);
-        await loadEligibleRiders(joined.rideId);
-        setStep("linkRider");
+    try {
+      const joined = await joinRideByCode(preview.code, user.id);
+      if (joined.member) {
+        // Demo ride (or already-approved): membership materialised immediately.
+        if (mode === "pillion") {
+          // Now a ride member, so the roster is readable under RLS — move to
+          // picking which rider's bike they're on.
+          setJoinedRideId(joined.rideId);
+          await loadEligibleRiders(joined.rideId);
+          setStep("linkRider");
+          return;
+        }
+        navigate(`/ride/${joined.rideId}`);
         return;
       }
-      navigate(`/ride/${joined.rideId}`);
-      return;
+      // Non-demo ride: a `ride_join_requests` row was created, pending the
+      // lead's approval — wait here rather than navigating to a ride-detail
+      // fetch that RLS would block for a non-member. (A pillion whose join is
+      // pending links their rider once approved, from ride detail.)
+      setPendingRideId(joined.rideId);
+      setRequestStatus("pending");
+      setStep("pending");
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("This ride is full")) {
+        setError("This ride is full. Ask the lead to raise the capacity, or try another ride.");
+        return;
+      }
+      throw e;
     }
-    // Non-demo ride: a `ride_join_requests` row was created, pending the
-    // lead's approval — wait here rather than navigating to a ride-detail
-    // fetch that RLS would block for a non-member. (A pillion whose join is
-    // pending links their rider once approved, from ride detail.)
-    setPendingRideId(joined.rideId);
-    setRequestStatus("pending");
-    setStep("pending");
   }
 
   async function handleConfirmLink() {
@@ -318,7 +334,11 @@ export function JoinRidePage() {
       await refreshProfile();
       await completeJoin();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't join the ride. Try again.");
+      if (e instanceof Error && e.message.includes("This ride is full")) {
+        setError("This ride is full. Ask the lead to raise the capacity, or try another ride.");
+      } else {
+        setError(e instanceof Error ? e.message : "Couldn't join the ride. Try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -418,67 +438,102 @@ export function JoinRidePage() {
       {scannerOpen && <QrScannerSheet onDecode={handleScanned} onClose={() => setScannerOpen(false)} />}
 
       {step === "preview" && preview && (
-        <div>
-          <Card padding="var(--space-lg)">
-            <h2
-              style={{
-                fontSize: "var(--text-h2)",
-                lineHeight: "var(--lh-h2)",
-                fontWeight: "var(--weight-semibold)",
-                margin: "0 0 var(--space-md)",
-              }}
+        preview.status === "cancelled" ? (
+          <div>
+            <Card padding="var(--space-lg)">
+              <h2
+                style={{
+                  fontSize: "var(--text-h2)",
+                  lineHeight: "var(--lh-h2)",
+                  fontWeight: "var(--weight-semibold)",
+                  margin: "0 0 var(--space-xs)",
+                }}
+              >
+                {preview.name}
+              </h2>
+              <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>
+                This ride was cancelled by the leader.
+              </p>
+            </Card>
+            <div style={{ marginTop: "var(--space-lg)" }}>
+              <Link
+                to="/"
+                style={{
+                  color: "var(--color-text-secondary)",
+                  fontSize: "var(--text-label)",
+                  textDecoration: "underline",
+                  display: "inline-block",
+                  minHeight: 56,
+                  lineHeight: "56px",
+                }}
+              >
+                ‹ Home
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <Card padding="var(--space-lg)">
+              <h2
+                style={{
+                  fontSize: "var(--text-h2)",
+                  lineHeight: "var(--lh-h2)",
+                  fontWeight: "var(--weight-semibold)",
+                  margin: "0 0 var(--space-md)",
+                }}
+              >
+                {preview.name}
+              </h2>
+              <SummaryRow label="Lead" value={preview.leaderName ?? "Unknown"} />
+              <SummaryRow
+                label="Route"
+                value={`${preview.startLabel ?? "—"} → ${preview.destinationLabel ?? "—"}`}
+              />
+              {preview.stopLabels.length > 0 && (
+                <SummaryRow label="Stops" value={preview.stopLabels.join(", ")} />
+              )}
+              {preview.scheduledStart && (
+                <SummaryRow
+                  label="Departure"
+                  value={formatScheduleDateTime(preview.scheduledStart)}
+                />
+              )}
+              {preview.scheduledEnd && (
+                <SummaryRow
+                  label="Expected end"
+                  value={formatScheduleDateTime(preview.scheduledEnd)}
+                />
+              )}
+              <SummaryRow label="Status" value={preview.status === "draft" ? "Not started yet" : "Active"} />
+              <SummaryRow
+                label="Capacity"
+                value={
+                  preview.memberCapacity
+                    ? `${preview.memberCount} / ${preview.memberCapacity} riders`
+                    : `${preview.memberCount} riders`
+                }
+              />
+              {preview.guidelines && <SummaryRow label="Guidelines" value={preview.guidelines} />}
+            </Card>
+
+            {preview.alreadyMember && (
+              <p style={{ color: "var(--color-text-secondary)", margin: "var(--space-md) 0" }}>
+                You're already in this ride.
+              </p>
+            )}
+
+            {error && (
+              <p style={{ color: "var(--color-role-sweep)", margin: "var(--space-md) 0 0" }}>{error}</p>
+            )}
+            <Button
+              style={{ marginTop: "var(--space-lg)" }}
+              onClick={handleContinueFromPreview}
+              loading={loading}
             >
-              {preview.name}
-            </h2>
-            <SummaryRow label="Lead" value={preview.leaderName ?? "Unknown"} />
-            <SummaryRow
-              label="Route"
-              value={`${preview.startLabel ?? "—"} → ${preview.destinationLabel ?? "—"}`}
-            />
-            {preview.stopLabels.length > 0 && (
-              <SummaryRow label="Stops" value={preview.stopLabels.join(", ")} />
-            )}
-                        {preview.scheduledStart && (
-              <SummaryRow
-                label="Departure"
-                value={formatScheduleDateTime(preview.scheduledStart)}
-              />
-            )}
-            {preview.scheduledEnd && (
-              <SummaryRow
-                label="Expected end"
-                value={formatScheduleDateTime(preview.scheduledEnd)}
-              />
-            )}
-            <SummaryRow label="Status" value={preview.status === "draft" ? "Not started yet" : "Active"} />
-            <SummaryRow
-              label="Capacity"
-              value={
-                preview.memberCapacity
-                  ? `${preview.memberCount} / ${preview.memberCapacity} riders`
-                  : `${preview.memberCount} riders`
-              }
-            />
-            {preview.guidelines && <SummaryRow label="Guidelines" value={preview.guidelines} />}
-          </Card>
-
-          {preview.alreadyMember && (
-            <p style={{ color: "var(--color-text-secondary)", margin: "var(--space-md) 0" }}>
-              You're already in this ride.
-            </p>
-          )}
-
-          {error && (
-            <p style={{ color: "var(--color-role-sweep)", margin: "var(--space-md) 0 0" }}>{error}</p>
-          )}
-          <Button
-            style={{ marginTop: "var(--space-lg)" }}
-            onClick={handleContinueFromPreview}
-            loading={loading}
-          >
-            {preview.alreadyMember ? "Go to ride" : "Continue"}
-          </Button>
-        </div>
+              {preview.alreadyMember ? "Go to ride" : "Continue"}
+            </Button>
+          </div>
+        )
       )}
 
       {step === "mode" && preview && (

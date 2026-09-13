@@ -6,6 +6,7 @@ import { Card } from "../components/ui/Card";
 import { useAuth } from "../hooks/useAuth";
 import { Icon } from "../components/ui/Icon";
 import { Loader, LoadingState } from "../components/ui/Loader";
+import { useNavigateOnRideEnd } from "../hooks/useNavigateOnRideEnd";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import { LiveOps } from "../components/liveops/LiveOps";
 import {
@@ -38,6 +39,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
 
 export function RiderViewPage() {
   const { rideId } = useParams<{ rideId: string }>();
+  useNavigateOnRideEnd(rideId);
   const { user } = useAuth();
   const navigate = useNavigate();
 

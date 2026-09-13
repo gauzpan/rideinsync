@@ -334,6 +334,94 @@ export async function getRideById(rideId: string): Promise<Ride | null> {
   return data;
 }
 
+/** Counts other joined riders (excluding leader) plus pending join requests for a ride. */
+export async function getRideOtherParticipantsCount(
+  rideId: string,
+  leaderId?: string
+): Promise<number> {
+  const [membersResult, reqsResult] = await Promise.all([
+    supabase
+      .from("ride_members")
+      .select("id", { count: "exact", head: true })
+      .eq("ride_id", rideId)
+      .neq("user_id", leaderId ?? ""),
+    supabase
+      .from("ride_join_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("ride_id", rideId)
+      .eq("status", "pending"),
+  ]);
+
+  if (membersResult.error) throw membersResult.error;
+  if (reqsResult.error) throw reqsResult.error;
+
+  return (membersResult.count ?? 0) + (reqsResult.count ?? 0);
+}
+
+/**
+ * Deletes or cancels a draft ride.
+ * Hybrid model:
+ * - If no other members and no pending join requests: hard deletes the ride (cascades child tables).
+ * - If any other rider has joined or requested: soft cancels by setting status = 'cancelled'.
+ */
+export async function deleteOrCancelRide(
+  rideId: string,
+  leaderId?: string
+): Promise<{ action: "deleted" | "cancelled" }> {
+  const { data: ride, error: rideError } = await supabase
+    .from("rides")
+    .select("id, status, leader_id")
+    .eq("id", rideId)
+    .single();
+
+  if (rideError || !ride) {
+    throw new Error(rideError?.message ?? "Ride not found.");
+  }
+
+  if (ride.status !== "draft") {
+    throw new Error("Only draft rides can be deleted or cancelled.");
+  }
+
+  const effectiveLeaderId = leaderId ?? ride.leader_id;
+  if (leaderId && ride.leader_id !== leaderId) {
+    throw new Error("Only the ride leader can delete this ride.");
+  }
+
+  const [membersResult, reqsResult] = await Promise.all([
+    supabase
+      .from("ride_members")
+      .select("id", { count: "exact", head: true })
+      .eq("ride_id", rideId)
+      .neq("user_id", effectiveLeaderId),
+    supabase
+      .from("ride_join_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("ride_id", rideId)
+      .eq("status", "pending"),
+  ]);
+
+  if (membersResult.error) throw membersResult.error;
+  if (reqsResult.error) throw reqsResult.error;
+
+  const totalOtherRiders = (membersResult.count ?? 0) + (reqsResult.count ?? 0);
+
+  if (totalOtherRiders === 0) {
+    const { error: deleteError } = await supabase
+      .from("rides")
+      .delete()
+      .eq("id", rideId);
+    if (deleteError) throw deleteError;
+    return { action: "deleted" };
+  } else {
+    const { error: updateError } = await supabase
+      .from("rides")
+      .update({ status: "cancelled" })
+      .eq("id", rideId);
+    if (updateError) throw updateError;
+    return { action: "cancelled" };
+  }
+}
+
 /** The deep-link a rider taps to land in the join flow with the code
  *  pre-filled (`/join/:code`, per docs/flow1-onboarding-spec.md). */
 export function buildJoinUrl(code: string): string {
