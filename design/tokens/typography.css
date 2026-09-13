@@ -1,5 +1,5 @@
 :root{
-  --font-brand:"Roadspur Display","Noto Serif Display",Georgia,serif;
+  --font-brand:"Poppins","Quicksand",sans-serif;
   --font-brand-tracking:.01em;
   --font-ui:"Inter","SF Pro Text",system-ui,sans-serif;
   --font-numeric:var(--font-ui);

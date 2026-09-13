@@ -201,19 +201,19 @@ export function AppLayout() {
     return null;
   }
 
-  if (!isAuthenticated) {
-    // Home wallpaper renders on "/" and "/home" regardless of auth state, so
-    // the sign-in view sits on the same night-bike backdrop. NOTE: SignInSheet
-    // paints an opaque `background: var(--color-bg-base)` over inset:0, so the
-    // wallpaper behind it is only *visible* once that root background is made
-    // transparent (SignInSheet.tsx — outside this lane's file scope; reported).
-    return (
-      <>
-        {shouldShowWallpaper(location.pathname) && <HomeWallpaper />}
-        <SignInSheet joinCode={joinCodeFromPath} />
-      </>
-    );
-  }
+  // if (!isAuthenticated) {
+  //   // Home wallpaper renders on "/" and "/home" regardless of auth state, so
+  //   // the sign-in view sits on the same night-bike backdrop. NOTE: SignInSheet
+  //   // paints an opaque `background: var(--color-bg-base)` over inset:0, so the
+  //   // wallpaper behind it is only *visible* once that root background is made
+  //   // transparent (SignInSheet.tsx — outside this lane's file scope; reported).
+  //   return (
+  //     <>
+  //       {shouldShowWallpaper(location.pathname) && <HomeWallpaper />}
+  //       <SignInSheet joinCode={joinCodeFromPath} />
+  //     </>
+  //   );
+  // }
   const onLanding = pathname === "/";
 
   // Landing ("/") is the public login entry. Signed-in users skip it and go
@@ -236,8 +236,6 @@ export function AppLayout() {
   if (isAuthenticated && pathname === "/home" && !voiceOnboardingSeen) {
     return <VoicePermissionSheet onDone={() => setVoiceOnboardingSeen(true)} />;
   }
-  const showSos = shouldShowSos(inApp, rideId, location.pathname);
-
   const showSos = shouldShowSos(inApp, rideId, location.pathname);
 
   return (

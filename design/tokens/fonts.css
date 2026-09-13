@@ -1,11 +1,3 @@
-/* Brand face is Roadspur Display (self-hosted WOFF, OFL-1.1 derivative of Noto
-   Serif Display — see public/fonts/Roadspur_Display_LICENSE.txt). Inter (UI) is
-   still pulled from Google Fonts. The old rounded geometric brand face is gone. */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-@font-face {
-  font-family: "Roadspur Display";
-  src: url("/fonts/roadspur-display.woff") format("woff");
-  font-weight: 400 700;
-  font-display: swap;
-}
+/* Wayix webfonts — SUBSTITUTED from Google Fonts (Poppins for brand, Inter for UI).
+   Original app used a rounded geometric brand face + Inter/SF Pro. Replace with licensed files if available. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap');
