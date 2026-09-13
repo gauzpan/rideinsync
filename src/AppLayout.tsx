@@ -212,6 +212,7 @@ export function AppLayout() {
         <SignInSheet joinCode={joinCodeFromPath} />
       </>
     );
+  }
   const onLanding = pathname === "/";
 
   // Landing ("/") is the public login entry. Signed-in users skip it and go
