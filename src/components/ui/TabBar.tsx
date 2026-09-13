@@ -21,6 +21,19 @@ type Tab = {
   match: (pathname: string) => boolean;
 };
 
+// Duotone footer glyphs: a translucent fill of the icon's own colour behind the
+// stroke, so each tab icon reads as two-tone without introducing a new accent.
+// Derived from currentColor, it adapts to both tab states — the inverted active
+// pill's on-inverse colour (§1) and the tertiary inactive colour — and to
+// light/dark, keeping upstream's inverse active treatment (never a lime fill).
+export const TAB_ICON_FILL = "color-mix(in srgb, currentColor 16%, transparent)";
+
+const TABS: Tab[] = [
+  { label: "Home", icon: "home", to: "/home", match: (p) => p === "/home" || p === "/menu" },
+  { label: "Ride", icon: "map", to: "/ride/demo", match: (p) => p.startsWith("/ride") },
+  { label: "Discover", icon: "compass", to: "/discover", match: (p) => p.startsWith("/discover") },
+  { label: "Profile", icon: "user", to: "/profile", match: (p) => p.startsWith("/profile") },
+];
 
 // The Ride tab opens the rider's current active ride when there is one;
 // otherwise it falls back to Home (the ride list), rather than a dead route.
@@ -97,7 +110,7 @@ export function TabBar({ activeRideId = null }: { activeRideId?: string | null }
               aria-current={active ? "page" : undefined}
               onClick={() => navigate(tab.to)}
             >
-              <Icon name={tab.icon} size={24} />
+              <Icon name={tab.icon} size={24} fill={TAB_ICON_FILL} />
               <span>{tab.label}</span>
             </button>
           );

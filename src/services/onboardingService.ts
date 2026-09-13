@@ -58,12 +58,16 @@ export type CreateRideInput = {
   scheduledStart: string;
   /** Optional scheduled end date-time (ISO string | null) */
   scheduledEnd?: string | null;
-  /** Full point (lat/lng/placeId/label) or plain label */
-  start?: PlacePoint | string;
-  destination?: PlacePoint | string;
-  /** For backwards compatibility */
-  startLabel?: string;
-  destinationLabel?: string;
+  startLabel: string;
+  destinationLabel: string;
+  /** Exact coordinates when the label was picked via Places autocomplete. */
+  startPoint?: { lat: number; lng: number } | null;
+  destinationPoint?: { lat: number; lng: number } | null;
+  stops: CreateRideStopInput[];
+  /** null/omitted = no capacity limit set. */
+  memberCapacity?: number | null;
+  guidelines?: string | null;
+  permits?: string | null;
 };
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I — easy to read aloud
@@ -158,7 +162,6 @@ export async function createRide(leaderId: string, input: CreateRideInput): Prom
     guidelines: input.guidelines?.trim() || null,
     permits: input.permits?.trim() ? { note: input.permits.trim() } : null,
     member_capacity: input.memberCapacity ?? null,
-    fee_amount: input.feeAmount ?? null,
     status: "draft",
   };
 

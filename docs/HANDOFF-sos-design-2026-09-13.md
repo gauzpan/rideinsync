@@ -10,7 +10,11 @@ Two bugs and one design pass.
 
 1. **SOS stayed disabled after a ride started.** The active-ride lookup ran once on mount and never refetched. Fixed with a realtime subscription plus refetch on navigation and tab focus.
 2. **SOS hint never disappeared.** Superseded: per founder ruling the SOS button is now hidden entirely unless the rider is a member of a *started* ride, so there is no disabled state and no hint.
+<<<<<<< HEAD
+3. **Design pass (founder-approved):** "soft raised / key-cap" depth on buttons, cards and the back control; duotone footer icons. (A Home wallpaper and the Roadspur Display brand font were also added in this pass but **reverted 2026-09-13 by founder ruling** — see §3.4/§3.5.)
+=======
 3. **Design pass (founder-approved):** "soft raised / key-cap" depth on buttons, cards and the back control; duotone footer icons; a Home wallpaper on all screens except SOS; Roadspur Display as the brand font.
+>>>>>>> origin/shubham-changes-merge
 
 Also: demo mode made self-consistent, and audited so it can be removed without touching the real path.
 
@@ -18,7 +22,7 @@ Also: demo mode made self-consistent, and audited so it can be removed without t
 
 | Command | Result |
 |---|---|
-| `npm test` | 51 tests, 51 pass, 0 fail |
+| `npm test` | 36 tests, 36 pass, 0 fail (was 51 before the 2026-09-13 font/wallpaper revert removed 4 font + 11 wallpaper tests) |
 | `npx tsc --noEmit` | clean |
 | `npm run build` | `tsc -b && vite build` green, PWA precache 11 entries |
 | `npx vite build --mode nodemo` (demo off) | green; demo seed strings and helpers absent from bundle |
@@ -40,7 +44,7 @@ Tests: `src/lib/activeRide.test.ts` (8: resolve, realtime flip, ended→null, vi
 
 ### 3.2 Depth ("soft raised", key-cap)
 
-- `src/styles/global.css` — tokens `--shadow-raised`, `--shadow-raised-accent` (edge `#7FA800`), `--shadow-raised-danger` (edge `#9E1F17`), `--shadow-pressed`, `--grad-surface`, `--grad-accent`, `--grad-danger`, `--shadow-nav`; `.ui-raised` / `.ui-raised:active { transform: translateY(3px) }`; global `h1` rule for the brand font. Tokens live in the app stylesheet, **not** in `design/tokens/radius.css`, because that file belongs to the design team. Move them if you prefer.
+- `src/styles/global.css` — tokens `--shadow-raised`, `--shadow-raised-accent` (edge `#7FA800`), `--shadow-raised-danger` (edge `#9E1F17`), `--shadow-pressed`, `--grad-surface`, `--grad-accent`, `--grad-danger`, `--shadow-nav`; `.ui-raised` / `.ui-raised:active { transform: translateY(3px) }`. (A global `h1` brand-font rule was added here too but reverted 2026-09-13 — see §3.5.) Tokens live in the app stylesheet, **not** in `design/tokens/radius.css`, because that file belongs to the design team. Move them if you prefer.
 - `src/components/ui/Button.tsx` — primary/secondary/danger raised; ghost unchanged; disabled flat. Text on primary: 12.5:1 at the darkest stop.
 - `src/components/ui/Card.tsx` — gradient, 1 px border, brighter top edge, raised shadow; glow variant keeps its glow.
 - `src/components/ui/BackLink.tsx` (new) — shared raised pill with chevron; replaced 9 inline `‹ Home`-style links across `CreateRidePage`, `JoinRidePage`, `LeadViewPage`, `RideInvitePage`, `RiderViewPage`.
@@ -50,27 +54,17 @@ Tests: `src/styles/tokens.test.ts`, `src/components/ui/BackLink.test.ts`.
 ### 3.3 Footer
 
 - `src/components/ui/Icon.tsx` — optional `fill` prop and pure `iconLayers(name, {fill})` seam: emits a fill layer under the stroke layer (duotone). Default output unchanged for all other consumers.
-- `src/components/BottomNav.tsx` / `.css` — active tab: lime fill 18 % + glow + existing pill; inactive: white fill 8 %; nav bar `--shadow-nav`; labels in the brand font at 12 px, 600, `.02em`.
+- `src/components/BottomNav.tsx` / `.css` — active tab: lime fill 18 % + glow + existing pill; inactive: white fill 8 %; nav bar `--shadow-nav`. (A brand-font label style was added here too but reverted 2026-09-13 — see §3.5; labels are back to the caption token.)
 
 Test: `src/components/BottomNav.test.ts`.
 
-### 3.4 Wallpaper
+### 3.4 Wallpaper — REVERTED
 
-- `public/wallpaper/home-bike.webp` (1080 w, 63 KB) and `home-bike@0.5.webp` (540 w, 24 KB). Founder-owned image generated in ChatGPT; converted with ffmpeg. Not in the SW precache (lazy, `font-display`-style graceful). Add `webp` to `injectManifest.globPatterns` if offline-first art matters.
-- `src/components/HomeWallpaper.tsx` (new) — fixed z-0 layer + dark scrim; `shouldShowWallpaper(pathname)` is a deny-list: everything except `/sos*`. Rendered in `AppLayout` for both authed and unauthenticated branches; content wrapper is `position: relative; z-index: 1`.
-- `src/components/SignInSheet.tsx` — root background `transparent` (was opaque canvas) so the wallpaper shows behind the sign-in card.
+**Reverted 2026-09-13 by founder ruling: the Home wallpaper was removed from all screens.** Deleted `src/components/HomeWallpaper.tsx`, `HomeWallpaper.test.ts`, and `public/wallpaper/`; removed the `<HomeWallpaper>` renders and the `position: relative; z-index: 1` content wrapper from `src/AppLayout.tsx`; removed the `.home-wallpaper__img` rule from `src/styles/global.css`; and restored `SignInSheet.tsx`'s root `background: var(--color-bg-base)`. See the revert commit on `work/ride-safety`.
 
-Measured: text bands over wallpaper+scrim sample at ≈ rgb(8–12, 9–11, 10–12), the same as the plain canvas, so no contrast is lost. Pre-existing: `--color-text-tertiary` `#6B6B70` is 3.76:1 on canvas (flag for design; unchanged here).
+### 3.5 Brand font — REVERTED
 
-Test: `src/components/HomeWallpaper.test.ts` (11 routes).
-
-### 3.5 Brand font
-
-- `public/fonts/roadspur-display.woff` (17 KB Latin subset, `pyftsubset`) + `Roadspur_Display_LICENSE.txt` (OFL-1.1 derivative of Noto Serif Display; OFL requires shipping this file).
-- `design/tokens/fonts.css` — `@font-face` for "Roadspur Display"; **Poppins removed** from the Google Fonts import (Inter kept). `design/tokens/typography.css` — `--font-brand` → Roadspur.
-- Applied to: wordmark (`Logo.tsx`, already on `--font-brand`), page `h1`s (global rule), ride names on Home/Landing cards, bottom-nav labels. Inter everywhere else (body, buttons, inputs, pills, caps labels, numbers).
-
-Test: `src/styles/fonts.test.ts`.
+**Reverted 2026-09-13 by founder ruling: Roadspur was removed entirely and Poppins (brand, from Google Fonts) / Inter (UI) restored.** Deleted `public/fonts/` and `src/styles/fonts.test.ts`; restored `design/tokens/fonts.css` and `--font-brand:"Poppins","Quicksand",sans-serif;` (removing `--font-brand-tracking`); removed the global `h1` brand-font rule from `global.css`, the brand font/size overrides on the ride-name elements in `HomePage.tsx`/`LandingPage.tsx`, and the brand font styling on `.bottom-nav__label`. See the revert commit on `work/ride-safety`.
 
 ### 3.6 Demo mode (dev only) — made consistent and audited
 
@@ -90,17 +84,16 @@ Demo mode (`VITE_DEMO_SESSION=1`, no Supabase keys) previously faked an active r
 - SOS visible **only** to a member of a started (`status = active`) ride. Not for draft rides, not for non-members, never on `/sos`.
 - Depth style: soft raised → strengthened to key-cap after device review. Not glossy, not neumorphic.
 - Footer icons: option A duotone outline.
-- Wallpaper: fixed vector/photo background, founder-supplied image, on all screens except SOS.
-- Brand font: Roadspur on wordmark, H1, ride names, footer labels; Inter elsewhere; title case (no forced caps).
+- Wallpaper: **reverted 2026-09-13** — removed from all screens (see §3.4).
+- Brand font: **reverted 2026-09-13** — Roadspur removed; Poppins (brand) / Inter (UI) restored (see §3.5).
 
 ## 5. Open items for the owner
 
 1. Voice mic toggle on the floating SOS button (see 3.1).
 2. Tokens location: app stylesheet vs `design/tokens/*` (see 3.2).
-3. Wallpaper and font are not in the SW precache; decide if offline-first branding matters.
-4. Pre-existing, not changed: `--color-text-tertiary` 3.76:1; white on danger red 3.55:1 (large text only); `/ride/<id>/lead` hangs in demo mode (Supabase absent); Send SOS shows no countdown in demo mode.
-5. Live query paths of `useHomeData` and `getMyRides` have no direct unit test (only their demo seams). Recommend mock-backed tests before deleting demo mode.
-6. Design system doc says depth comes from glows, not shadows. This PR departs from that on founder request; shadows are kept dark-on-dark.
+3. Pre-existing, not changed: `--color-text-tertiary` 3.76:1; white on danger red 3.55:1 (large text only); `/ride/<id>/lead` hangs in demo mode (Supabase absent); Send SOS shows no countdown in demo mode.
+4. Live query paths of `useHomeData` and `getMyRides` have no direct unit test (only their demo seams). Recommend mock-backed tests before deleting demo mode.
+5. Design system doc says depth comes from glows, not shadows. This PR departs from that on founder request; shadows are kept dark-on-dark.
 
 ## 6. Running locally
 

@@ -194,7 +194,6 @@ export function CreateRidePage() {
   const [capacity, setCapacity] = useState(0); // 0 = no limit
   const [guidelines, setGuidelines] = useState("");
   const [permits, setPermits] = useState("");
-  const [fee, setFee] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [googlePending, setGooglePending] = useState(false);
@@ -350,9 +349,8 @@ useEffect(() => {
           })),
         memberCapacity: capacity > 0 ? capacity : null,
         guidelines: guidelines || null,
-        permits: permits || null,
-        feeAmount: fee.trim() ? Number(fee) : null,
-              };
+        permits: permits || null
+      };
 
       if (isEdit && rideId) {
         const updated = await updateRide(rideId, inputPayload, user.id);
