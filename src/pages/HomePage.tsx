@@ -12,12 +12,19 @@ import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
 
 export function HomePage() {
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const { loading, activeRide, completeness, stats, pastRides, isEmpty } = useHomeData();
   const [voiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
   const [showVoiceSheet, setShowVoiceSheet] = useState(false);
 
-  const firstName = (profile?.display_name ?? "rider").trim().split(/\s+/)[0];
+  // Profile display_name is the default "Rider" for most OAuth sign-ins (the
+  // provisioning trigger only reads a `display_name` metadata key), so fall
+  // back to the provider-supplied name from the auth session.
+  const meta = (user?.user_metadata ?? {}) as Record<string, unknown>;
+  const metaName = [meta.full_name, meta.name].find((v): v is string => typeof v === "string" && v.trim().length > 0);
+  const profileName = profile?.display_name?.trim();
+  const name = (profileName && profileName !== "Rider" ? profileName : metaName) ?? "rider";
+  const firstName = name.trim().split(/\s+/)[0];
 
   const col: CSSProperties = {
     display: "flex",

@@ -5,10 +5,10 @@ import { Icon } from "./ui/Icon";
 import { useVoiceListening } from "../lib/voiceActivity";
 
 /** Top app bar: the RideInSync logo on the left, and a single account icon on
- *  the right. The icon's menu shows the rider's identity — Profile (and
- *  sign-out, as its last item) lives in the bottom TabBar instead. */
+ *  the right. The icon's menu shows the rider's identity, with sign-out as
+ *  its last item. */
 export function AccountBar() {
-  const { profile, isGuest } = useAuth();
+  const { profile, isGuest, signOut } = useAuth();
   const label = profile?.display_name ?? (isGuest ? "Guest" : "Rider");
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -136,6 +136,42 @@ export function AccountBar() {
                 </span>
               )}
             </div>
+
+            <div
+              aria-hidden
+              style={{
+                height: 1,
+                margin: "var(--space-xs) 0",
+                background: "var(--color-divider)",
+              }}
+            />
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                void signOut();
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-xs)",
+                width: "100%",
+                minHeight: 44,
+                padding: "var(--space-xs) var(--space-sm)",
+                border: "none",
+                borderRadius: "var(--radius-sm)",
+                background: "transparent",
+                color: "var(--color-text-primary)",
+                fontSize: "var(--text-body-size)",
+                textAlign: "left",
+                cursor: "pointer",
+              }}
+            >
+              <Icon name="log-out" size={18} />
+              Sign out
+            </button>
           </div>
         )}
         </div>
