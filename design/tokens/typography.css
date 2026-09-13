@@ -1,20 +1,31 @@
 :root{
-  --font-brand:"Poppins","Quicksand",sans-serif;
-  --font-ui:"Inter","SF Pro Text",system-ui,sans-serif;
+  --font-brand:"Bricolage Grotesque","Poppins",sans-serif;
+  --font-brand-tracking:-0.01em;
+  --font-ui:"Bricolage Grotesque","Inter",system-ui,sans-serif;
   --font-numeric:var(--font-ui);
 
-  /* size / line-height / weight roles */
+  /* size / line-height / weight roles. Caption bumped 12->13px (lh 16->18px):
+     Bricolage Grotesque's lowercase x-height reads smaller than Inter's at the
+     same size, and 12px sits below comfortable reading size for the
+     secondary/tertiary-colored meta text it's mostly used for.
+     --text-h1/--text-metric bumped per the 2026-09 visual-polish pass
+     (docs/plan-update-visual.md) for a stronger screen-heading/stat hierarchy;
+     --text-button is a dedicated role so Button.tsx doesn't share body's size. */
   --text-display:44px;   --lh-display:48px;
-  --text-h1:24px;        --lh-h1:30px;
+  --text-h1:26px;        --lh-h1:32px;
   --text-h2:20px;        --lh-h2:26px;
-  --text-metric:28px;    --lh-metric:32px;
+  --text-metric:32px;    --lh-metric:34px;
   --text-body-size:16px; --lh-body:24px;
+  --text-button:17px;
   --text-label:14px;     --lh-label:20px;
-  --text-caption:12px;   --lh-caption:16px;
+  --text-caption:13px;   --lh-caption:18px;
 
   --weight-regular:400;
   --weight-medium:500;
   --weight-semibold:600;
+  /* Bricolage Grotesque's bolder cuts (up to 800) read well at display/H1 size
+     and give headings more separation from body text than semibold alone. */
+  --weight-bold:700;
 
-  --tracking-brand:-0.01em;
+  --tracking-brand:-0.02em;
 }

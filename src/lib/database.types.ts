@@ -11,7 +11,7 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 
 // ---- Enums (mirror the Postgres enum types) --------------------------------
 export type MemberRole = "leader" | "co_leader" | "sweep" | "rider";
-export type RideStatus = "draft" | "active" | "ended";
+export type RideStatus = "draft" | "active" | "ended" | "cancelled";
 export type MemberStatus = "riding" | "stopped" | "rejoining" | "leaving" | "arrived";
 export type EventType =
   | "sos" | "hazard" | "route_change" | "stop" | "rejoin"
@@ -26,6 +26,9 @@ export type SosKind = "manual" | "auto";
 export type AckState = "unseen" | "seen";
 export type PitstopKind = "planned" | "dynamic";
 export type ConsentPolicy = "tnc" | "privacy" | "medical" | "dpdp";
+export type Gender = "male" | "female" | "non_binary" | "prefer_not_to_say";
+export type AgeBand = "18_25" | "26_35" | "36_45" | "46_55" | "56_plus";
+export type GroupMemberRole = "lead" | "member";
 
 // Helper: a table definition with Row / Insert / Update shapes.
 // `Relationships: []` is required by @supabase/supabase-js v2's generics — without
@@ -45,8 +48,28 @@ export interface Database {
   public: {
     Tables: {
       profiles: Table<
-        { id: string; display_name: string; phone: string | null; avatar_url: string | null; is_guest: boolean } & Timestamps,
-        { id: string; display_name?: string; phone?: string | null; avatar_url?: string | null; is_guest?: boolean }
+        {
+          id: string;
+          display_name: string;
+          first_name: string | null;
+          last_name: string | null;
+          gender: Gender | null;
+          age_band: AgeBand | null;
+          phone: string | null;
+          avatar_url: string | null;
+          is_guest: boolean;
+        } & Timestamps,
+        {
+          id: string;
+          display_name?: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          gender?: Gender | null;
+          age_band?: AgeBand | null;
+          phone?: string | null;
+          avatar_url?: string | null;
+          is_guest?: boolean;
+        }
       >;
       rides: Table<
         {
@@ -57,6 +80,7 @@ export interface Database {
           separation_distance_km: number; separation_time_seconds: number;
           default_location_visibility: Visibility; status: RideStatus;
           retention_until: string | null; is_demo: boolean; ended_at: string | null;
+          scheduled_start: string | null; scheduled_end: string | null;
           travel_mode: TravelMode;
         } & Timestamps,
         { code: string; name: string; leader_id: string; city?: string | null; start_point?: Json | null;
@@ -64,7 +88,7 @@ export interface Database {
           member_capacity?: number | null; fee_amount?: number | null; gps_interval_seconds?: number;
           separation_distance_km?: number; separation_time_seconds?: number;
           default_location_visibility?: Visibility; status?: RideStatus; retention_until?: string | null;
-          is_demo?: boolean }
+          is_demo?: boolean; scheduled_start?: string | null; scheduled_end?: string | null; }
       >;
       ride_members: Table<
         {
@@ -184,6 +208,15 @@ export interface Database {
         { id: string; user_id: string; ride_id: string; endpoint: string; p256dh: string; auth: string; created_at: string },
         { user_id: string; ride_id: string; endpoint: string; p256dh: string; auth: string }
       >;
+      // migration 0011_groups.sql — hand-authored mirror; regenerate later.
+      ride_groups: Table<
+        { id: string; name: string; city: string | null; culture: string | null; tagline: string | null; rules: string | null; created_by: string; invite_code: string } & Timestamps,
+        { name: string; city?: string | null; culture?: string | null; tagline?: string | null; rules?: string | null; created_by: string; invite_code?: string }
+      >;
+      ride_group_members: Table<
+        { id: string; group_id: string; user_id: string; role: GroupMemberRole; joined_at: string },
+        { group_id: string; user_id: string; role?: GroupMemberRole }
+      >;
     };
     Views: Record<string, never>;
     Functions: {
@@ -199,6 +232,18 @@ export interface Database {
       // supabase/migrations/0007_ending.sql (Flow 6) — renumbered on merge; see below.
       close_ride: { Args: { p_ride_id: string }; Returns: undefined };
       reached_home: { Args: { p_ride_id: string }; Returns: undefined };
+      // supabase/migrations/0009_flow2_remove_member.sql
+      remove_ride_member: { Args: { p_ride_id: string; p_user_id: string }; Returns: undefined };
+      // supabase/migrations/0011_groups.sql
+      create_ride_group: {
+        Args: { p_name: string; p_city: string; p_culture: string; p_tagline: string; p_rules: string; p_co_leads?: string[] };
+        Returns: string;
+      };
+      search_riders: { Args: { p_query: string }; Returns: { id: string; display_name: string; avatar_url: string | null }[] };
+      is_group_member: { Args: { gid: string }; Returns: boolean };
+      is_group_lead: { Args: { gid: string }; Returns: boolean };
+      // supabase/migrations/0012_group_invite.sql
+      join_group_by_code: { Args: { p_code: string }; Returns: string };
     };
     Enums: {
       member_role: MemberRole;
@@ -215,6 +260,7 @@ export interface Database {
       consent_policy: ConsentPolicy;
       travel_mode: TravelMode;
       feedback_sentiment: FeedbackSentiment;
+      group_member_role: GroupMemberRole;
     };
     CompositeTypes: Record<string, never>;
   };

@@ -1,33 +1,60 @@
-import { useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
-import { Link } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { BackLink } from "../components/ui/BackLink";
+import { APIProvider } from "@vis.gl/react-google-maps";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { Icon } from "../components/ui/Icon";
 import { IconButton } from "../components/ui/IconButton";
+import { LoadingState } from "../components/ui/Loader";
 import { Geolocation } from "@capacitor/geolocation";
 import { Input } from "../components/ui/Input";
-import { PlaceInput } from "../components/ui/PlaceInput";
+import { PlaceAutocomplete, type PlacePoint } from "../components/PlaceAutocomplete";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { Stepper } from "../components/ui/Stepper";
 import { useAuth } from "../hooks/useAuth";
 import {
   createRide,
+    updateRide,
+  getRideDetail,
+  parseJsonPoint,
   STOP_KINDS,
-  type CreateRideStopInput,
+  STOP_LABELS,
+  STOP_ICONS,
   type StopKind,
 } from "../services/onboardingService";
 
-const STOP_LABELS: Record<StopKind, string> = {
-  fuel: "Fuel",
-  food: "Food",
-  rest: "Rest",
-  scenic: "Scenic",
-};
+const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+
+const STOP_OPTIONS = STOP_KINDS.map((k) => ({
+  value: k,
+  label: (
+    <>
+      <Icon name={STOP_ICONS[k]} size={16} strokeWidth={1.75} aria-hidden="true" />
+      <span>{STOP_LABELS[k]}</span>
+    </>
+  ),
+  ariaLabel: STOP_LABELS[k],
+}));
 
 let stopKey = 0;
-type DraftStop = CreateRideStopInput & { key: number };
+type DraftStop = {
+  key: number;
+  kind: StopKind;
+  point: PlacePoint | null;
+};
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+function Field({
+  label,
+  required,
+  hint,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  children: ReactNode;
+}) {
   return (
     <div style={{ marginBottom: "var(--space-md)" }}>
       <label
@@ -39,6 +66,17 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
         }}
       >
         {label}
+          {required && (
+              <span
+                style={{
+                  color: "var(--color-role-sweep)",
+                  marginLeft: "var(--space-2xs)",
+                }}
+                aria-hidden="true"
+              >
+                *
+              </span>
+          )}
       </label>
       {children}
       {hint && (
@@ -86,15 +124,73 @@ const textareaStyle = {
   outline: "none",
 };
 
+function isoToDateTimeLocal(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function DateTimeInput({
+  value,
+  onChange,
+  ariaLabel,
+  ariaRequired,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  ariaLabel?: string;
+  ariaRequired?: boolean;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <input
+      type="datetime-local"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      aria-label={ariaLabel}
+      aria-required={ariaRequired ? "true" : undefined}
+      style={{
+        width: "100%",
+        minHeight: "var(--control-height)",
+        height: "var(--control-height)",
+        padding: "0 var(--space-md)",
+        boxSizing: "border-box",
+        background: "var(--color-surface-2)",
+        border: `1px solid ${focused ? "var(--color-accent)" : "transparent"}`,
+        borderRadius: "var(--radius-md)",
+        color: "var(--color-text-primary)",
+        fontFamily: "var(--font-ui)",
+        fontSize: "var(--text-body-size)",
+        colorScheme: "dark",
+        outline: "none",
+        transition: "border-color .15s ease",
+      }}
+    />
+  );
+}
+
+
 export function CreateRidePage() {
+  const { rideId } = useParams<{ rideId: string }>();
+  const isEdit = Boolean(rideId);
   const { user, isGuest, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
-
   const [name, setName] = useState("");
-  const [startLabel, setStartLabel] = useState("");
-  const [startPoint, setStartPoint] = useState<{ lat: number; lng: number } | null>(null);
-  const [destinationLabel, setDestinationLabel] = useState("");
-  const [destinationPoint, setDestinationPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const [loadingRide, setLoadingRide] = useState(isEdit);
+  const [loadError, setLoadError] = useState<string | null>(null);
+    const [departure, setDeparture] = useState("");
+  const [expectedEnd, setExpectedEnd] = useState("");
+  const [startPoint, setStartPoint] = useState<PlacePoint | null>(null);
+  const [destination, setDestination] = useState<PlacePoint | null>(null);
   const [stops, setStops] = useState<DraftStop[]>([]);
   const [capacity, setCapacity] = useState(0); // 0 = no limit
   const [guidelines, setGuidelines] = useState("");
@@ -110,20 +206,25 @@ export function CreateRidePage() {
     try {
       await Geolocation.requestPermissions();
       const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
-      setStartLabel("Current location");
-      setStartPoint({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      setStartPoint({ label: "Current location", lat: pos.coords.latitude, lng: pos.coords.longitude });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't get your current location.");
     } finally {
       setLocating(false);
     }
   }
-  // Dev-only fallback: let a guest lead a ride so the form→tracker path is
-  // demoable before Google OAuth is configured. Coordinate with Mithul before
-  // this reaches main (the Google-only rule is a deliberate product decision).
-  const [guestLeaderOverride, setGuestLeaderOverride] = useState(false);
-
-  useEffect(() => {
+  // Dev builds skip the Google-only leader requirement entirely so every flow
+  // is reachable without configuring OAuth locally (the requirement itself —
+  // leading needs a durable, non-anonymous account — is a deliberate product
+  // decision for production).
+  const guestLeaderOverride = import.meta.env.DEV;
+  // Shown only once someone who isn't eligible to lead (signed out entirely,
+  // or signed in as an anonymous guest) actually tries to submit — the form
+  // itself stays fully explorable either way, per product decision: only the
+  // ride's sharing code (revealed after a successful create, on the invite
+  // screen) needs to sit behind an account.
+  const [showAccountGate, setShowAccountGate] = useState(false);
+useEffect(() => {
     if (!rideId) return;
     let cancelled = false;
     setLoadingRide(true);
@@ -177,9 +278,9 @@ export function CreateRidePage() {
   }, [rideId, user]);
 
   function addStop() {
-    setStops((s) => [...s, { key: stopKey++, label: "", kind: "fuel" }]);
+    setStops((s) => [...s, { key: stopKey++, kind: "fuel", point: null }]);   
   }
-  function updateStop(key: number, patch: Partial<CreateRideStopInput>) {
+  function updateStop(key: number, patch: Partial<DraftStop>) {
     setStops((s) => s.map((stop) => (stop.key === key ? { ...stop, ...patch } : stop)));
   }
   function removeStop(key: number) {
@@ -197,24 +298,81 @@ export function CreateRidePage() {
   }
 
   async function handleSubmit() {
-    if (!user) return;
+    // Leading a ride needs a durable account: block here (at submit, not on
+    // page load) so a signed-out visitor can still fill out and explore the
+    // whole form — only the resulting sharing code needs an account.
+    if (!isEdit && (!user || isGuest) && !guestLeaderOverride) {
+      setShowAccountGate(true);
+      return;
+    }
+    if (!user) {
+      // Dev builds skip the Google gate above but still need *some* user id to
+      // write the ride under — use the landing page's "Continue as developer
+      // (dev)" button (see LandingPage.tsx) to get one.
+      setError(
+        import.meta.env.DEV
+          ? 'Tap "Continue as developer (dev)" on the home screen first, then come back and try again.'
+          : "Please sign in to continue.",
+      );
+      return;
+    }
     setError(null);
-    if (!name.trim() || !startLabel.trim() || !destinationLabel.trim()) {
+    if (!name.trim() || !startPoint?.label.trim() || !destination?.label.trim()) {
       setError("Ride name, start point and destination are required.");
       return;
     }
+        if (!departure) {
+      setError("Departure date and time is required.");
+      return;
+    }
+    const startDate = new Date(departure);
+    if (isNaN(startDate.getTime())) {
+      setError("Please enter a valid departure date and time.");
+      return;
+    }
+    let startIso: string;
+    try {
+      startIso = startDate.toISOString();
+    } catch {
+      setError("Please enter a valid departure date and time.");
+      return;
+    }
+
+    let endIso: string | null = null;
+    if (expectedEnd) {
+      const endDate = new Date(expectedEnd);
+      if (isNaN(endDate.getTime())) {
+        setError("Please enter a valid expected end date and time.");
+        return;
+      }
+      if (endDate.getTime() <= startDate.getTime()) {
+        setError("Expected end time must be after departure time.");
+        return;
+      }
+      endIso = endDate.toISOString();
+    }
+
     setSubmitting(true);
     try {
-      const ride = await createRide(user.id, {
+      const inputPayload = {
         name,
-        startLabel,
-        destinationLabel,
-        startPoint,
-        destinationPoint,
-        stops: stops.map(({ label, kind, lat, lng }) => ({ label, kind, lat, lng })),
+        scheduledStart: startIso,
+        scheduledEnd: endIso,
+        start: startPoint,
+        destination: destination,
+        stops: stops
+          .filter((s) => s.point && s.point.label.trim().length > 0)
+          .map(({ kind, point }) => ({
+            kind,
+            label: point!.label.trim(),
+            lat: point!.lat,
+            lng: point!.lng,
+            placeId: point!.placeId,
+            point,
+          })),
         memberCapacity: capacity > 0 ? capacity : null,
         guidelines: guidelines || null,
-        permits: permits || null,
+        permits: permits || null
       };
 
       if (isEdit && rideId) {
@@ -225,8 +383,30 @@ export function CreateRidePage() {
         navigate(`/ride/${ride.id}/invite`, { state: { ride } });
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't create the ride. Try again.");
-      setSubmitting(false);
+          setError(
+            e instanceof Error
+            ? e.message: isEdit
+            ? "Couldn't update the ride. Try again."
+            : "Couldn't create the ride. Try again."
+          );
+       setSubmitting(false);
+
+    //   const ride = await createRide(user.id, {
+    //     name,
+    //     startLabel,
+    //     destinationLabel,
+    //     startPoint,
+    //     destinationPoint,
+    //     stops: stops.map(({ label, kind, lat, lng }) => ({ label, kind, lat, lng })),
+    //     memberCapacity: capacity > 0 ? capacity : null,
+    //     guidelines: guidelines || null,
+    //     permits: permits || null,
+    //   });
+    //   navigate(`/ride/${ride.id}/invite`, { state: { ride } });
+    // } catch (e) {
+    //   setError(e instanceof Error ? e.message : "Couldn't create the ride. Try again.");
+    //   setSubmitting(false);
+    // }
     }
   }
 
@@ -353,6 +533,19 @@ export function CreateRidePage() {
           {error}
         </p>
       )}
+
+      {showAccountGate && (
+        <Card padding="var(--space-lg)" style={{ marginBottom: "var(--space-md)" }}>
+          <p style={{ margin: "0 0 var(--space-md)", color: "var(--color-text-secondary)" }}>
+            Leading a ride needs a Google account, so riders are never following a ride owned by
+            an account that could disappear. Joining stays open to guests.
+          </p>
+          <Button onClick={() => void handleGoogleUpgrade()} loading={googlePending}>
+            Continue with Google
+          </Button>
+        </Card>
+      )}
+
       <Button onClick={() => void handleSubmit()} loading={submitting}>
         {isEdit ? "Save changes" : "Create ride"}
       </Button>
@@ -361,9 +554,9 @@ export function CreateRidePage() {
 
   return (
     <div>
-      <Link to="/" style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
-        ‹ Home
-      </Link>
+      <BackLink to={isEdit && rideId ? `/ride/${rideId}/invite` : "/ride"}>
+        {isEdit ? "Back to invite" : "Rides"}
+      </BackLink>
       <h1
         style={{
           fontSize: "var(--text-h1)",
@@ -372,159 +565,20 @@ export function CreateRidePage() {
           margin: "var(--space-sm) 0 var(--space-lg)",
         }}
       >
-        Create ride
+        {isEdit ? "Edit ride" : "Create ride"}
       </h1>
 
-      {!showForm && (
-        <Card padding="var(--space-lg)">
-          <p style={{ margin: "0 0 var(--space-md)", color: "var(--color-text-secondary)" }}>
-            Leading a ride needs a Google account, so riders are never following a ride owned by
-            an account that could disappear. Joining stays open to guests.
-          </p>
-          <Button onClick={() => void handleGoogleUpgrade()} loading={googlePending}>
-            Continue with Google
-          </Button>
-          {error && (
-            <p style={{ color: "var(--color-role-sweep)", marginTop: "var(--space-sm)" }}>
-              {error}
-            </p>
-          )}
-          {/* Dev fallback — bypasses the Google-only rule for testing without OAuth.
-              Also the only viable leader path inside the WebView, since Google
-              blocks OAuth in embedded WebViews. */}
-          <Button
-            variant="secondary"
-            onClick={() => setGuestLeaderOverride(true)}
-            style={{ marginTop: "var(--space-sm)" }}
-          >
-            Create as guest (dev)
-          </Button>
+      {loadingRide && <LoadingState label="Loading ride…" />}
+
+      {loadError && (
+        <Card padding="var(--space-lg)" style={{ marginTop: "var(--space-md)" }}>
+          <p style={{ color: "var(--color-role-sweep)", margin: 0 }}>{loadError}</p>
         </Card>
       )}
 
-      {showForm && (
-        <div>
-          <Field label="Ride name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Coastal loop" />
-          </Field>
-          <Field label="Start point" hint="Search a place, or use your current location">
-            <PlaceInput
-              value={startLabel}
-              placeholder="Search start address…"
-              onChange={(v) => {
-                setStartLabel(v.label);
-                setStartPoint(v.lat != null && v.lng != null ? { lat: v.lat, lng: v.lng } : null);
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => void useCurrentLocation()}
-              disabled={locating}
-              style={{
-                marginTop: "var(--space-xs)",
-                background: "none",
-                border: "none",
-                padding: 0,
-                color: "var(--color-accent)",
-                fontSize: "var(--text-label)",
-                fontWeight: "var(--weight-semibold)" as unknown as number,
-                cursor: locating ? "default" : "pointer",
-              }}
-            >
-              {locating ? "Getting your location…" : "◎ Use my current location"}
-            </button>
-          </Field>
-          <Field label="Destination" hint="Search a Google Maps place">
-            <PlaceInput
-              value={destinationLabel}
-              placeholder="Search destination address…"
-              onChange={(v) => {
-                setDestinationLabel(v.label);
-                setDestinationPoint(v.lat != null && v.lng != null ? { lat: v.lat, lng: v.lng } : null);
-              }}
-            />
-          </Field>
-
-          <SectionTitle>Route stops</SectionTitle>
-          {stops.map((stop) => (
-            <Card key={stop.key} padding="var(--space-md)" style={{ marginBottom: "var(--space-sm)" }}>
-              <div style={{ display: "flex", gap: "var(--space-sm)", alignItems: "center" }}>
-                <div style={{ flex: 1 }}>
-                  <PlaceInput
-                    value={stop.label}
-                    placeholder="Search stop address…"
-                    onChange={(v) =>
-                      updateStop(stop.key, {
-                        label: v.label,
-                        lat: v.lat ?? null,
-                        lng: v.lng ?? null,
-                      })
-                    }
-                  />
-                </div>
-                <IconButton name="x" size={40} onClick={() => removeStop(stop.key)} />
-              </div>
-              <div style={{ marginTop: "var(--space-sm)" }}>
-                <SegmentedControl
-                  options={STOP_KINDS.map((k) => STOP_LABELS[k])}
-                  value={STOP_LABELS[stop.kind]}
-                  onChange={(label) => {
-                    const kind = STOP_KINDS.find((k) => STOP_LABELS[k] === label) ?? "fuel";
-                    updateStop(stop.key, { kind });
-                  }}
-                />
-              </div>
-            </Card>
-          ))}
-          <Button variant="secondary" onClick={addStop} style={{ marginBottom: "var(--space-md)" }}>
-            + Add stop
-          </Button>
-
-          <SectionTitle>Optional details</SectionTitle>
-          <Field label="Expected capacity" hint="0 = no limit">
-            <Stepper
-              value={capacity}
-              min={0}
-              max={50}
-              display={capacity === 0 ? "No limit" : `${capacity} riders`}
-              onChange={setCapacity}
-            />
-          </Field>
-          <Field label="Guidelines">
-            <textarea
-              value={guidelines}
-              onChange={(e) => setGuidelines(e.target.value)}
-              placeholder="Helmets on, no overtaking the lead, regroup at every stop…"
-              style={textareaStyle}
-            />
-          </Field>
-          <Field label="Permits">
-            <Input
-              value={permits}
-              onChange={(e) => setPermits(e.target.value)}
-              placeholder="e.g. Forest entry permit required"
-            />
-          </Field>
-          <Field label="Fee">
-            <Input
-              type="number"
-              inputMode="decimal"
-              value={fee}
-              onChange={(e) => setFee(e.target.value)}
-              placeholder="0.00"
-            />
-          </Field>
-
-          {error && (
-            <p style={{ color: "var(--color-role-sweep)", marginBottom: "var(--space-md)" }}>
-              {error}
-            </p>
-          )}
-          <Button onClick={() => void handleSubmit()} loading={submitting}>
-            Create ride
-          </Button>
-        </div>
-      )}
+      {(!isEdit || (!loadingRide && !loadError)) &&
+        (MAPS_KEY ? <APIProvider apiKey={MAPS_KEY}>{formBody}</APIProvider> : formBody)
+      }
     </div>
   );
 }

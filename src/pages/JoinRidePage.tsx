@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
@@ -8,6 +9,7 @@ import { QrScannerSheet } from "../components/QrScannerSheet";
 import { useAuth } from "../hooks/useAuth";
 import {
   extractJoinCode,
+  formatScheduleDateTime,
   getEligibleRidersForPillion,
   getJoinRequestStatus,
   getMinimumProfileStatus,
@@ -29,7 +31,17 @@ const MODE_OPTIONS = ["Riding my own bike", "Riding pillion"] as const;
 
 const STATUS_POLL_MS = 5000;
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  required,
+  error,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  error?: string;
+  children: ReactNode;
+}) {
   return (
     <div style={{ marginBottom: "var(--space-md)" }}>
       <label
@@ -41,8 +53,30 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
         }}
       >
         {label}
+                {required && (
+          <span
+            style={{
+              color: "var(--color-role-sweep)",
+              marginLeft: "var(--space-2xs)",
+            }}
+            aria-hidden="true"
+          >
+            *
+          </span>
+        )}
       </label>
       {children}
+            {error && (
+        <p
+          style={{
+            fontSize: "var(--text-caption)",
+            color: "var(--color-role-sweep)",
+            margin: "var(--space-2xs) 0 0",
+          }}
+        >
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -66,7 +100,7 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
 
 export function JoinRidePage() {
   const { code: codeParam } = useParams<{ code?: string }>();
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>("code");
@@ -75,7 +109,8 @@ export function JoinRidePage() {
   const [profileStatus, setProfileStatus] = useState<MinimumProfileStatus | null>(null);
   const [mode, setMode] = useState<JoinMode>("own");
 
-  const [displayName, setDisplayName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [vehiclePlate, setVehiclePlate] = useState("");
@@ -137,6 +172,10 @@ export function JoinRidePage() {
   // asking for any profile fields, so a pillion never sees the vehicle field.
   function handleContinueFromPreview() {
     if (!preview) return;
+    if (preview.status === "cancelled") {
+      setError("This ride was cancelled by the leader.");
+      return;
+    }
     if (preview.alreadyMember) {
       navigate(`/ride/${preview.rideId}`);
       return;
@@ -156,14 +195,15 @@ export function JoinRidePage() {
     try {
       const status = await getMinimumProfileStatus(user.id);
       setProfileStatus(status);
-      setDisplayName(status.displayName);
+      setFirstName(status.firstName);
+      setLastName(status.lastName);      
       setContactName(status.emergencyContactName);
       setContactPhone(status.emergencyContactPhone);
       setVehiclePlate(status.vehiclePlate);
       setConsentChecked(status.hasConsent);
       const complete =
         mode === "pillion"
-          ? !!status.displayName && status.hasEmergencyContact && status.hasConsent
+          ? !!status.firstName && status.hasEmergencyContact && status.hasConsent
           : status.isComplete;
       if (complete) {
         await completeJoin();
@@ -171,7 +211,11 @@ export function JoinRidePage() {
         setStep("profile");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't check your profile.");
+      if (e instanceof Error && e.message.includes("This ride is full")) {
+        setError("This ride is full. Ask the lead to raise the capacity, or try another ride.");
+      } else {
+        setError(e instanceof Error ? e.message : "Couldn't check your profile.");
+      }
     } finally {
       setLoading(false);
     }
@@ -194,27 +238,35 @@ export function JoinRidePage() {
 
   async function completeJoin() {
     if (!preview || !user) return;
-    const joined = await joinRideByCode(preview.code, user.id);
-    if (joined.member) {
-      // Demo ride (or already-approved): membership materialised immediately.
-      if (mode === "pillion") {
-        // Now a ride member, so the roster is readable under RLS — move to
-        // picking which rider's bike they're on.
-        setJoinedRideId(joined.rideId);
-        await loadEligibleRiders(joined.rideId);
-        setStep("linkRider");
+    try {
+      const joined = await joinRideByCode(preview.code, user.id);
+      if (joined.member) {
+        // Demo ride (or already-approved): membership materialised immediately.
+        if (mode === "pillion") {
+          // Now a ride member, so the roster is readable under RLS — move to
+          // picking which rider's bike they're on.
+          setJoinedRideId(joined.rideId);
+          await loadEligibleRiders(joined.rideId);
+          setStep("linkRider");
+          return;
+        }
+        navigate(`/ride/${joined.rideId}`);
         return;
       }
-      navigate(`/ride/${joined.rideId}`);
-      return;
+      // Non-demo ride: a `ride_join_requests` row was created, pending the
+      // lead's approval — wait here rather than navigating to a ride-detail
+      // fetch that RLS would block for a non-member. (A pillion whose join is
+      // pending links their rider once approved, from ride detail.)
+      setPendingRideId(joined.rideId);
+      setRequestStatus("pending");
+      setStep("pending");
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("This ride is full")) {
+        setError("This ride is full. Ask the lead to raise the capacity, or try another ride.");
+        return;
+      }
+      throw e;
     }
-    // Non-demo ride: a `ride_join_requests` row was created, pending the
-    // lead's approval — wait here rather than navigating to a ride-detail
-    // fetch that RLS would block for a non-member. (A pillion whose join is
-    // pending links their rider once approved, from ride detail.)
-    setPendingRideId(joined.rideId);
-    setRequestStatus("pending");
-    setStep("pending");
   }
 
   async function handleConfirmLink() {
@@ -271,16 +323,22 @@ export function JoinRidePage() {
       // policies this build tracks (docs/flow1-onboarding-spec.md).
       await grantConsent(user.id);
       await submitMinimumProfile(user.id, {
-        displayName,
+        firstName,
+        lastName: lastName.trim() || undefined,
         emergencyContactName: contactName,
         emergencyContactPhone: contactPhone,
         // Pillions have no vehicle — the minimum profile is name + one
         // emergency contact only (docs/flow1-onboarding-spec.md).
         vehiclePlate: mode === "pillion" ? "" : vehiclePlate,
       });
+      await refreshProfile();
       await completeJoin();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't join the ride. Try again.");
+      if (e instanceof Error && e.message.includes("This ride is full")) {
+        setError("This ride is full. Ask the lead to raise the capacity, or try another ride.");
+      } else {
+        setError(e instanceof Error ? e.message : "Couldn't join the ride. Try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -288,8 +346,8 @@ export function JoinRidePage() {
 
   const profileIncomplete =
     mode === "pillion"
-      ? !displayName.trim() || !contactName.trim() || !contactPhone.trim()
-      : !displayName.trim() || !contactName.trim() || !contactPhone.trim() || !vehiclePlate.trim();
+           ? !firstName.trim() || !contactName.trim() || !contactPhone.trim()
+      : !firstName.trim() || !contactName.trim() || !contactPhone.trim() || !vehiclePlate.trim();
 
   async function handleWithdraw() {
     if (!pendingRideId || !user) return;
@@ -319,7 +377,7 @@ export function JoinRidePage() {
 
   return (
     <div>
-      <Link
+      <BackLink
         to="/"
         onClick={(e) => {
           if (step === "linkRider") {
@@ -337,10 +395,9 @@ export function JoinRidePage() {
             setPreview(null);
           }
         }}
-        style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}
       >
-        ‹ {step === "code" || step === "pending" ? "Home" : "Back"}
-      </Link>
+        {step === "code" || step === "pending" ? "Home" : "Back"}
+      </BackLink>
       <h1
         style={{
           fontSize: "var(--text-h1)",
@@ -381,55 +438,102 @@ export function JoinRidePage() {
       {scannerOpen && <QrScannerSheet onDecode={handleScanned} onClose={() => setScannerOpen(false)} />}
 
       {step === "preview" && preview && (
-        <div>
-          <Card padding="var(--space-lg)">
-            <h2
-              style={{
-                fontSize: "var(--text-h2)",
-                lineHeight: "var(--lh-h2)",
-                fontWeight: "var(--weight-semibold)",
-                margin: "0 0 var(--space-md)",
-              }}
-            >
-              {preview.name}
-            </h2>
-            <SummaryRow label="Lead" value={preview.leaderName ?? "Unknown"} />
-            <SummaryRow
-              label="Route"
-              value={`${preview.startLabel ?? "—"} → ${preview.destinationLabel ?? "—"}`}
-            />
-            {preview.stopLabels.length > 0 && (
-              <SummaryRow label="Stops" value={preview.stopLabels.join(", ")} />
+        preview.status === "cancelled" ? (
+          <div>
+            <Card padding="var(--space-lg)">
+              <h2
+                style={{
+                  fontSize: "var(--text-h2)",
+                  lineHeight: "var(--lh-h2)",
+                  fontWeight: "var(--weight-semibold)",
+                  margin: "0 0 var(--space-xs)",
+                }}
+              >
+                {preview.name}
+              </h2>
+              <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>
+                This ride was cancelled by the leader.
+              </p>
+            </Card>
+            <div style={{ marginTop: "var(--space-lg)" }}>
+              <Link
+                to="/"
+                style={{
+                  color: "var(--color-text-secondary)",
+                  fontSize: "var(--text-label)",
+                  textDecoration: "underline",
+                  display: "inline-block",
+                  minHeight: 56,
+                  lineHeight: "56px",
+                }}
+              >
+                ‹ Home
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <Card padding="var(--space-lg)">
+              <h2
+                style={{
+                  fontSize: "var(--text-h2)",
+                  lineHeight: "var(--lh-h2)",
+                  fontWeight: "var(--weight-semibold)",
+                  margin: "0 0 var(--space-md)",
+                }}
+              >
+                {preview.name}
+              </h2>
+              <SummaryRow label="Lead" value={preview.leaderName ?? "Unknown"} />
+              <SummaryRow
+                label="Route"
+                value={`${preview.startLabel ?? "—"} → ${preview.destinationLabel ?? "—"}`}
+              />
+              {preview.stopLabels.length > 0 && (
+                <SummaryRow label="Stops" value={preview.stopLabels.join(", ")} />
+              )}
+              {preview.scheduledStart && (
+                <SummaryRow
+                  label="Departure"
+                  value={formatScheduleDateTime(preview.scheduledStart)}
+                />
+              )}
+              {preview.scheduledEnd && (
+                <SummaryRow
+                  label="Expected end"
+                  value={formatScheduleDateTime(preview.scheduledEnd)}
+                />
+              )}
+              <SummaryRow label="Status" value={preview.status === "draft" ? "Not started yet" : "Active"} />
+              <SummaryRow
+                label="Capacity"
+                value={
+                  preview.memberCapacity
+                    ? `${preview.memberCount} / ${preview.memberCapacity} riders`
+                    : `${preview.memberCount} riders`
+                }
+              />
+              {preview.guidelines && <SummaryRow label="Guidelines" value={preview.guidelines} />}
+            </Card>
+
+            {preview.alreadyMember && (
+              <p style={{ color: "var(--color-text-secondary)", margin: "var(--space-md) 0" }}>
+                You're already in this ride.
+              </p>
             )}
-            <SummaryRow label="Status" value={preview.status === "draft" ? "Not started yet" : "Active"} />
-            <SummaryRow
-              label="Capacity"
-              value={
-                preview.memberCapacity
-                  ? `${preview.memberCount} / ${preview.memberCapacity} riders`
-                  : `${preview.memberCount} riders`
-              }
-            />
-            {preview.guidelines && <SummaryRow label="Guidelines" value={preview.guidelines} />}
-          </Card>
 
-          {preview.alreadyMember && (
-            <p style={{ color: "var(--color-text-secondary)", margin: "var(--space-md) 0" }}>
-              You're already in this ride.
-            </p>
-          )}
-
-          {error && (
-            <p style={{ color: "var(--color-role-sweep)", margin: "var(--space-md) 0 0" }}>{error}</p>
-          )}
-          <Button
-            style={{ marginTop: "var(--space-lg)" }}
-            onClick={handleContinueFromPreview}
-            loading={loading}
-          >
-            {preview.alreadyMember ? "Go to ride" : "Continue"}
-          </Button>
-        </div>
+            {error && (
+              <p style={{ color: "var(--color-role-sweep)", margin: "var(--space-md) 0 0" }}>{error}</p>
+            )}
+            <Button
+              style={{ marginTop: "var(--space-lg)" }}
+              onClick={handleContinueFromPreview}
+              loading={loading}
+            >
+              {preview.alreadyMember ? "Go to ride" : "Continue"}
+            </Button>
+          </div>
+        )
       )}
 
       {step === "mode" && preview && (
@@ -458,37 +562,67 @@ export function JoinRidePage() {
 
       {step === "profile" && (
         <div>
-          <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-lg)" }}>
+            <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-sm)" }}>
             {mode === "pillion"
               ? "Before you join as pillion, the group needs a name and an emergency contact."
               : "Before you join, the group needs a name, an emergency contact and your vehicle's registration number."}
           </p>
-          <Field label="Display name">
-            <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
+                    <p
+            style={{
+              fontSize: "var(--text-caption)",
+              color: "var(--color-text-tertiary)",
+              margin: "0 0 var(--space-md)",
+            }}
+          >
+            * required
+          </p>
+          <Field
+            label="First name"
+            required
+            error={!firstName.trim() ? "First name is required." : undefined}
+          >
+            <Input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              placeholder="Your first name"
+              autoComplete="given-name"
+              aria-required="true"
+            />
           </Field>
-          <Field label="Emergency contact name">
+          <Field label="Last name (optional)">
+            <Input
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              placeholder="Your last name"
+              autoComplete="family-name"
+            />
+          </Field>
+          <Field label="Emergency contact name" required>
             <Input
               value={contactName}
               onChange={(e) => setContactName(e.target.value)}
               placeholder="Who to call"
+              aria-required="true"
             />
           </Field>
-          <Field label="Emergency contact phone">
-            <Input
+          <Field label="Emergency contact phone" required>            
+          <Input
               type="tel"
               inputMode="tel"
               value={contactPhone}
               onChange={(e) => setContactPhone(e.target.value)}
               placeholder="Phone number"
+              aria-required="true"
             />
           </Field>
           {mode === "own" && (
-            <Field label="Vehicle registration number">
+            <Field label="Vehicle registration number" required>
               <Input
                 value={vehiclePlate}
                 onChange={(e) => setVehiclePlate(e.target.value.toUpperCase())}
                 placeholder="e.g. KA01AB1234"
                 autoCapitalize="characters"
+                aria-required="true"
               />
             </Field>
           )}
@@ -499,7 +633,7 @@ export function JoinRidePage() {
               them for now and finish your profile later.
             </p>
           )}
-          {profileStatus && (profileStatus.hasEmergencyContact || profileStatus.hasVehicle) && (
+          {profileStatus && (profileStatus.hasEmergencyContact || profileStatus.hasVehicle || profileStatus.firstName) && (
             <p style={{ color: "var(--color-text-tertiary)", margin: "0 0 var(--space-md)", fontSize: "var(--text-caption)" }}>
               We reused details already on file for you.
             </p>
@@ -519,6 +653,7 @@ export function JoinRidePage() {
               type="checkbox"
               checked={consentChecked}
               onChange={(e) => setConsentChecked(e.target.checked)}
+              aria-required="true"
               style={{
                 width: 20,
                 height: 20,
@@ -530,13 +665,26 @@ export function JoinRidePage() {
             <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-body-size)" }}>
               I agree to RideInSync handling my data (including for emergencies) per its terms and
               privacy policy.
+              <span
+                style={{
+                  color: "var(--color-role-sweep)",
+                  marginLeft: "var(--space-2xs)",
+                }}
+                aria-hidden="true"
+              >
+                *
+              </span>
             </span>
           </label>
 
           {error && (
             <p style={{ color: "var(--color-role-sweep)", marginBottom: "var(--space-md)" }}>{error}</p>
           )}
-          <Button onClick={() => void handleJoinFromProfile()} loading={loading} disabled={!consentChecked}>
+          <Button
+            onClick={() => void handleJoinFromProfile()}
+            loading={loading}
+            disabled={!consentChecked || !firstName.trim()}
+          >
             {profileIncomplete ? "Join anyway" : mode === "pillion" ? "Continue" : "Join ride"}
           </Button>
         </div>
@@ -544,6 +692,15 @@ export function JoinRidePage() {
 
       {step === "linkRider" && (
         <div>
+                  <p
+            style={{
+              fontSize: "var(--text-caption)",
+              color: "var(--color-text-tertiary)",
+              margin: "0 0 var(--space-md)",
+            }}
+          >
+            * required
+          </p>
           {eligibleRiders.length === 0 ? (
             <Card padding="var(--space-lg)" style={{ textAlign: "center" }}>
               <p style={{ margin: "0 0 var(--space-sm)", fontSize: "var(--text-body-size)" }}>
@@ -557,6 +714,15 @@ export function JoinRidePage() {
             <>
               <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-md)" }}>
                 Whose bike are you riding on?
+                <span
+                  style={{
+                    color: "var(--color-role-sweep)",
+                    marginLeft: "var(--space-2xs)",
+                  }}
+                  aria-hidden="true"
+                >
+                  *
+                </span>
               </p>
               {eligibleRiders.map((r) => {
                 const active = r.userId === selectedRiderId;

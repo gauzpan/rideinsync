@@ -1,8 +1,18 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
+
 
 // Typed port of design/components/forms/SegmentedControl.jsx — keep the two in sync.
+export type SegmentedOption =
+  | string
+  | {
+      value: string;
+      label: ReactNode;
+      ariaLabel?: string;
+    };
+
+
 type Props = {
-  options?: string[];
+  options?: SegmentedOption[];
   value: string;
   onChange?: (value: string) => void;
   style?: CSSProperties;

@@ -1,0 +1,23 @@
+/* Neon orbit loader. The orbit group spins around the viewBox center
+   (transform-box: view-box is the initial value for SVG elements, so the
+   px origin resolves in viewBox units regardless of rendered size). */
+
+.loader__orbit {
+  transform-origin: 100px 100px;
+  animation: loader-spin 3s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader__orbit {
+    animation: none;
+  }
+}
+
+@keyframes loader-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -11,7 +11,7 @@ import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
 import { SIM_RIDER_NAMES } from "../../lib/demoRide";
 import { approveJoinRequest, buildJoinUrl } from "../../services/onboardingService";
-import { closeRide } from "../../lib/ending";
+import { closeRide, startRide } from "../../lib/ending";
 import { sendSos, useSosAlerts } from "../../lib/sos";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
@@ -79,7 +79,14 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const [fullscreen, setFullscreen] = useState(false);
   const [navMode, setNavMode] = useState(false); // heading-up follow-me (rider nav)
   const isLeader = user?.id === ride.leader_id;
-  const ended = rideStatus === "ended";
+  
+  // Prefer the live status from Realtime, falling back to the prop the page
+  // loaded with (Realtime may not have delivered the first row yet).
+  const status = rideStatus ?? ride.status;
+  const ended = status === "ended";
+  const notStarted = status === "draft";
+  const [starting, setStarting] = useState(false);
+
   const activeSos = useSosAlerts(ride.id, user?.id ?? null).filter((a) => !a.resolved);
 
   // Geocode the form's start/destination labels → a driving route polyline.
@@ -198,6 +205,18 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
       setNote(e instanceof Error ? e.message : "Couldn't send SOS.");
     } finally {
       setSosSending(false);
+    }
+  }
+
+  async function beginRide() {
+    setStarting(true);
+    setNote(null);
+    try {
+      await startRide(ride.id); // leader-gated by RLS; draft → active
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Couldn't start the ride.");
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -362,21 +381,28 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         </span>
       </div>
 
-      <Button
-        variant="secondary"
-        fullWidth={false}
-        loading={populating}
-        disabled={populated}
-        onClick={() => void simulatePack()}
-      >
-        {populated ? "Pack riding" : populating ? "Riders joining…" : "Simulate pack (demo)"}
-      </Button>
+
+      {/* Lead-only tools: a rider viewing the same map doesn't seed dummy
+          riders or own the invite QR. */}
+      {isLeader && (
+        <Button
+          variant="secondary"
+          fullWidth={false}
+          loading={populating}
+          disabled={populated}
+          onClick={() => void simulatePack()}
+        >
+          {populated ? "Pack riding" : populating ? "Riders joining…" : "Simulate pack (demo)"}
+        </Button>
+      )}
       {note && <p style={{ color: "var(--color-role-sweep)", fontSize: 13, margin: 0 }}>{note}</p>}
 
-      <Button variant="secondary" fullWidth={false} onClick={() => void toggleQr()}>
-        {showQr ? "Hide QR" : "Invite riders (QR)"}
-      </Button>
-      {showQr && (
+      {isLeader && (
+        <Button variant="secondary" fullWidth={false} onClick={() => void toggleQr()}>
+          {showQr ? "Hide QR" : "Invite riders (QR)"}
+        </Button>
+      )}
+      {isLeader && showQr && (
         <Card glow style={{ textAlign: "center" }}>
           <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Scan to join this ride</div>
           {qr && (
@@ -403,7 +429,17 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         </Button>
       )}
 
-      {isLeader && !ended && (
+      {isLeader && notStarted && (
+        <Button
+          fullWidth={false}
+          loading={starting}
+          onClick={() => void beginRide()}
+        >
+          Start ride
+        </Button>
+      )}
+
+      {isLeader && !ended && !notStarted && (
         <Button
           variant="secondary"
           fullWidth={false}
@@ -520,7 +556,7 @@ function StopPin({ index }: { index: number }) {
         justifyContent: "center",
         fontWeight: 700,
         fontSize: 12,
-        fontFamily: "system-ui, sans-serif",
+        fontFamily: "var(--font-ui)",
         boxShadow: "0 1px 5px rgba(0,0,0,.5)",
       }}
     >
@@ -577,7 +613,7 @@ function RiderPin({ rider }: { rider: RiderOnMap }) {
         justifyContent: "center",
         fontWeight: 600,
         fontSize: 14,
-        fontFamily: "system-ui, sans-serif",
+        fontFamily: "var(--font-ui)",
         opacity: rider.status === "stale" ? 0.65 : 1,
       }}
     >

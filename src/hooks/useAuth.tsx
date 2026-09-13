@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -8,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import { Capacitor } from "@capacitor/core";
 import { supabase } from "../lib/supabase";
 import type { Profile } from "../lib/models";
 import {
@@ -16,7 +18,10 @@ import {
   signInAsGuest,
   signInWithGoogle,
   signOut as signOutService,
+  startAutoRefresh,
+  stopAutoRefresh,
 } from "../services/authService";
+
 
 type AuthState = {
   /** True until the initial session check resolves. */
@@ -32,6 +37,9 @@ type AuthState = {
   /** Local-dev only: fake session so you can explore screens without a backend. */
   signInDev: () => void;
   signOut: () => Promise<void>;
+  /** Re-fetches the `profiles` row for the signed-in user — call after an
+   *  edit elsewhere (e.g. RichProfilePage) so `profile` reflects the change. */
+  refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -77,31 +85,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Revive token auto-refresh on foreground. A backgrounded native WebView (or
+  // a hidden browser tab) suspends supabase-js's refresh timer, so the stored
+  // access token can be expired by the time the user reopens the app — the
+  // first query then fails with PGRST303 and the ride "won't load". Restarting
+  // on resume forces an immediate refresh before any query fires.
   useEffect(() => {
-    const userId = session?.user?.id;
-    if (!userId) {
+    if (Capacitor.isNativePlatform()) {
+      const removers: Array<() => void> = [];
+      let disposed = false;
+      void import("@capacitor/app").then(({ App }) => {
+        if (disposed) return;
+        void App.addListener("resume", () => startAutoRefresh()).then((h) =>
+          removers.push(() => void h.remove())
+        );
+        void App.addListener("pause", () => stopAutoRefresh()).then((h) =>
+          removers.push(() => void h.remove())
+        );
+      });
+      return () => {
+        disposed = true;
+        removers.forEach((r) => r());
+      };
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") startAutoRefresh();
+      else stopAutoRefresh();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+
+  // The `handle_new_user()` trigger provisions the row at sign-up time; a
+  // couple of retries absorb the brief window right after first sign-in.
+  const fetchProfile = useCallback(async (userId: string, retry = true) => {
+    const token = ++fetchToken.current;
+    for (let attempt = 0; attempt < (retry ? 3 : 1); attempt++) {
+      const { data } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+      if (fetchToken.current !== token) return;
+      if (data) {
+        setProfile(data);
+        return;
+      }
+      if (retry) await new Promise((r) => setTimeout(r, 400));
+    }
+  }, []);
+
+  const activeUserId = session?.user?.id ?? (devAuthed ? DEV_USER.id : undefined);
+
+  useEffect(() => {
+    if (!activeUserId) {
       setProfile(null);
       return;
     }
-    const token = ++fetchToken.current;
-    // The `handle_new_user()` trigger provisions this row at sign-up time; a
-    // couple of retries absorb the brief window right after first sign-in.
-    (async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const { data } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", userId)
-          .maybeSingle();
-        if (fetchToken.current !== token) return;
-        if (data) {
-          setProfile(data);
-          return;
-        }
-        await new Promise((r) => setTimeout(r, 400));
-      }
-    })();
-  }, [session?.user?.id]);
+    void fetchProfile(activeUserId);
+  }, [activeUserId, fetchProfile]);
 
   const value = useMemo<AuthState>(
     () => ({
@@ -133,8 +172,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDevAuthed(false);
         if (session) await signOutService();
       },
+      refreshProfile: async () => {
+        if (!activeUserId) return;
+        // A refresh after a known write shouldn't need the sign-up-race
+        // retries — fetch once so the caller's `await` resolves promptly.
+        await fetchProfile(activeUserId, false);
+      },
     }),
-    [loading, session, profile, devAuthed]
+    [loading, session, profile, devAuthed, activeUserId, fetchProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { Loader } from "../components/ui/Loader";
 import type { FeedbackSentiment, Ride, RideMember, RideSummary, UserBadge } from "../lib/models";
 import { BadgeGrid, type Vehicle } from "../components/ui/RideBadge";
 import { closeRide, loadSummaryView, markReachedHome, submitFeedback } from "../lib/ending";
@@ -72,8 +73,14 @@ export function RideSummaryPage() {
         <h1 style={{ fontSize: "var(--text-h1)", fontWeight: "var(--weight-semibold)", margin: 0 }}>
           {ride?.name ?? "Ride"} — summary
         </h1>
-        <p style={{ color: "var(--color-text-secondary)", margin: "var(--space-2xs) 0 0" }}>
-          {ride ? `${ride.status === "ended" ? "Completed" : "In progress"} · ${ride.travel_mode}` : "Loading…"}
+        <p style={{ color: "var(--color-text-secondary)", margin: "var(--space-2xs) 0 0", display: "flex", alignItems: "center", gap: "var(--space-xs)" }}>
+          {ride ? (
+            `${ride.status === "ended" ? "Completed" : "In progress"} · ${ride.travel_mode}`
+          ) : (
+            <>
+              <Loader size={16} label="Loading" /> Loading…
+            </>
+          )}
         </p>
       </div>
 

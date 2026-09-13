@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { DEMO_RIDE_ID } from "../lib/activeRide";
 import { useAuth } from "./useAuth";
 import type { MemberRole } from "../lib/models";
+
+// Demo mode: no Supabase keys, lib/activeRide short-circuits to the seed ride so
+// the SOS button shows. Home must be self-consistent and render that same seed
+// ride (Nandi Hills Sunrise Run, DEMO01, seed.sql) as the active card rather
+// than hang querying an absent backend.
+const DEMO = import.meta.env.VITE_DEMO_SESSION === "1";
 
 // Data backing the post-login landing (/home). Queries are defensive: a missing
 // backend, a dev session, or empty tables all resolve to quiet empty state
@@ -14,7 +21,12 @@ export type ActiveRide = {
   code: string;
   role: MemberRole;
   riderCount: number;
+    /** 'active' = ride underway; 'draft' = created but not started yet. Drafts
+   *  are surfaced too so a lead can reopen (and start) a ride they made,
+   *  instead of it being stranded with no Home entry point. */
+  status: "active" | "draft";
 };
+
 
 export type PastRide = {
   rideId: string;
@@ -42,21 +54,48 @@ export type HomeData = {
 
 const COMPLETENESS_TOTAL = 4; // avatar · vehicle · medical · driving licence
 
-export function useHomeData(): HomeData {
-  const { user, profile } = useAuth();
-  const [state, setState] = useState<HomeData>({
-    loading: true,
-    activeRide: null,
+/**
+ * The resolved-immediately Home state for demo mode: the seed ride (values from
+ * supabase/seed.sql) as the active ride, no history, demo stats. Exported as a
+ * pure seam so it can be asserted without a live backend or env override.
+ */
+export function demoHomeData(): HomeData {
+  return {
+    loading: false,
+    activeRide: {
+      id: DEMO_RIDE_ID,
+      name: "Nandi Hills Sunrise Run",
+      code: "DEMO01",
+      role: "leader",
+      riderCount: 4,
+    },
     completeness: { done: 0, total: COMPLETENESS_TOTAL },
     stats: DEMO_STATS,
     pastRides: [],
     isEmpty: false,
-  });
+  };
+}
+
+export function useHomeData(): HomeData {
+  const { user, profile } = useAuth();
+  const [state, setState] = useState<HomeData>(
+    DEMO
+      ? demoHomeData()
+      : {
+          loading: true,
+          activeRide: null,
+          completeness: { done: 0, total: COMPLETENESS_TOTAL },
+          stats: DEMO_STATS,
+          pastRides: [],
+          isEmpty: false,
+        },
+  );
 
   const userId = user?.id;
   const avatarDone = !!profile?.avatar_url;
 
   useEffect(() => {
+    if (DEMO) return; // demo state is resolved synchronously; never query
     if (!userId) return;
     let cancelled = false;
 
@@ -82,20 +121,29 @@ export function useHomeData(): HomeData {
 
       if (rideIds.length) {
         const rides = await safe(() =>
-          supabase.from("rides").select("id, name, code, status, ended_at").in("id", rideIds)
+          supabase.from("rides").select("id, name, code, status, ended_at, created_at").in("id", rideIds)
         );
+        // Prefer a live ride; otherwise fall back to the most recent draft the
+        // user is in, so a created-but-unstarted ride (e.g. one just made or
+        // just joined pre-start) is reachable from Home instead of stranded.
         const active = rides.find((r) => r.status === "active");
-        if (active) {
-          const roleRow = memberships.find((m) => m.ride_id === active.id);
+        
+        const latestDraft = rides
+          .filter((r) => r.status === "draft")
+          .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))[0];
+        const hero = active ?? latestDraft;
+        if (hero) {
+          const roleRow = memberships.find((m) => m.ride_id === hero.id);
           const members = await safe(() =>
-            supabase.from("ride_members").select("id").eq("ride_id", active.id)
+            supabase.from("ride_members").select("id").eq("ride_id", hero.id)
           );
           activeRide = {
-            id: active.id,
-            name: active.name,
-            code: active.code,
+            id: hero.id,
+            name: hero.name,
+            code: hero.code,
             role: (roleRow?.role as MemberRole) ?? "rider",
             riderCount: members.length,
+            status: hero.status === "active" ? "active" : "draft",
           };
         }
 

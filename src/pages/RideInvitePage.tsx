@@ -1,12 +1,21 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { useAuth } from "../hooks/useAuth";
 import { IconButton } from "../components/ui/IconButton";
+import { LoadingState } from "../components/ui/Loader";
 import type { Ride } from "../lib/models";
-import { buildJoinUrl, getRideById } from "../services/onboardingService";
+import {
+  buildJoinUrl,
+  deleteOrCancelRide,
+  getRideById,
+  getRideOtherParticipantsCount,
+} from "../services/onboardingService";
 import { generateQrDataUrl } from "../services/qrService";
 import { copyToClipboard, shareContent } from "../services/shareService";
+import "../components/BottomNav.css";
 
 type CopyTarget = "code" | "link" | null;
 
@@ -15,13 +24,57 @@ export function RideInvitePage() {
   const location = useLocation();
   const navigate = useNavigate();
   const stateRide = (location.state as { ride?: Ride } | null)?.ride;
-
+  const { user } = useAuth();   
   const [ride, setRide] = useState<Ride | null>(stateRide ?? null);
   const [loading, setLoading] = useState(!stateRide);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState<CopyTarget>(null);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
+
+  const [deleteSheetOpen, setDeleteSheetOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [otherCount, setOtherCount] = useState<number>(0);
+
+  const isLeader = Boolean(user?.id && ride?.leader_id === user.id);
+
+  useEffect(() => {
+    if (!deleteSheetOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && !deleting) {
+        e.preventDefault();
+        setDeleteSheetOpen(false);
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [deleteSheetOpen, deleting]);
+
+  async function handleOpenDelete() {
+    if (!ride) return;
+    setDeleteError(null);
+    try {
+      const count = await getRideOtherParticipantsCount(ride.id, ride.leader_id);
+      setOtherCount(count);
+    } catch {
+      setOtherCount(0);
+    }
+    setDeleteSheetOpen(true);
+  }
+
+  async function handleConfirmDelete() {
+    if (!ride) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteOrCancelRide(ride.id, user?.id);
+      navigate("/rides");
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Couldn't delete ride.");
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     if (stateRide || !rideId) return;
@@ -72,15 +125,13 @@ export function RideInvitePage() {
   }
 
   if (loading) {
-    return <p style={{ color: "var(--color-text-secondary)" }}>Loading invite…</p>;
+    return <LoadingState label="Loading invite…" />;
   }
 
   if (loadError || !ride) {
     return (
       <div>
-        <Link to="/" style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
-          ‹ Home
-        </Link>
+        <BackLink to="/">Home</BackLink>
         <Card padding="var(--space-lg)" style={{ marginTop: "var(--space-lg)" }}>
           <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>
             {loadError ?? "Ride not found."}
@@ -92,9 +143,7 @@ export function RideInvitePage() {
 
   return (
     <div>
-      <Link to="/" style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>
-        ‹ Home
-      </Link>
+      <BackLink to="/">Home</BackLink>
       <h1
         style={{
           fontSize: "var(--text-h1)",
@@ -214,6 +263,96 @@ export function RideInvitePage() {
       >
         Go to ride
       </Button>
+
+      {isLeader && ride.status === "draft" && (
+        <Button
+          variant="secondary"
+          style={{ marginTop: "var(--space-sm)" }}
+          onClick={() => navigate(`/ride/${ride.id}/edit`)}
+        >
+          Edit ride
+        </Button>
+      )}
+
+      {isLeader && ride.status === "draft" && (
+        <Button
+          variant="secondary"
+          style={{ marginTop: "var(--space-sm)" }}
+          onClick={() => void handleOpenDelete()}
+        >
+          Delete ride
+        </Button>
+      )}
+
+      {deleteSheetOpen && (
+        <div
+          className="more-sheet__scrim"
+          onClick={() => !deleting && setDeleteSheetOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="more-sheet__panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label={otherCount > 0 ? "Cancel ride" : "Delete ride"}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="more-sheet__grabber" aria-hidden />
+            <h2
+              style={{
+                fontSize: "var(--text-h2)",
+                lineHeight: "var(--lh-h2)",
+                fontWeight: "var(--weight-semibold)" as unknown as number,
+                color: "var(--color-text-primary)",
+                margin: "0 0 var(--space-xs)",
+              }}
+            >
+              {otherCount > 0 ? "Cancel ride" : "Delete ride"}
+            </h2>
+            <p
+              style={{
+                fontSize: "var(--text-body-size)",
+                lineHeight: "var(--lh-body)",
+                color: "var(--color-text-secondary)",
+                margin: "0 0 var(--space-lg)",
+              }}
+            >
+              {otherCount > 0
+                ? `${otherCount} ${otherCount === 1 ? "rider has" : "riders have"} joined. Cancelling closes the ride and they'll see it as cancelled. This can't be undone.`
+                : "Delete this ride? This can't be undone."}
+            </p>
+
+            {deleteError && (
+              <p
+                style={{
+                  fontSize: "var(--text-caption)",
+                  color: "var(--color-role-sweep)",
+                  margin: "0 0 var(--space-md)",
+                }}
+              >
+                {deleteError}
+              </p>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+              <Button
+                variant="danger"
+                onClick={() => void handleConfirmDelete()}
+                loading={deleting}
+              >
+                {otherCount > 0 ? "Cancel ride" : "Delete ride"}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setDeleteSheetOpen(false)}
+                disabled={deleting}
+              >
+                Keep ride
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

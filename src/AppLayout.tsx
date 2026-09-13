@@ -4,8 +4,11 @@ import { useAuth } from "./hooks/useAuth";
 import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
+import { Loader } from "./components/ui/Loader";
 import { SosAlertCard } from "./components/SosAlertCard";
-import { consumePendingJoinCode } from "./services/authService";
+import { SosButton, shouldShowSos } from "./components/SosButton";
+import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
+import { consumePendingJoinCode, consumePendingGroupJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
 import { markReached, respondToSos, sosCardState, useSosAlerts, useSosResponses } from "./lib/sos";
 import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
@@ -24,9 +27,29 @@ import { playSignalTone } from "./lib/earcon";
 import { vibrateForTier } from "./lib/haptics";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
+const GROUP_JOIN_PATH_RE = /^\/groups\/join\/([^/]+)$/;
 const FEEDBACK_MS = 3_000;
 const VOICE_ONBOARDING_KEY = "voice.onboarding.seen";
+// Routes a signed-out visitor can browse so they can experience the app
+// before creating an account. Anything that would reveal a ride's sharing
+// code (the /ride/:id/invite screen reached after a successful create/join)
+// stays behind the sign-in gate below.
+const PUBLIC_PATHS = new Set(["/", "/ride/create", "/create"]);
 
+// Floating-SOS footprint above the tab bar, read (read-only) from SosButton.tsx:
+// the button sits `var(--space-md)` above the nav+safe-area and is
+// SOS_BUTTON_SIZE px tall. When it is shown, the scrolling content wrapper must
+// clear that whole footprint (plus a normal `var(--space-lg)` gap) so a control
+// at the very bottom of a page can always scroll clear of the button instead of
+// sitting under it. When SOS is hidden the padding is unchanged — just the nav
+// clearance. Pure seam so the arithmetic is unit-tested.
+export const SOS_BUTTON_SIZE = 60;
+export function contentBottomPadding(showSos: boolean): string {
+  const navClearance = "var(--tabbar-height) + env(safe-area-inset-bottom)";
+  return showSos
+    ? `calc(${navClearance} + var(--space-md) + ${SOS_BUTTON_SIZE}px + var(--space-lg))`
+    : `calc(${navClearance} + var(--space-lg))`;
+}
 export function AppLayout() {
   const { loading, isAuthenticated, user } = useAuth();
   const location = useLocation();
@@ -35,17 +58,23 @@ export function AppLayout() {
   const resumedRef = useRef(false);
 
   const joinCodeFromPath = pathname.match(JOIN_PATH_RE)?.[1];
+  const groupJoinCodeFromPath = pathname.match(GROUP_JOIN_PATH_RE)?.[1];
 
   // Resume a join interrupted by the Google OAuth redirect: the code was
   // stashed (see authService) before leaving the app, and is restored here
-  // once auth resolves — the deep-link `/join/:code` route may not be where
-  // the OAuth provider actually landed us.
+  // once auth resolves — the deep-link `/join/:code` (or `/groups/join/:code`)
+  // route may not be where the OAuth provider actually landed us.
   useEffect(() => {
     if (!isAuthenticated || resumedRef.current) return;
     resumedRef.current = true;
     const pendingCode = consumePendingJoinCode();
     if (pendingCode && pendingCode !== joinCodeFromPath) {
       navigate(`/join/${pendingCode}`, { replace: true });
+      return;
+    }
+    const pendingGroupCode = consumePendingGroupJoinCode();
+    if (pendingGroupCode && pendingGroupCode !== groupJoinCodeFromPath) {
+      navigate(`/groups/join/${pendingGroupCode}`, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
@@ -56,8 +85,10 @@ export function AppLayout() {
   // Raising an SOS only happens via Signal on the Ride screen now; this stays
   // global so an alert already in progress is never missed on another tab.
   const userId = isAuthenticated ? user?.id ?? null : null;
+
   const inApp = isAuthenticated && pathname !== "/";
   const { rideId } = useActiveRide(inApp ? userId : null);
+
   const alerts = useSosAlerts(inApp ? rideId : null, userId);
   const responsesByAlert = useSosResponses(inApp ? rideId : null);
 
@@ -178,9 +209,13 @@ export function AppLayout() {
   }, [voice.error]);
 
   if (loading) {
-    // Brief, unstyled beat while the initial session check resolves — avoids
-    // flashing the landing/login for an already-authenticated user.
-    return null;
+    // Brief beat while the initial session check resolves — avoids flashing
+    // the landing/login for an already-authenticated user.
+    return (
+      <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Loader size={64} />
+      </div>
+    );
   }
 
   const onLanding = pathname === "/";
@@ -191,10 +226,12 @@ export function AppLayout() {
     return <Navigate to="/home" replace />;
   }
   // A protected route without a session: keep the join deep-link's sign-in
-  // sheet (it stashes the code across the Google redirect); everything else
-  // bounces to the landing to log in.
-  if (!isAuthenticated && !onLanding) {
+  // sheet (it stashes the code across the Google redirect); PUBLIC_PATHS
+  // (landing, create) stay browsable so a visitor can try the app before
+  // making an account; everything else bounces to the landing to log in.
+  if (!isAuthenticated && !PUBLIC_PATHS.has(pathname)) {
     if (joinCodeFromPath) return <SignInSheet joinCode={joinCodeFromPath} />;
+    if (groupJoinCodeFromPath) return <SignInSheet groupJoinCode={groupJoinCodeFromPath} />;
     return <Navigate to="/" replace />;
   }
   // One-time, right after sign-in: ask for mic access up front so it's already
@@ -205,18 +242,26 @@ export function AppLayout() {
   if (isAuthenticated && pathname === "/home" && !voiceOnboardingSeen) {
     return <VoicePermissionSheet onDone={() => setVoiceOnboardingSeen(true)} />;
   }
+  const showSos = shouldShowSos(inApp, rideId, location.pathname);
 
   return (
     <>
+      {shouldShowWallpaper(location.pathname) && <HomeWallpaper />}
+
       <div
         style={{
+          // Lift above the fixed HomeWallpaper (z-index 0): a static element
+          // would otherwise paint *under* a positioned z-index:0 sibling.
+          position: "relative",
+          zIndex: 1,
           maxWidth: 600,
           minHeight: "100%",
           margin: "0 auto",
           padding: "var(--space-lg) var(--gutter)",
-          // Clear the fixed TabBar.
+          // Clear the fixed TabBar — and, when the floating SOS button is shown,
+          // its footprint too, so a bottom-edge control can scroll clear of it.
           paddingBottom: isAuthenticated
-            ? "calc(var(--tabbar-height) + var(--space-2xl) + env(safe-area-inset-bottom))"
+            ? contentBottomPadding(showSos)
             : "calc(var(--space-2xl) + env(safe-area-inset-bottom))",
         }}
       >
@@ -284,8 +329,24 @@ export function AppLayout() {
           </span>
         </div>
       )}
-
-      {isAuthenticated && <TabBar />}
+      {isAuthenticated && <TabBar activeRideId={rideId} />}
+      {showSos && (
+        // Floating corner SOS: shown ONLY to a member of a started ride, and
+        // never on the /sos screen itself (that screen has its own Send SOS
+        // button). Taps open the /sos confirm screen. z-index 40 keeps it above
+        // page content but below the SosAlert stack (41) and voice feedback
+        // (42). Voice toggle is intentionally off here — this branch drives
+        // voice via VoicePermissionSheet + the persisted VOICE_COMMANDS toggle,
+        // not a mic button (see handoff).
+        <SosButton
+          showVoiceToggle={false}
+          voiceOn={voiceOn}
+          voiceSupported={voice.supported}
+          voiceListening={voice.listening}
+          voiceError={voice.error}
+          onToggleVoice={() => {}}
+        />
+      )}
     </>
   );
 }
