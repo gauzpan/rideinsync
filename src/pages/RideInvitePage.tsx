@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { useAuth } from "../hooks/useAuth";
 import { IconButton } from "../components/ui/IconButton";
 import type { Ride } from "../lib/models";
 import { buildJoinUrl, getRideById } from "../services/onboardingService";
@@ -16,7 +17,7 @@ export function RideInvitePage() {
   const location = useLocation();
   const navigate = useNavigate();
   const stateRide = (location.state as { ride?: Ride } | null)?.ride;
-
+  const { user } = useAuth();   
   const [ride, setRide] = useState<Ride | null>(stateRide ?? null);
   const [loading, setLoading] = useState(!stateRide);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -211,6 +212,17 @@ export function RideInvitePage() {
       >
         Go to ride
       </Button>
+
+      {ride.leader_id === user?.id && ride.status === "draft" && (
+        <Button
+          variant="secondary"
+          style={{ marginTop: "var(--space-sm)" }}
+          onClick={() => navigate(`/ride/${ride.id}/edit`)}
+        >
+          Edit ride
+        </Button>
+      )}
+      
     </div>
   );
 }

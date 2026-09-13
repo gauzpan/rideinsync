@@ -6,6 +6,7 @@ import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
 import { SosAlertCard } from "./components/SosAlertCard";
 import { SosButton, shouldShowSos } from "./components/SosButton";
+import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
 import { consumePendingJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
 import { markReached, respondToSos, sosCardState, useSosAlerts, useSosResponses } from "./lib/sos";
@@ -42,7 +43,6 @@ export function contentBottomPadding(showSos: boolean): string {
     ? `calc(${navClearance} + var(--space-md) + ${SOS_BUTTON_SIZE}px + var(--space-lg))`
     : `calc(${navClearance} + var(--space-lg))`;
 }
-
 export function AppLayout() {
   const { loading, isAuthenticated, user } = useAuth();
   const location = useLocation();
@@ -72,8 +72,10 @@ export function AppLayout() {
   // Raising an SOS only happens via Signal on the Ride screen now; this stays
   // global so an alert already in progress is never missed on another tab.
   const userId = isAuthenticated ? user?.id ?? null : null;
+
   const inApp = isAuthenticated && pathname !== "/";
-  const { rideId } = useActiveRide(inApp ? userId : null, location.pathname);
+  const { rideId } = useActiveRide(inApp ? userId : null);
+
   const alerts = useSosAlerts(inApp ? rideId : null, userId);
   const responsesByAlert = useSosResponses(inApp ? rideId : null);
 
@@ -199,6 +201,19 @@ export function AppLayout() {
     return null;
   }
 
+  if (!isAuthenticated) {
+    // Home wallpaper renders on "/" and "/home" regardless of auth state, so
+    // the sign-in view sits on the same night-bike backdrop. NOTE: SignInSheet
+    // paints an opaque `background: var(--color-bg-base)` over inset:0, so the
+    // wallpaper behind it is only *visible* once that root background is made
+    // transparent (SignInSheet.tsx — outside this lane's file scope; reported).
+    return (
+      <>
+        {shouldShowWallpaper(location.pathname) && <HomeWallpaper />}
+        <SignInSheet joinCode={joinCodeFromPath} />
+      </>
+    );
+  }
   const onLanding = pathname === "/";
 
   // Landing ("/") is the public login entry. Signed-in users skip it and go
@@ -221,13 +236,20 @@ export function AppLayout() {
   if (isAuthenticated && pathname === "/home" && !voiceOnboardingSeen) {
     return <VoicePermissionSheet onDone={() => setVoiceOnboardingSeen(true)} />;
   }
+  const showSos = shouldShowSos(inApp, rideId, location.pathname);
 
   const showSos = shouldShowSos(inApp, rideId, location.pathname);
 
   return (
     <>
+      {shouldShowWallpaper(location.pathname) && <HomeWallpaper />}
+
       <div
         style={{
+          // Lift above the fixed HomeWallpaper (z-index 0): a static element
+          // would otherwise paint *under* a positioned z-index:0 sibling.
+          position: "relative",
+          zIndex: 1,
           maxWidth: 600,
           minHeight: "100%",
           margin: "0 auto",
@@ -302,6 +324,24 @@ export function AppLayout() {
             {voiceFeedback}
           </span>
         </div>
+      )}
+      {isAuthenticated && <TabBar activeRideId={rideId} />}
+      {showSos && (
+        // Floating corner SOS: shown ONLY to a member of a started ride, and
+        // never on the /sos screen itself (that screen has its own Send SOS
+        // button). Taps open the /sos confirm screen. z-index 40 keeps it above
+        // page content but below the SosAlert stack (41) and voice feedback
+        // (42). Voice toggle is intentionally off here — this branch drives
+        // voice via VoicePermissionSheet + the persisted VOICE_COMMANDS toggle,
+        // not a mic button (see handoff).
+        <SosButton
+          showVoiceToggle={false}
+          voiceOn={voiceOn}
+          voiceSupported={voice.supported}
+          voiceListening={voice.listening}
+          voiceError={voice.error}
+          onToggleVoice={() => {}}
+        />
       )}
 
       {showSos && (

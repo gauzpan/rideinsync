@@ -28,6 +28,8 @@ export type {
   PitstopKind,
   ConsentPolicy,
   TravelMode,
+  Gender,
+  AgeBand,
   FeedbackSentiment,
   Json,
 } from "./database.types";
@@ -74,8 +76,13 @@ export type RideFeedbackInsert = Insert<"ride_feedback">;
 export type PushSubscriptionInsert = Insert<"push_subscriptions">;
 
 // ---- Geo helper (shape stored in start_point/destination/location jsonb) -----
-export type GeoPoint = { lat: number; lng: number; label?: string };
-
+export type GeoPoint = {
+  label: string;
+  lat?: number;
+  lng?: number;
+  placeId?: string;
+};
+export type PlacePoint = GeoPoint;
 // ---- Composite view models (derived on the client, not tables) --------------
 
 /** Client-derived group status for the lead/sweep ops view (no backing table). */

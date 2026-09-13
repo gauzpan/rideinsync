@@ -20,14 +20,12 @@ const CANONICAL = ["import", "meta", "env"].join(".") + '.VITE_DEMO_SESSION === 
 // Every source file that gates behaviour on demo mode. sos.ts is intentionally
 // absent: it never reads the env var, it branches on sosDemo.isDemoBackend,
 // whose own guard is checked here via sosDemo.ts.
-// onboardingService.ts is intentionally absent: its only demo guard sat in
-// getMyRides (the landing "Your rides" dashboard), which upstream removed, so
-// there is no demo-mode behaviour left to guard there.
 const GUARDED_FILES = [
   "src/hooks/useHomeData.tsx",
   "src/lib/activeRide.ts",
   "src/lib/auth.ts",
   "src/lib/sosDemo.ts",
+  "src/services/onboardingService.ts",
 ];
 
 function read(rel: string): string {
@@ -93,5 +91,5 @@ test("the demo env var is spelled VITE_DEMO_SESSION everywhere (no drift)", () =
   // an added guard must be added to GUARDED_FILES (and thus stay canonical).
   let total = 0;
   for (const rel of GUARDED_FILES) total += countOccurrences(read(rel), CANONICAL);
-  assert.equal(total, 4, `expected 4 canonical demo guards across GUARDED_FILES, found ${total}`);
+  assert.equal(total, 5, `expected 5 canonical demo guards across GUARDED_FILES, found ${total}`);
 });

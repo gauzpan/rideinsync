@@ -158,16 +158,17 @@ function resumePath(ride: ActiveRide): string {
 }
 
 function ActiveRideHero({ ride, onResume }: { ride: ActiveRide; onResume: () => void }) {
+  const isDraft = ride.status === "draft";
   return (
     <Card glow padding="var(--space-lg)">
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-sm)" }}>
         <div>
-          <Eyebrow>Active ride</Eyebrow>
-          <h2 style={{ margin: "var(--space-2xs) 0 0", fontSize: "var(--text-h2)", lineHeight: "var(--lh-h2)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
+          <Eyebrow>{isDraft ? "Not started yet" : "Active ride"}</Eyebrow>
+          <h2 style={{ margin: "var(--space-2xs) 0 0", fontFamily: "var(--font-brand)", fontSize: "calc(var(--text-h2) + 2px)", lineHeight: "var(--lh-h2)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
             {ride.name}
           </h2>
         </div>
-        <LivePill />
+        {!isDraft && <LivePill />}
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", marginTop: "var(--space-sm)", flexWrap: "wrap" }}>
@@ -183,7 +184,7 @@ function ActiveRideHero({ ride, onResume }: { ride: ActiveRide; onResume: () => 
 
       <div style={{ marginTop: "var(--space-lg)" }}>
         <Button variant="primary" onClick={onResume}>
-          Resume ride
+          {isDraft ? "Open ride" : "Resume ride"}
         </Button>
       </div>
     </Card>

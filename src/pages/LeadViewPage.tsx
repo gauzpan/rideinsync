@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { BackLink } from "../components/ui/BackLink";
+import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
@@ -14,6 +15,7 @@ import {
   declineJoinRequest,
   getPendingJoinRequests,
   getRideDetail,
+  removeMember,
   type AssignableRole,
   type PendingJoinRequest,
   type RideDetail,
@@ -91,7 +93,7 @@ export function LeadViewPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-
+  const [confirmingRemoveUserId, setConfirmingRemoveUserId] = useState<string | null>(null);
   const load = useCallback(async () => {
     if (!rideId) return;
     const [d, p] = await Promise.all([getRideDetail(rideId), getPendingJoinRequests(rideId)]);
@@ -123,6 +125,7 @@ export function LeadViewPage() {
 
   const self = detail?.roster.find((r) => r.member.user_id === user?.id);
   const isLead = self?.member.role === "leader" || self?.member.role === "co_leader";
+  const isLeader = detail?.ride.leader_id === user?.id || self?.member.role === "leader";
   const capacity = detail?.ride.member_capacity ?? null;
   const memberCount = detail?.roster.length ?? 0;
   const isFull = capacity != null && memberCount >= capacity;
@@ -181,6 +184,21 @@ export function LeadViewPage() {
       await refresh();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Couldn't update that role.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleRemove(memberUserId: string) {
+    if (!rideId) return;
+    setActionError(null);
+    setBusyId(memberUserId);
+    try {
+      await removeMember(rideId, memberUserId);
+      setConfirmingRemoveUserId(null);
+      await refresh();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Couldn't remove that member.");
     } finally {
       setBusyId(null);
     }
@@ -300,7 +318,15 @@ export function LeadViewPage() {
       <SectionTitle>Roster</SectionTitle>
       {detail.roster.map(({ member, profile }) => {
         const canReassign = rosterExcludingLeader.some((r) => r.member.id === member.id);
+
+        const canRemove =
+          isLeader &&
+          detail.ride.status === "draft" &&
+          member.user_id !== detail.ride.leader_id &&
+          member.role !== "leader";
+
         const currentLabel = ROLE_TO_LABEL[member.role] ?? "Rider";
+        const isConfirmingRemove = confirmingRemoveUserId === member.user_id;
         return (
           <Card
             key={member.id}
@@ -312,7 +338,7 @@ export function LeadViewPage() {
                 display: "flex",
                 alignItems: "center",
                 gap: "var(--space-md)",
-                marginBottom: canReassign ? "var(--space-sm)" : 0,
+                marginBottom: canReassign || canRemove ? "var(--space-sm)" : 0,
               }}
             >
               <Avatar name={profile?.display_name ?? "Rider"} url={profile?.avatar_url ?? null} />
@@ -340,6 +366,67 @@ export function LeadViewPage() {
                 style={busyId === member.user_id ? { opacity: 0.6, pointerEvents: "none" } : undefined}
               />
             )}
+
+                        {canRemove && isConfirmingRemove ? (
+              <div
+                style={{
+                  marginTop: "var(--space-md)",
+                  padding: "var(--space-md)",
+                  background: "var(--color-surface-1)",
+                  borderRadius: "var(--radius-md)",
+                  border: "1px solid var(--color-divider)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "var(--space-sm)",
+                }}
+              >
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "var(--text-body-size)",
+                    lineHeight: "var(--lh-body)",
+                    color: "var(--color-text-primary)",
+                    fontWeight: "var(--weight-medium)" as unknown as number,
+                  }}
+                >
+                  Remove {profile?.display_name ?? "this member"}?
+                </p>
+                <div style={{ display: "flex", gap: "var(--space-sm)" }}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setConfirmingRemoveUserId(null)}
+                    disabled={busyId === member.user_id}
+                    style={{ flex: 1 }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onClick={() => void handleRemove(member.user_id)}
+                    loading={busyId === member.user_id}
+                    disabled={busyId === member.user_id}
+                    style={{ flex: 1 }}
+                  >
+                    Confirm
+                  </Button>
+                </div>
+              </div>
+            ) : canRemove ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setActionError(null);
+                  setConfirmingRemoveUserId(member.user_id);
+                }}
+                disabled={busyId != null}
+                style={{
+                  marginTop: "var(--space-sm)",
+                  color: "var(--color-danger)",
+                }}
+              >
+                Remove member
+              </Button>
+            ) : null}
           </Card>
         );
       })}

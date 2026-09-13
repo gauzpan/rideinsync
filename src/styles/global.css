@@ -26,6 +26,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Page H1 titles are the brand voice — Roadspur Display. Pages set size/weight
+   via inline styles (var(--text-h1) etc.); only the family + tracking are set
+   here so a single rule covers every H1 without touching each page. Title case
+   is preserved (no text-transform). Inline font-family (e.g. the Landing hero)
+   still wins where a page sets it explicitly. */
+h1 {
+  font-family: var(--font-brand);
+  font-weight: 700;
+  letter-spacing: var(--font-brand-tracking, .01em);
+}
+
 a {
   color: var(--color-accent);
   text-decoration: none;
@@ -41,6 +52,24 @@ a {
 .btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* Home-only night-bike wallpaper image layer (see components/HomeWallpaper.tsx).
+   image-set() serves the 540px art to 1x screens and the 1080px art to 2x/retina;
+   the -webkit- form is kept first for the iOS-installed PWA (Safari). BASE is "/"
+   (manifest scope), so the public/ assets resolve at the site root. */
+.home-wallpaper__img {
+  background-position: center bottom;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-image: -webkit-image-set(
+    url("/wallpaper/home-bike@0.5.webp") 1x,
+    url("/wallpaper/home-bike.webp") 2x
+  );
+  background-image: image-set(
+    url("/wallpaper/home-bike@0.5.webp") 1x,
+    url("/wallpaper/home-bike.webp") 2x
+  );
 }
 
 /* Height of the fixed bottom TabBar (excludes the safe-area inset it adds as

@@ -10,7 +10,11 @@ Two bugs and one design pass.
 
 1. **SOS stayed disabled after a ride started.** The active-ride lookup ran once on mount and never refetched. Fixed with a realtime subscription plus refetch on navigation and tab focus.
 2. **SOS hint never disappeared.** Superseded: per founder ruling the SOS button is now hidden entirely unless the rider is a member of a *started* ride, so there is no disabled state and no hint.
+<<<<<<< HEAD
 3. **Design pass (founder-approved):** "soft raised / key-cap" depth on buttons, cards and the back control; duotone footer icons. (A Home wallpaper and the Roadspur Display brand font were also added in this pass but **reverted 2026-09-13 by founder ruling** — see §3.4/§3.5.)
+=======
+3. **Design pass (founder-approved):** "soft raised / key-cap" depth on buttons, cards and the back control; duotone footer icons; a Home wallpaper on all screens except SOS; Roadspur Display as the brand font.
+>>>>>>> origin/shubham-changes-merge
 
 Also: demo mode made self-consistent, and audited so it can be removed without touching the real path.
 
