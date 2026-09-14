@@ -128,8 +128,8 @@ export interface Database {
         { event_id: string; user_id: string; state?: AckState; seen_at?: string | null }
       >;
       emergency_contacts: Table<
-        { id: string; user_id: string; ordinal: number; name: string; phone: string; relation: string | null; created_at: string },
-        { user_id: string; ordinal: number; name: string; phone: string; relation?: string | null }
+        { id: string; user_id: string; ordinal: number; name: string; phone: string; relation: string | null; email: string | null; created_at: string },
+        { user_id: string; ordinal: number; name: string; phone: string; relation?: string | null; email?: string | null }
       >;
       medical_profiles: Table<
         { user_id: string; blood_type: string | null; allergies: string | null; medications: string | null; notes: string | null; updated_at: string },

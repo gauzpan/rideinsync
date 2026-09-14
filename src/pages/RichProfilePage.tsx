@@ -11,6 +11,7 @@ import { useAuth } from "../hooks/useAuth";
 import { usePersistedToggle } from "../lib/preference";
 import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
 import { useInstallPrompt } from "../lib/installApp";
+import { normalizeEmail, isValidEmail } from "../lib/sosEmail";
 import { pickDocumentFile, pickImageFile } from "../services/cameraService";
 import {
   getRichProfile,
@@ -127,6 +128,7 @@ export function RichProfilePage() {
   const [phone, setPhone] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
   const [basicSaving, setBasicSaving] = useState(false);
   const [basicSaved, setBasicSaved] = useState(false);
 
@@ -166,6 +168,7 @@ export function RichProfilePage() {
         setPhone(p.phone);
         setContactName(p.emergencyContact?.name ?? "");
         setContactPhone(p.emergencyContact?.phone ?? "");
+        setContactEmail(p.emergencyContact?.email ?? "");
         setFirstName(p.firstName ?? "");
         setLastName(p.lastName ?? "");
         setGender(p.gender ?? "");
@@ -231,6 +234,11 @@ export function RichProfilePage() {
   async function handleSaveBasic() {
     if (!user) return;
     setError(null);
+    const trimmedEmail = normalizeEmail(contactEmail);
+    if (trimmedEmail && !isValidEmail(trimmedEmail)) {
+      setError("Enter a valid emergency contact email, or leave it blank.");
+      return;
+    }
     setBasicSaving(true);
     setBasicSaved(false);
     try {
@@ -241,6 +249,7 @@ export function RichProfilePage() {
         phone,
         emergencyContactName: contactName,
         emergencyContactPhone: contactPhone,
+        emergencyContactEmail: contactEmail,
         vehiclePlate: "",
       });
       setBasicSaved(true);
@@ -434,6 +443,16 @@ export function RichProfilePage() {
             </Field>
             <Field label="Emergency contact phone">
               <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="e.g. 98765 43210" />
+            </Field>
+            <Field label="Emergency contact email (optional)">
+              <Input
+                value={contactEmail}
+                onChange={(e) => setContactEmail(e.target.value)}
+                placeholder="e.g. priya@example.com"
+                type="email"
+                autoComplete="email"
+                inputMode="email"
+              />
             </Field>
             <Button variant="secondary" onClick={() => void handleSaveBasic()} loading={basicSaving} success={basicSaved}>
               Save details

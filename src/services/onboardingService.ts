@@ -3,6 +3,7 @@
 // this flow should go through here (see docs/flow1-onboarding-spec.md).
 import { supabase } from "../lib/supabase";
 import { appOrigin } from "../lib/appUrl";
+import { normalizeEmail, isValidEmail } from "../lib/sosEmail";
 import { demoHomeData } from "../hooks/useHomeData";
 import type {
   Document,
@@ -673,6 +674,10 @@ export type MinimumProfileInput = {
   phone?: string;
   emergencyContactName: string;
   emergencyContactPhone: string;
+  /** Optional emergency-contact email. When the key is omitted (join-time
+   *  callers), the stored email is left untouched; when present (profile edit),
+   *  it is trimmed/lowercased and written (empty string clears it). */
+  emergencyContactEmail?: string;
   vehiclePlate: string;
 };
 
@@ -714,12 +719,26 @@ export async function submitMinimumProfile(userId: string, input: MinimumProfile
   }
 
   if (contactName && contactPhone) {
+    // Only include `email` in the upsert when the caller supplied the field, so
+    // a join-time save (name/phone only) preserves an existing email rather
+    // than resetting it — PostgREST merge-duplicates only SETs listed columns.
+    const contactRow: {
+      user_id: string;
+      ordinal: number;
+      name: string;
+      phone: string;
+      email?: string | null;
+    } = { user_id: userId, ordinal: 1, name: contactName, phone: contactPhone };
+    if (input.emergencyContactEmail !== undefined) {
+      const email = normalizeEmail(input.emergencyContactEmail);
+      if (email && !isValidEmail(email)) {
+        throw new Error("Enter a valid emergency contact email.");
+      }
+      contactRow.email = email || null;
+    }
     const { error } = await supabase
       .from("emergency_contacts")
-      .upsert(
-        { user_id: userId, ordinal: 1, name: contactName, phone: contactPhone },
-        { onConflict: "user_id,ordinal" }
-      );
+      .upsert(contactRow, { onConflict: "user_id,ordinal" });
     if (error) throw error;
   }
 
