@@ -100,10 +100,19 @@ function RiderPin({ rider }: { rider: RiderOnMap }) {
           fontWeight: 600,
           fontSize: 15,
           fontFamily: "var(--font-ui)",
+          overflow: "hidden",
           opacity: rider.status === "stale" ? 0.65 : 1,
         }}
       >
-        {initial}
+        {rider.profile.avatar_url ? (
+          <img
+            src={rider.profile.avatar_url}
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : (
+          initial
+        )}
       </div>
     </div>
   );
@@ -114,6 +123,19 @@ type Props = { route: LatLng[]; riders: RiderOnMap[] };
 export function RideMap({ route, riders }: Props) {
   if (!MAPS_KEY) {
     return <div style={{ padding: 24, color: "var(--color-text-secondary)" }}>Set VITE_GOOGLE_MAPS_API_KEY to load the map.</div>;
+  }
+  // AdvancedMarker (every pin below) only renders on a vector map, which
+  // requires a Map ID — without one the map itself still loads fine (raster
+  // mode, route line included) but every marker silently fails to mount, no
+  // console error. That's indistinguishable from "GPS works, pins don't"
+  // unless it's called out explicitly here.
+  if (!MAP_ID) {
+    return (
+      <div style={{ padding: 24, color: "var(--color-text-secondary)" }}>
+        Set VITE_MAP_ID (a vector Map ID from Google Cloud Console → Maps Platform → Map Management) to
+        show rider pins — the map loads without it, but markers won't render.
+      </div>
+    );
   }
   const center = route[Math.floor(route.length / 2)] ?? { lat: 12.92, lng: 77.53 };
   return (

@@ -21,6 +21,8 @@ import type { Ride, RiderOnMap, GroupStatus } from "../../lib/models";
 import type { LatLng } from "../../lib/geo";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { Icon } from "../ui/Icon";
+import { IconButton } from "../ui/IconButton";
 import { SosResolveButton } from "../SosResolveButton";
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
@@ -60,6 +62,18 @@ export function LiveOps({ ride }: { ride: Ride }) {
       </div>
     );
   }
+  // Every pin here (self, lead, fellow riders) is an AdvancedMarker, which
+  // needs a vector map — no Map ID means the map still loads (raster, route
+  // line intact) but every marker silently fails to mount. Surface that
+  // explicitly instead of leaving "GPS works, no pins" unexplained.
+  if (!MAP_ID) {
+    return (
+      <div style={{ padding: "var(--space-md)", color: "var(--color-text-secondary)" }}>
+        Set VITE_MAP_ID (a vector Map ID from Google Cloud Console → Maps Platform → Map Management) to
+        show rider pins — the map loads without it, but markers won't render.
+      </div>
+    );
+  }
   return (
     <APIProvider apiKey={MAPS_KEY}>
       <LiveOpsInner ride={ride} />
@@ -78,7 +92,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const simRef = useRef<RideSimulator | null>(null);
 
   const { user } = useAuth();
-  const { riders, rideStatus } = useRideChannel(ride.id);
+  const { riders, rideStatus, joinToasts, dismissJoinToast } = useRideChannel(ride.id);
   const [ending, setEnding] = useState(false);
   const [sosSending, setSosSending] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -369,8 +383,35 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // In fullscreen the overlay sits under the status bar/notch — clear it.
   const topInset = fullscreen ? "calc(env(safe-area-inset-top, 0px) + 52px)" : 12;
 
+  const visibleJoinToasts = joinToasts.filter((t) => t.userId !== user?.id);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+      {/* New-rider toast — Realtime already keeps `riders` current with no
+          reload needed; this just surfaces that as a transient, dismissible
+          nudge for whoever's already on this screen when someone joins. */}
+      {visibleJoinToasts.map((t) => {
+        const name = riders.find((r) => r.member.user_id === t.userId)?.profile.display_name || "A rider";
+        return (
+          <Card key={t.id} padding="var(--space-sm) var(--space-md)" style={{ borderLeft: "3px solid var(--color-accent)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-sm)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
+                <Icon name="users" size={18} color="var(--color-accent)" />
+                <span style={{ fontSize: "var(--text-body-size)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <strong>{name}</strong> joined the ride
+                </span>
+              </div>
+              <IconButton
+                name="x"
+                size={32}
+                iconSize={16}
+                aria-label="Dismiss"
+                onClick={() => dismissJoinToast(t.id)}
+              />
+            </div>
+          </Card>
+        );
+      })}
       {ended && (
         <Card style={{ borderLeft: "3px solid #FF453A" }}>
           <strong style={{ color: "#FF453A" }}>Ride ended</strong>
@@ -462,8 +503,12 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           )}
         </Map>
 
-        {/* Map controls: maximize/minimize + orientation (nav heading-up / overview). */}
-        <div style={{ position: "absolute", top: topInset, right: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        {/* Map controls: maximize/minimize + orientation (nav heading-up / overview).
+            Explicit z-index (above the map's own internal panes/marker layer,
+            which can otherwise paint over a plain-stacked sibling during pan/
+            zoom) keeps these pinned on top of the map instead of getting
+            buried mid-gesture. */}
+        <div style={{ position: "absolute", top: topInset, right: 12, zIndex: 999, display: "flex", flexDirection: "column", gap: 8 }}>
           <MapControlButton title={fullscreen ? "Minimize map" : "Maximize map"} onClick={toggleFullscreen}>
             {fullscreen ? "⤡" : "⤢"}
           </MapControlButton>
@@ -482,7 +527,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             type="button"
             onClick={() => void raiseSos()}
             style={{
-              position: "absolute", top: topInset, left: 12, height: 44, padding: "0 18px",
+              position: "absolute", top: topInset, left: 12, zIndex: 999, height: 44, padding: "0 18px",
               borderRadius: 999, border: "none", background: "#FF453A", color: "#fff",
               fontWeight: 700, fontSize: 15, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,.4)",
             }}
@@ -725,10 +770,19 @@ function RiderPin({ rider }: { rider: RiderOnMap }) {
         fontWeight: 600,
         fontSize: 14,
         fontFamily: "var(--font-ui)",
+        overflow: "hidden",
         opacity: rider.status === "stale" ? 0.65 : 1,
       }}
     >
-      {initial}
+      {rider.profile.avatar_url ? (
+        <img
+          src={rider.profile.avatar_url}
+          alt=""
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      ) : (
+        initial
+      )}
     </div>
   );
 }

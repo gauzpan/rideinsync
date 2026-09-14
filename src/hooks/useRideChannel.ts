@@ -44,13 +44,30 @@ type PackPayload = {
   }>;
 };
 
+/** A rider joining mid-ride, surfaced as a transient toast for everyone
+ *  already viewing it — auto-dismissed after JOIN_TOAST_MS unless the
+ *  consumer dismisses it sooner. */
+export type JoinToast = { id: string; userId: string };
+const JOIN_TOAST_MS = 6000;
+
 export function useRideChannel(rideId: string | undefined) {
   const [members, setMembers] = useState<MemberMap>({});
   const [pack, setPack] = useState<PackMap>({});
   const [profiles, setProfiles] = useState<ProfileMap>({});
   const [events, setEvents] = useState<RideEvent[]>([]);
   const [rideStatus, setRideStatus] = useState<string | null>(null);
+  const [joinToasts, setJoinToasts] = useState<JoinToast[]>([]);
   const fetchingProfile = useRef(new Set<string>());
+  const toastTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  const dismissJoinToast = (id: string) => {
+    const timer = toastTimers.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      toastTimers.current.delete(id);
+    }
+    setJoinToasts((prev) => prev.filter((t) => t.id !== id));
+  };
 
   useEffect(() => {
     if (!rideId) return;
@@ -156,6 +173,22 @@ export function useRideChannel(rideId: string | undefined) {
           });
         return prev;
       });
+
+      // A brand-new roster row, not the initial seed load (seed() populates
+      // `members` directly, never through this Realtime listener) — this is
+      // exactly a rider joining mid-ride, worth a transient toast for
+      // everyone else already on this screen.
+      if (payload.eventType === "INSERT") {
+        const id = `${m.user_id}-${Date.now()}`;
+        setJoinToasts((prev) => [...prev, { id, userId: m.user_id }]);
+        toastTimers.current.set(
+          id,
+          setTimeout(() => {
+            toastTimers.current.delete(id);
+            setJoinToasts((prev) => prev.filter((t) => t.id !== id));
+          }, JOIN_TOAST_MS),
+        );
+      }
     };
 
     const onRideEvents = (payload: PgChangePayload) =>
@@ -176,6 +209,8 @@ export function useRideChannel(rideId: string | undefined) {
       handle.listeners.rideEvents.delete(onRideEvents);
       handle.listeners.rides.delete(onRides);
       handle.release();
+      for (const timer of toastTimers.current.values()) clearTimeout(timer);
+      toastTimers.current.clear();
     };
   }, [rideId]);
 
@@ -205,5 +240,5 @@ export function useRideChannel(rideId: string | undefined) {
     });
   }, [members, pack, profiles]);
 
-  return { riders, events, rideStatus };
+  return { riders, events, rideStatus, joinToasts, dismissJoinToast };
 }
