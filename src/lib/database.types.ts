@@ -107,6 +107,18 @@ export interface Database {
         { ride_id: string; user_id: string; lat: number; lng: number; heading?: number | null;
           speed?: number | null; accuracy?: number | null; recorded_at?: string }
       >;
+      // Hot counterpart to rider_positions (M2, supabase/migrations/0023_latest_positions.sql):
+      // one row per (ride_id, user_id), upserted by supabase/functions/positions-ingest.
+      // Also read by M3's seed query (useRideChannel.ts) and its broadcast aggregator.
+      latest_positions: Table<
+        {
+          ride_id: string; user_id: string; lat: number; lng: number;
+          heading: number | null; speed: number | null; accuracy: number | null;
+          recorded_at: string; updated_at: string;
+        },
+        { ride_id: string; user_id: string; lat: number; lng: number; heading?: number | null;
+          speed?: number | null; accuracy?: number | null; recorded_at?: string; updated_at?: string }
+      >;
       ride_events: Table<
         { id: string; ride_id: string; user_id: string; type: EventType; payload: Json | null; created_at: string },
         { ride_id: string; user_id: string; type: EventType; payload?: Json | null }
@@ -203,12 +215,12 @@ export interface Database {
         { id: number; user_id: string | null; name: string; props: Json | null; created_at: string },
         { user_id?: string | null; name: string; props?: Json | null }
       >;
-      // migration 0010_push_notifications.sql — hand-authored mirror; regenerate later.
+      // migration 0015_push_notifications.sql — hand-authored mirror; regenerate later.
       push_subscriptions: Table<
         { id: string; user_id: string; ride_id: string; endpoint: string; p256dh: string; auth: string; created_at: string },
         { user_id: string; ride_id: string; endpoint: string; p256dh: string; auth: string }
       >;
-      // migration 0011_groups.sql — hand-authored mirror; regenerate later.
+      // migration 0017_groups.sql — hand-authored mirror; regenerate later.
       ride_groups: Table<
         { id: string; name: string; city: string | null; culture: string | null; tagline: string | null; rules: string | null; created_by: string; invite_code: string } & Timestamps,
         { name: string; city?: string | null; culture?: string | null; tagline?: string | null; rules?: string | null; created_by: string; invite_code?: string }
@@ -229,12 +241,12 @@ export interface Database {
       // supabase/migrations/0003_flow1_lead_approval.sql — ticket 05.
       decline_join_request: { Args: { p_request_id: string }; Returns: undefined };
       assign_ride_role: { Args: { p_ride_id: string; p_user_id: string; p_role: MemberRole }; Returns: undefined };
-      // supabase/migrations/0007_ending.sql (Flow 6) — renumbered on merge; see below.
+      // supabase/migrations/0011_ending.sql (Flow 6).
       close_ride: { Args: { p_ride_id: string }; Returns: undefined };
       reached_home: { Args: { p_ride_id: string }; Returns: undefined };
-      // supabase/migrations/0009_flow2_remove_member.sql
+      // supabase/migrations/0012_flow2_remove_member.sql
       remove_ride_member: { Args: { p_ride_id: string; p_user_id: string }; Returns: undefined };
-      // supabase/migrations/0011_groups.sql
+      // supabase/migrations/0017_groups.sql
       create_ride_group: {
         Args: { p_name: string; p_city: string; p_culture: string; p_tagline: string; p_rules: string; p_co_leads?: string[] };
         Returns: string;
@@ -242,8 +254,10 @@ export interface Database {
       search_riders: { Args: { p_query: string }; Returns: { id: string; display_name: string; avatar_url: string | null }[] };
       is_group_member: { Args: { gid: string }; Returns: boolean };
       is_group_lead: { Args: { gid: string }; Returns: boolean };
-      // supabase/migrations/0012_group_invite.sql
+      // supabase/migrations/0019_group_invite.sql
       join_group_by_code: { Args: { p_code: string }; Returns: string };
+      // supabase/migrations/0022_raise_sos_alert.sql — M0 correctness hardening.
+      raise_sos_alert: { Args: { p_ride_id: string; p_user_id: string; p_payload: Json }; Returns: string };
     };
     Enums: {
       member_role: MemberRole;

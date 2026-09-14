@@ -9,6 +9,29 @@
 // v2 if "never rely on the client actually calling this" becomes a hard
 // requirement.
 //
+// M4 (docs/scale-readiness-roadmap.md M4.3): this function now has two
+// modes, distinguished by the request body:
+//   * Default (no `mode`, or any value other than "process_queue") — the
+//     client-facing path, contract unchanged from the caller's perspective
+//     ({ride_id, sender_user_id, kind} in, JWT-verified against
+//     sender_user_id). Instead of sending inline, it now just enqueues a
+//     push_jobs row and returns immediately — the slow fanout moves off the
+//     request path.
+//   * `{"mode": "process_queue"}` — the async worker path. Only reachable
+//     by a caller presenting the project's service_role key as its Bearer
+//     token (checked below), which only supabase/migrations/
+//     0027_push_jobs_queue.sql's pg_cron job does (via a Vault-stored
+//     secret) — an ordinary client JWT is rejected here, so this can't be
+//     used to bypass the sender-identity check on the default path. Claims
+//     a batch of pending push_jobs and runs the *same* subscriber-lookup +
+//     Promise.allSettled send + 404/410 cleanup this function used to run
+//     inline, byte-for-behavior identical, just relocated and looped per
+//     job. Reusing this file instead of deploying a second Edge Function
+//     keeps this a one-file, one-deploy change — see the migration header
+//     for why pg_net (not a plpgsql/SQL rewrite) has to be the mechanism:
+//     the actual `webpush.sendNotification` call needs this file's
+//     VAPID/crypto machinery, which has no Postgres equivalent.
+//
 // ── One-time deploy steps (cannot be done from this repo alone — needs your
 //    Supabase project's own CLI login) ──────────────────────────────────────
 //   1. Generate a VAPID keypair once:  npx web-push generate-vapid-keys
@@ -26,8 +49,12 @@
 // Request body: { ride_id: string; sender_user_id: string; kind: "hazard" |
 // "regroup" | "pitstop" | "sos" }. Verifies the caller's JWT actually is
 // sender_user_id (so this can't be used to spam push at other riders'
-// devices under a spoofed identity), then pushes every *other* subscriber in
-// that ride.
+// devices under a spoofed identity), then enqueues a push_jobs row for the
+// async worker path to fan out to every *other* subscriber in that ride.
+//
+// Process-queue request body: { mode: "process_queue" }, Authorization:
+// Bearer <service_role_key>. No other fields — it drains whatever's
+// pending in push_jobs itself.
 
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import webpush from "npm:web-push@3.6.7";
@@ -45,12 +72,24 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 
 const serviceClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
+// How many pending push_jobs one process_queue invocation drains. pg_cron
+// ticks every 5s (0027_push_jobs_queue.sql) — generous for this hackathon's
+// traffic; revisit if a batch routinely maxes this out.
+const QUEUE_BATCH_SIZE = 25;
+
 type SignalKind = "hazard" | "regroup" | "pitstop" | "sos";
 const KIND_TITLE: Record<SignalKind, string> = {
   hazard: "Hazard",
   regroup: "Regroup",
   pitstop: "Pit stop",
   sos: "SOS",
+};
+
+type PushJobRow = {
+  id: string;
+  ride_id: string;
+  sender_user_id: string;
+  kind: SignalKind;
 };
 
 function bodyFor(kind: SignalKind, senderName: string): string {
@@ -66,34 +105,12 @@ function bodyFor(kind: SignalKind, senderName: string): string {
   }
 }
 
-Deno.serve(async (req) => {
-  if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-    console.error("[push-notify] VAPID keys not configured — see this file's header");
-    return new Response("Push not configured", { status: 500 });
-  }
-
-  let body: { ride_id?: string; sender_user_id?: string; kind?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return new Response("Invalid JSON", { status: 400 });
-  }
-  const { ride_id, sender_user_id, kind } = body;
-  if (!ride_id || !sender_user_id || !kind || !(kind in KIND_TITLE)) {
-    return new Response("Missing or invalid fields", { status: 400 });
-  }
-
-  // The caller must be the sender they claim to be — otherwise this endpoint
-  // could be used to trigger push at other riders under a spoofed identity.
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const callerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: caller, error: authErr } = await callerClient.auth.getUser();
-  if (authErr || caller.user?.id !== sender_user_id) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+// The actual send for one job: subscriber lookup, payload build, webpush
+// send, and the 404/410 cleanup — unchanged logic from the pre-M4 inline
+// version of this function, just parameterized by a job instead of the raw
+// request body.
+async function sendForJob(job: PushJobRow): Promise<{ sent: number; failed: number }> {
+  const { ride_id, sender_user_id, kind } = job;
 
   const [{ data: subs, error: subErr }, { data: sender }] = await Promise.all([
     serviceClient
@@ -104,16 +121,15 @@ Deno.serve(async (req) => {
     serviceClient.from("profiles").select("display_name").eq("id", sender_user_id).single(),
   ]);
   if (subErr) {
-    console.error("[push-notify] subscription lookup failed", subErr.message);
-    return new Response("Lookup failed", { status: 500 });
+    throw new Error(`subscription lookup failed: ${subErr.message}`);
   }
-  if (!subs?.length) return new Response("No subscribers", { status: 200 });
+  if (!subs?.length) return { sent: 0, failed: 0 };
 
   const senderName = sender?.display_name ?? "A rider";
   const isUrgent = kind === "sos";
   const payload = JSON.stringify({
-    title: KIND_TITLE[kind as SignalKind],
-    body: bodyFor(kind as SignalKind, senderName),
+    title: KIND_TITLE[kind],
+    body: bodyFor(kind, senderName),
     // Per §10's push-dedup rules: sos gets a unique tag per event so
     // concurrent SOS cases stack instead of replacing each other; the
     // routine signals share one tag per (ride, kind) so a flurry of the same
@@ -141,9 +157,121 @@ Deno.serve(async (req) => {
     }),
   );
   const failed = results.filter((r) => r.status === "rejected").length;
-  if (failed) console.warn(`[push-notify] ${failed}/${subs.length} sends failed`);
+  if (failed) console.warn(`[push-notify] job ${job.id}: ${failed}/${subs.length} sends failed`);
 
-  return new Response(JSON.stringify({ sent: subs.length - failed, failed }), {
+  return { sent: subs.length - failed, failed };
+}
+
+// process_queue mode: claim a batch of pending push_jobs, send each, mark
+// done/failed. One bad job (e.g. a lookup error) never blocks the rest of
+// the batch — matches process_ride_close_jobs' per-item try/catch shape
+// (0026_close_ride_incremental.sql).
+async function processQueue(): Promise<Response> {
+  const { data: pending, error: selErr } = await serviceClient
+    .from("push_jobs")
+    .select("id")
+    .eq("status", "pending")
+    .order("created_at", { ascending: true })
+    .limit(QUEUE_BATCH_SIZE);
+  if (selErr) {
+    console.error("[push-notify] queue select failed", selErr.message);
+    return new Response("Queue select failed", { status: 500 });
+  }
+  if (!pending?.length) return new Response(JSON.stringify({ processed: 0 }), { status: 200 });
+
+  const ids = pending.map((p) => p.id);
+  const { data: claimed, error: claimErr } = await serviceClient
+    .from("push_jobs")
+    .update({ status: "processing" })
+    .eq("status", "pending")
+    .in("id", ids)
+    .select("id, ride_id, sender_user_id, kind");
+  if (claimErr) {
+    console.error("[push-notify] queue claim failed", claimErr.message);
+    return new Response("Queue claim failed", { status: 500 });
+  }
+
+  let sent = 0;
+  let failed = 0;
+  for (const job of (claimed ?? []) as PushJobRow[]) {
+    try {
+      const result = await sendForJob(job);
+      sent += result.sent;
+      failed += result.failed;
+      await serviceClient
+        .from("push_jobs")
+        .update({ status: "done", processed_at: new Date().toISOString() })
+        .eq("id", job.id);
+    } catch (err) {
+      console.error(`[push-notify] job ${job.id} failed`, (err as Error).message ?? err);
+      await serviceClient
+        .from("push_jobs")
+        .update({ status: "failed", processed_at: new Date().toISOString() })
+        .eq("id", job.id);
+    }
+  }
+
+  return new Response(JSON.stringify({ processed: claimed?.length ?? 0, sent, failed }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+Deno.serve(async (req) => {
+  if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+    console.error("[push-notify] VAPID keys not configured — see this file's header");
+    return new Response("Push not configured", { status: 500 });
+  }
+
+  let body: { ride_id?: string; sender_user_id?: string; kind?: string; mode?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return new Response("Invalid JSON", { status: 400 });
+  }
+
+  // Process-queue mode: only the pg_cron worker (via its Vault-stored
+  // service_role key, 0027_push_jobs_queue.sql) may call this — an ordinary
+  // client JWT is not the service_role key and is rejected here.
+  if (body.mode === "process_queue") {
+    const authHeader = req.headers.get("Authorization") ?? "";
+    if (authHeader !== `Bearer ${SERVICE_ROLE_KEY}`) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    return await processQueue();
+  }
+
+  const { ride_id, sender_user_id, kind } = body;
+  if (!ride_id || !sender_user_id || !kind || !(kind in KIND_TITLE)) {
+    return new Response("Missing or invalid fields", { status: 400 });
+  }
+
+  // The caller must be the sender they claim to be — otherwise this endpoint
+  // could be used to trigger push at other riders under a spoofed identity.
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const callerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: caller, error: authErr } = await callerClient.auth.getUser();
+  if (authErr || caller.user?.id !== sender_user_id) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  // M4: enqueue instead of sending inline — the worker path above (driven by
+  // pg_cron) does the actual fanout. Returns immediately, same fire-and-forget
+  // contract triggerPushNotify already treats this call as.
+  const { data: job, error: insertErr } = await serviceClient
+    .from("push_jobs")
+    .insert({ ride_id, sender_user_id, kind })
+    .select("id")
+    .single();
+  if (insertErr) {
+    console.error("[push-notify] enqueue failed", insertErr.message);
+    return new Response("Enqueue failed", { status: 500 });
+  }
+
+  return new Response(JSON.stringify({ enqueued: true, job_id: job.id }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });

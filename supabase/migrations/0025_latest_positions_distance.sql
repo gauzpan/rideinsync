@@ -1,0 +1,18 @@
+-- ============================================================================
+-- M4 Task 1 (1/2) — incremental distance on latest_positions
+-- ----------------------------------------------------------------------------
+-- close_ride (0011_ending.sql) rescans each member's *entire* rider_positions
+-- history with a windowed haversine every time a ride ends — expensive per
+-- ride, and repeated across every ride ending. See
+-- docs/scale-readiness-roadmap.md M4.1.
+--
+-- This column holds a running total, maintained incrementally by
+-- supabase/functions/positions-ingest on every accepted GPS fix (delta vs.
+-- the rider's previous latest_positions row, added to that row's running
+-- total). 0026_close_ride_incremental.sql then reads this directly instead
+-- of rescanning rider_positions.
+--
+-- Owned by this milestone — the M5 engineer was explicitly told not to touch
+-- latest_positions' schema this round.
+-- ============================================================================
+alter table latest_positions add column distance_m double precision not null default 0;

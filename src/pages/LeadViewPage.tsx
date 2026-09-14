@@ -14,6 +14,7 @@ import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import {
   approveJoinRequest,
   assignRideRole,
+  buildJoinUrl,
   declineJoinRequest,
   getPendingJoinRequests,
   getRideDetail,
@@ -22,6 +23,8 @@ import {
   type PendingJoinRequest,
   type RideDetail,
 } from "../services/onboardingService";
+import { copyToClipboard, shareInvite } from "../services/shareService";
+import { generateQrDataUrl } from "../services/qrService";
 
 // The roster's role control offers these three — reassigning the leader
 // itself is out of scope (see docs/.../issues/05-lead-approval-roster-roles.md).
@@ -97,6 +100,10 @@ export function LeadViewPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmingRemoveUserId, setConfirmingRemoveUserId] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [copied, setCopied] = useState<"code" | "link" | null>(null);
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const load = useCallback(async () => {
     if (!rideId) return;
     const [d, p] = await Promise.all([getRideDetail(rideId), getPendingJoinRequests(rideId)]);
@@ -137,6 +144,22 @@ export function LeadViewPage() {
     () => detail?.roster.filter((r) => r.member.role !== "leader") ?? [],
     [detail]
   );
+
+  // QR for the invite panel. This effect must stay above the early returns
+  // below (loading / error / not-lead) so the hook order is stable —
+  // otherwise React throws "rendered more hooks than during the previous
+  // render" once the ride finishes loading.
+  const joinUrl = detail ? buildJoinUrl(detail.ride.code) : "";
+  useEffect(() => {
+    if (!inviteOpen || qrDataUrl || !joinUrl) return;
+    let cancelled = false;
+    generateQrDataUrl(joinUrl).then((url) => {
+      if (!cancelled) setQrDataUrl(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteOpen, joinUrl, qrDataUrl]);
 
   async function refresh() {
     try {
@@ -241,6 +264,27 @@ export function LeadViewPage() {
 
   const { ride } = detail;
 
+  async function handleCopy(target: Exclude<typeof copied, null>) {
+    const text = target === "code" ? ride.code : joinUrl;
+    const ok = await copyToClipboard(text);
+    setCopied(ok ? target : null);
+    if (ok) setTimeout(() => setCopied(null), 2000);
+  }
+
+  async function handleShare() {
+    // One sheet carrying both the link and the QR image (file-capable
+    // platforms get the image; elsewhere this degrades to link/copy).
+    const result = await shareInvite({
+      title: ride.name,
+      text: `Join "${ride.name}" on RideInSync — code ${ride.code}`,
+      url: joinUrl,
+      qrDataUrl,
+    });
+    if (result === "shared") setShareMessage("Invite shared.");
+    else if (result === "copied") setShareMessage("Link copied — share it your way.");
+    else setShareMessage(null);
+  }
+
   return (
     <div>
       <BackLink to={`/ride/${rideId}`}>Ride detail</BackLink>
@@ -260,6 +304,113 @@ export function LeadViewPage() {
           <span style={{ color: "var(--color-role-sweep)" }}> · Ride full</span>
         )}
       </p>
+
+      {/* Invite — same join link + native share as the invite screen, inline
+          so the lead can pull in late riders without leaving the roster. */}
+      <Button
+        variant="secondary"
+        onClick={() => setInviteOpen((v) => !v)}
+        aria-expanded={inviteOpen}
+        style={{ marginBottom: inviteOpen ? "var(--space-md)" : "var(--space-lg)" }}
+      >
+        Invite riders
+      </Button>
+
+      {inviteOpen && (
+        <Card padding="var(--space-md)" style={{ marginBottom: "var(--space-lg)" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-sm)",
+              marginBottom: "var(--space-sm)",
+            }}
+          >
+            <span style={{ fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>
+              Join code
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--font-numeric)",
+                fontSize: "var(--text-h2)",
+                lineHeight: "var(--lh-h2)",
+                fontWeight: "var(--weight-semibold)",
+                letterSpacing: "0.08em",
+              }}
+            >
+              {ride.code}
+            </span>
+            <span style={{ flex: 1 }} />
+            <IconButton
+              name={copied === "code" ? "check" : "copy"}
+              onClick={() => void handleCopy("code")}
+              aria-label="Copy join code"
+            />
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "var(--space-sm)",
+              background: "var(--color-surface-3)",
+              borderRadius: "var(--radius-full)",
+              padding: "var(--space-xs) var(--space-xs) var(--space-xs) var(--space-md)",
+              marginBottom: "var(--space-md)",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "var(--text-label)",
+                color: "var(--color-text-secondary)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                textAlign: "left",
+              }}
+            >
+              {joinUrl}
+            </span>
+            <IconButton
+              name={copied === "link" ? "check" : "copy"}
+              variant="surface-4"
+              size={40}
+              onClick={() => void handleCopy("link")}
+              aria-label="Copy join link"
+            />
+          </div>
+
+          {qrDataUrl && (
+            // White-fill PNG (see qrService) so it scans in either theme.
+            <div style={{ textAlign: "center", marginBottom: "var(--space-md)" }}>
+              <div
+                style={{
+                  display: "inline-block",
+                  padding: "var(--space-sm)",
+                  borderRadius: "var(--radius-md)",
+                  lineHeight: 0,
+                }}
+              >
+                <img
+                  src={qrDataUrl}
+                  alt={`QR code to join ${ride.name}`}
+                  width={200}
+                  height={200}
+                  style={{ borderRadius: "var(--radius-sm)" }}
+                />
+              </div>
+            </div>
+          )}
+
+          <Button onClick={() => void handleShare()}>Share invite</Button>
+          {shareMessage && (
+            <p style={{ color: "var(--color-text-secondary)", marginTop: "var(--space-sm)" }}>
+              {shareMessage}
+            </p>
+          )}
+        </Card>
+      )}
 
       {/* Flow 3 live tracker for this real ride — route geocoded from the
           form's start/destination labels, real roster shown live. */}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Logo } from "./ui/Logo";
 import { Icon } from "./ui/Icon";
@@ -12,6 +12,7 @@ import { useVoiceListening } from "../lib/voiceActivity";
 export function AccountBar() {
   const { profile, isGuest, signOut } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const label = profile?.display_name ?? (isGuest ? "Guest" : "Rider");
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -190,7 +191,18 @@ export function AccountBar() {
               role="menuitem"
               onClick={() => {
                 setOpen(false);
-                void signOut();
+                // Sign out, then land back on "/". AppLayout's own guard would
+                // also bounce protected routes there, but an explicit redirect
+                // covers the public paths (e.g. /ride/create) where it
+                // otherwise leaves the signed-out visitor in place. Join
+                // deep-links are the exception: AppLayout swaps those to the
+                // SignInSheet so the rider can log straight back into the join.
+                void (async () => {
+                  await signOut();
+                  if (!/^\/join\//.test(pathname) && !/^\/groups\/join\//.test(pathname)) {
+                    navigate("/", { replace: true });
+                  }
+                })();
               }}
               style={{
                 display: "flex",

@@ -5,6 +5,7 @@
 import { useEffect, useRef } from "react";
 import type { IconName } from "../components/ui/Icon";
 import { supabase } from "./supabase";
+import { acquireRideChannel, type PgChangePayload } from "./rideChannel";
 import { triggerPushNotify } from "./pushNotifications";
 
 export type SignalKind = "sos" | "hazard" | "regroup" | "pitstop";
@@ -68,6 +69,13 @@ const NON_SOS_KINDS: Exclude<SignalKind, "sos">[] = ["hazard", "regroup", "pitst
  * with an active ride, so it fires from any screen, not just the Ride tab.
  * The sender's own insert is skipped (they already get local feedback at the
  * call site) to avoid a duplicate toast.
+ *
+ * M3 channel consolidation: this used to open its own `ride:<id>:signals:*`
+ * channel. It now attaches to the same shared `ride-<id>` channel
+ * useRideChannel owns (src/lib/rideChannel.ts) as another `ride_events`
+ * listener alongside useRideChannel's own (which just accumulates the raw
+ * event list — this one filters to non-SOS kinds and fires a callback).
+ * External contract (params in, callback out) is unchanged.
  */
 export function useRideSignalListener(
   rideId: string | null,
@@ -80,23 +88,20 @@ export function useRideSignalListener(
   useEffect(() => {
     if (!rideId) return;
 
-    const channel = supabase
-      .channel(`ride:${rideId}:signals:${Math.random().toString(36).slice(2)}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "ride_events", filter: `ride_id=eq.${rideId}` },
-        (payload) => {
-          const row = payload.new as { user_id: string; type: string };
-          if (row.user_id === selfUserId) return;
-          if ((NON_SOS_KINDS as string[]).includes(row.type)) {
-            onSignalRef.current(row.type as Exclude<SignalKind, "sos">);
-          }
-        },
-      )
-      .subscribe();
+    const handle = acquireRideChannel(rideId);
+    const onRideEventsInsert = (payload: PgChangePayload) => {
+      if (payload.eventType !== "INSERT") return;
+      const row = payload.new as { user_id: string; type: string };
+      if (row.user_id === selfUserId) return;
+      if ((NON_SOS_KINDS as string[]).includes(row.type)) {
+        onSignalRef.current(row.type as Exclude<SignalKind, "sos">);
+      }
+    };
+    handle.listeners.rideEvents.add(onRideEventsInsert);
 
     return () => {
-      void supabase.removeChannel(channel);
+      handle.listeners.rideEvents.delete(onRideEventsInsert);
+      handle.release();
     };
   }, [rideId, selfUserId]);
 }

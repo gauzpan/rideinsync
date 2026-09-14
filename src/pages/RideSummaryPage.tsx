@@ -7,6 +7,7 @@ import type { FeedbackSentiment, Ride, RideMember, RideSummary, UserBadge } from
 import { BadgeGrid, type Vehicle } from "../components/ui/RideBadge";
 import { closeRide, loadSummaryView, markReachedHome, submitFeedback } from "../lib/ending";
 import { shareRide } from "../lib/shareCard";
+import { appOrigin } from "../lib/appUrl";
 
 const sentiments: { value: FeedbackSentiment; label: string }[] = [
   { value: "like", label: "Liked it" },
@@ -195,7 +196,7 @@ export function RideSummaryPage() {
               distanceKm,
               durationMin,
               badges: badges.map((b) => b.badge_key),
-              appUrl: window.location.origin,
+              appUrl: appOrigin(),
             });
             if (res === "link-copied") setStatus("Link copied.");
           })

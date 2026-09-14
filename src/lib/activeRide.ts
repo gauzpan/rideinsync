@@ -40,7 +40,7 @@ export async function resolveActiveRideId(userId: string): Promise<string | null
  * Resolve the active ride now, then keep it current by re-resolving whenever a
  * `rides` row the user can see is UPDATEd (draft→active, active→ended) and
  * whenever the tab returns to the foreground. `rides` is in the
- * `supabase_realtime` publication (migration 0008_flow3_ride_realtime.sql) and
+ * `supabase_realtime` publication (migration 0010_flow3_ride_realtime.sql) and
  * RLS scopes the stream to the user's own member rides, so the unfiltered
  * subscription only receives rows this user may read. Follows the channel
  * pattern in lib/sos.ts (useSosAlerts). Returns a cleanup function.

@@ -32,14 +32,17 @@ export function SegmentedControl({ options = ["Low", "Medium", "High"], value, o
       }}
     >
       {options.map((opt) => {
-        const active = opt === value;
+        const optValue = typeof opt === "string" ? opt : opt.value;
+        const optLabel = typeof opt === "string" ? opt : opt.label;
+        const active = optValue === value;
         return (
           <button
-            key={opt}
+            key={optValue}
             type="button"
             role="tab"
             aria-selected={active}
-            onClick={() => onChange?.(opt)}
+            aria-label={typeof opt === "string" ? undefined : opt.ariaLabel}
+            onClick={() => onChange?.(optValue)}
             style={{
               flex: 1,
               height: 40,
@@ -54,7 +57,7 @@ export function SegmentedControl({ options = ["Low", "Medium", "High"], value, o
               transition: "background .15s ease",
             }}
           >
-            {opt}
+            {optLabel}
           </button>
         );
       })}

@@ -236,12 +236,12 @@ export function LandingPage() {
           <Mark size={64} />
           <h1
             style={{
-              fontFamily: "var(--font-brand)",
-              fontSize: "var(--text-display)",
-              lineHeight: "var(--lh-display)",
-              fontWeight: "var(--weight-semibold)",
-              letterSpacing: "var(--tracking-brand)",
-              margin: "var(--space-md) 0 0",
+              position: "absolute",
+              width: 1,
+              height: 1,
+              overflow: "hidden",
+              clip: "rect(0 0 0 0)",
+              whiteSpace: "nowrap",
             }}
           >
             RideInSync

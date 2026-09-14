@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0012 — Group invite links
+-- 0019 — Group invite links
 -- ----------------------------------------------------------------------------
 -- Every ride_group gets a unique invite_code, shareable as a URL
 -- (/groups/join/:code). Opening it while signed out routes through sign-in

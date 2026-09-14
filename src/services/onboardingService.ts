@@ -2,6 +2,7 @@
 // screen needs, so components never build query shapes inline. Tests for
 // this flow should go through here (see docs/flow1-onboarding-spec.md).
 import { supabase } from "../lib/supabase";
+import { appOrigin } from "../lib/appUrl";
 import { demoHomeData } from "../hooks/useHomeData";
 import type {
   Document,
@@ -423,9 +424,11 @@ export async function deleteOrCancelRide(
 }
 
 /** The deep-link a rider taps to land in the join flow with the code
- *  pre-filled (`/join/:code`, per docs/flow1-onboarding-spec.md). */
+ *  pre-filled (`/join/:code`, per docs/flow1-onboarding-spec.md). Built on
+ *  the canonical app origin (see lib/appUrl), so production builds emit the
+ *  hosted URL even when generated from a dev/preview environment. */
 export function buildJoinUrl(code: string): string {
-  return `${window.location.origin}/join/${code}`;
+  return `${appOrigin()}/join/${code}`;
 }
 
 /** Pulls a join code out of scanned/decoded QR text — either a full join URL

@@ -10,20 +10,26 @@ import { APIProvider, AdvancedMarker, Map, useMap, useMapsLibrary } from "@vis.g
 import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
 import { SIM_RIDER_NAMES } from "../../lib/demoRide";
-import { approveJoinRequest, buildJoinUrl } from "../../services/onboardingService";
+import { approveJoinRequest } from "../../services/onboardingService";
 import { closeRide, startRide } from "../../lib/ending";
 import { sendSos, useSosAlerts } from "../../lib/sos";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
+import type { Fix } from "../../hooks/useGeolocation";
 import { supabase } from "../../lib/supabase";
 import type { Ride, RiderOnMap, GroupStatus } from "../../lib/models";
 import type { LatLng } from "../../lib/geo";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
-import QRCode from "qrcode";
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const MAP_ID = import.meta.env.VITE_MAP_ID;
+
+// Backoff schedule for positions-ingest retries (M5 hardening) — starts at
+// 1s, doubles per consecutive failure, capped at 30s; jitter is added on top
+// of each computed delay (see scheduleRetry below) rather than baked in here.
+const INITIAL_RETRY_MS = 1000;
+const MAX_RETRY_MS = 30000;
 
 const STATUS_COLOR: Record<GroupStatus, string> = {
   intact: "#5AC8FA",
@@ -68,8 +74,6 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const [populating, setPopulating] = useState(false);
   const [populated, setPopulated] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const [qr, setQr] = useState<string | null>(null);
-  const [showQr, setShowQr] = useState(false);
   const simRef = useRef<RideSimulator | null>(null);
 
   const { user } = useAuth();
@@ -156,23 +160,116 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // Push the current user's own GPS so their heading arrow (lead=red / you=green)
   // appears and moves on the map. Foreground only; stops once the ride ends.
   const { fix, error: geoError } = useGeolocation(!ended && !!user);
+
+  // M5 hardening (docs/scale-readiness-roadmap.md): the raw .then/.catch ->
+  // console.warn here used to silently drop a fix on any ingest failure
+  // (network error, or the 429 positions-ingest returns under its own 3s
+  // rate limit). Two additions, both scoped to this effect only — they don't
+  // touch useGeolocation's {fix,error} contract or its 5s/20m gating:
+  //   1. Exponential backoff + jitter: a failed send schedules a retry after
+  //      an increasing delay (capped) instead of firing again on the very
+  //      next fix/render.
+  //   2. A one-slot outbox: a fix that fails to send is held (overwriting
+  //      any previously-pending fix — only the latest position matters for a
+  //      live ride) and retried, instead of being dropped. Precedence rule
+  //      (documented here since the task allows either choice): a *new* fix
+  //      arriving always wins and is sent immediately, superseding whatever
+  //      was pending — freshest position beats a queued stale one. The
+  //      backoff timer exists only to retry when no new fix has arrived.
+  const pendingFixRef = useRef<Fix | null>(null);
+  const retryDelayRef = useRef(INITIAL_RETRY_MS);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inFlightRef = useRef(false);
+
+  useEffect(() => {
+    // Ride ended / user gone — drop any pending retry, nothing left to send.
+    if (!user || ended) {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+      pendingFixRef.current = null;
+      return;
+    }
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, [user, ended]);
+
   useEffect(() => {
     if (!fix || !user) return;
-    void supabase
-      .from("rider_positions")
-      .insert({
-        ride_id: ride.id,
-        user_id: user.id,
-        lat: fix.lat,
-        lng: fix.lng,
-        heading: fix.heading,
-        speed: fix.speed,
-        accuracy: fix.accuracy,
-      })
-      .then(({ error }) => {
-        if (error) console.warn("[liveops] position insert failed:", error.message);
-      });
+    // A fresh fix always supersedes whatever was queued (see precedence note
+    // above) and cancels any pending retry — this send attempt replaces it.
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    void sendFix(fix, user.id);
   }, [fix, user, ride.id]);
+
+  async function sendFix(toSend: Fix, userId: string): Promise<void> {
+    if (inFlightRef.current) {
+      // A send is already in progress (e.g. a retry firing right as a new
+      // fix arrives) — queue this one; the in-flight call flushes it below
+      // once it settles, so this never gets stranded.
+      pendingFixRef.current = toSend;
+      return;
+    }
+    inFlightRef.current = true;
+    let failed = false;
+    try {
+      const { error } = await supabase.functions.invoke("positions-ingest", {
+        body: {
+          ride_id: ride.id,
+          user_id: userId,
+          lat: toSend.lat,
+          lng: toSend.lng,
+          heading: toSend.heading,
+          speed: toSend.speed,
+          accuracy: toSend.accuracy,
+        },
+      });
+      if (error) {
+        console.warn("[liveops] position ingest failed:", error.message);
+        failed = true;
+      } else {
+        retryDelayRef.current = INITIAL_RETRY_MS; // success resets backoff
+      }
+    } catch (err) {
+      console.warn("[liveops] position ingest failed:", err);
+      failed = true;
+    } finally {
+      inFlightRef.current = false;
+    }
+    if (failed) {
+      // If a newer fix already queued up while this one was in flight, that
+      // one wins (freshest position beats the stale one that just failed) —
+      // only fall back to re-queuing the failed fix itself if nothing newer
+      // showed up.
+      const newer = pendingFixRef.current;
+      scheduleRetry(newer ?? toSend, userId);
+      return;
+    }
+    // Flush whatever queued up while this send was in flight — inFlightRef is
+    // already false here, so this recursive call actually sends instead of
+    // just re-queuing itself.
+    const queued = pendingFixRef.current;
+    pendingFixRef.current = null;
+    if (queued) void sendFix(queued, userId);
+  }
+
+  function scheduleRetry(toSend: Fix, userId: string): void {
+    pendingFixRef.current = toSend;
+    const base = retryDelayRef.current;
+    const jitter = base * (0.25 + Math.random() * 0.5); // +/- jitter, avoids thundering herd
+    const delay = Math.min(base + jitter, MAX_RETRY_MS);
+    retryDelayRef.current = Math.min(base * 2, MAX_RETRY_MS);
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null;
+      const toRetry = pendingFixRef.current;
+      pendingFixRef.current = null;
+      if (toRetry) void sendFix(toRetry, userId);
+    }, delay);
+  }
 
   async function simulatePack() {
     if (route.length < 2) {
@@ -231,17 +328,6 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     } finally {
       setEnding(false);
     }
-  }
-
-  async function toggleQr() {
-    if (!showQr && !qr) {
-      try {
-        setQr(await QRCode.toDataURL(buildJoinUrl(ride.code), { width: 220, margin: 1 }));
-      } catch {
-        /* leave qr null; the code text is still shown */
-      }
-    }
-    setShowQr((s) => !s);
   }
 
   // Count the pack from the DB (excluding self) + yourself when you have a live fix.
@@ -396,27 +482,6 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         </Button>
       )}
       {note && <p style={{ color: "var(--color-role-sweep)", fontSize: 13, margin: 0 }}>{note}</p>}
-
-      {isLeader && (
-        <Button variant="secondary" fullWidth={false} onClick={() => void toggleQr()}>
-          {showQr ? "Hide QR" : "Invite riders (QR)"}
-        </Button>
-      )}
-      {isLeader && showQr && (
-        <Card glow style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Scan to join this ride</div>
-          {qr && (
-            <img
-              src={qr}
-              alt={`QR to join ${ride.name}`}
-              style={{ width: 200, height: 200, marginTop: 8, borderRadius: 12 }}
-            />
-          )}
-          <div style={{ fontFamily: "var(--font-brand)", letterSpacing: 2, fontSize: 20, marginTop: 4 }}>
-            {ride.code}
-          </div>
-        </Card>
-      )}
 
       {!ended && (
         <Button
