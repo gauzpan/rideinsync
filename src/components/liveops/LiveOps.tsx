@@ -18,7 +18,7 @@ import { useGeolocation } from "../../hooks/useGeolocation";
 import type { Fix } from "../../hooks/useGeolocation";
 import { supabase } from "../../lib/supabase";
 import type { Ride, RiderOnMap, GroupStatus } from "../../lib/models";
-import type { LatLng } from "../../lib/geo";
+import { bearingDeg, haversineMeters, type LatLng } from "../../lib/geo";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Icon } from "../ui/Icon";
@@ -66,6 +66,30 @@ function detailedPath(route: google.maps.DirectionsRoute): LatLng[] {
     }
   }
   return pts;
+}
+
+// Speed → nav zoom, mirroring how driving apps zoom in when you slow toward a
+// turn and out at highway speed. Control points are (km/h, zoom); we linearly
+// interpolate and clamp. ~z18 stopped (100-200m radius) → ~z14 at 130km/h
+// (a few km radius). `speed` is metres/second (null when the GPS reports none).
+function zoomForSpeed(speedMps: number | null): number {
+  const kmh = Math.max(0, (speedMps ?? 0) * 3.6);
+  const pts: Array<[number, number]> = [
+    [0, 18],
+    [20, 17],
+    [50, 16],
+    [90, 15],
+    [130, 14],
+  ];
+  if (kmh <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (kmh <= pts[i][0]) {
+      const [x0, y0] = pts[i - 1];
+      const [x1, y1] = pts[i];
+      return y0 + ((y1 - y0) * (kmh - x0)) / (x1 - x0);
+    }
+  }
+  return pts[pts.length - 1][1];
 }
 
 export function LiveOps({ ride }: { ride: Ride }) {
@@ -235,6 +259,27 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // Push the current user's own GPS so their heading arrow (lead=red / you=green)
   // appears and moves on the map. Foreground only; stops once the ride ends.
   const { fix, error: geoError, retry: retryGps } = useGeolocation(!ended && !!user);
+
+  // Stable travel heading for the nav camera + self arrow. The raw GPS
+  // `coords.heading` is null when slow/stationary and noisy on many devices, so
+  // relying on it snaps the map north-up mid-ride — which reads as the arrow
+  // running backwards. Instead: trust device course only when actually moving,
+  // otherwise derive course-over-ground from the last position, and hold the
+  // last good heading when we can't tell (so it never flips to north at a stop).
+  const prevFixRef = useRef<LatLng | null>(null);
+  const [navHeading, setNavHeading] = useState(0);
+  useEffect(() => {
+    if (!fix) return;
+    const prev = prevFixRef.current;
+    let next: number | null = null;
+    if (fix.heading != null && (fix.speed ?? 0) > 1) {
+      next = fix.heading; // device course is reliable once we're moving
+    } else if (prev && haversineMeters(prev, fix) > 5) {
+      next = bearingDeg(prev, fix); // bearing between consecutive positions
+    }
+    if (next != null) setNavHeading(((next % 360) + 360) % 360);
+    prevFixRef.current = { lat: fix.lat, lng: fix.lng };
+  }, [fix]);
 
   // M5 hardening (docs/scale-readiness-roadmap.md): the raw .then/.catch ->
   // console.warn here used to silently drop a fix on any ingest failure
@@ -436,8 +481,10 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   }
   // In nav mode the map rotates to the rider's heading, so markers rotate relative
   // to that (self points "up"); in overview the map is north-up.
-  const mapHeading = navMode ? fix?.heading ?? 0 : 0;
-  const NAV_ZOOM = 17;
+  const mapHeading = navMode ? navHeading : 0;
+  // Speed-adaptive zoom, like a real nav app: tight when slow / stopped (see the
+  // next turn or intersection), widening on the highway for situational awareness.
+  const navZoom = zoomForSpeed(fix?.speed ?? null);
   // In fullscreen the overlay sits under the status bar/notch — clear it.
   const topInset = fullscreen ? "calc(env(safe-area-inset-top, 0px) + 52px)" : 12;
 
@@ -511,7 +558,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           {route.length > 1 && <RoutePolyline path={route} />}
           {route.length > 1 && !(navMode && fix) && !selectedPos && <FitToRoute path={route} />}
           {navMode && fix && (
-            <FollowCamera target={{ lat: fix.lat, lng: fix.lng }} zoom={NAV_ZOOM} heading={fix.heading ?? 0} tilt={45} />
+            <FollowCamera target={{ lat: fix.lat, lng: fix.lng }} zoom={navZoom} heading={navHeading} tilt={45} />
           )}
           {!navMode && selectedPos && <PanToRider target={selectedPos} nonce={focusNonce} zoom={17} />}
           {stopPoints.map((p, i) => (
@@ -541,7 +588,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             <AdvancedMarker position={{ lat: fix.lat, lng: fix.lng }} zIndex={selectedIsSelf ? 1000 : undefined}>
               <ArrowPin
                 color={isLeader ? "#FF453A" : "#34C759"}
-                heading={(fix.heading ?? 0) - mapHeading}
+                heading={navHeading - mapHeading}
                 name="You"
                 kind={isLeader ? "Lead" : "You"}
                 selected={selectedIsSelf}
