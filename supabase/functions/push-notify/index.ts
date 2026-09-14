@@ -237,6 +237,19 @@ Deno.serve(async (req) => {
   if (body.mode === "process_queue") {
     const authHeader = req.headers.get("Authorization") ?? "";
     if (authHeader !== `Bearer ${SERVICE_ROLE_KEY}`) {
+      // Silent-drop guard: the pg_cron worker (process_push_queue) reaches
+      // this path with the Vault-stored key. If that key does not match this
+      // function's SUPABASE_SERVICE_ROLE_KEY, the queue never drains and NO
+      // push is ever delivered — with no other signal. On a hosted deploy the
+      // usual cause is that 0027's seeded local-dev demo key was not rotated
+      // to the hosted project's service_role key (see that migration's
+      // header). Log it loudly so this is traceable from the function logs.
+      console.error(
+        "[push-notify] process_queue REJECTED: caller's bearer token is not this project's " +
+          "SUPABASE_SERVICE_ROLE_KEY. push_jobs will NOT drain. On a hosted project, rotate the " +
+          "Vault secret 'push_notify_service_role_key' to the hosted service_role key " +
+          "(see 0027_push_jobs_queue.sql header).",
+      );
       return new Response("Unauthorized", { status: 401 });
     }
     return await processQueue();
