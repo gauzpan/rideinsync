@@ -57,15 +57,29 @@ export function RiderJoinPage() {
 
   useEffect(() => {
     if (!rideId || !fix || !userId.current) return;
-    void supabase.from("rider_positions").insert({
-      ride_id: rideId,
-      user_id: userId.current,
-      lat: fix.lat,
-      lng: fix.lng,
-      heading: fix.heading,
-      speed: fix.speed,
-      accuracy: fix.accuracy,
-    });
+    // Must go through positions-ingest, not a direct rider_positions insert:
+    // the leader's live map (useRideChannel) and the server aggregator both
+    // read the hot `latest_positions` table (M2/M3), which only this Edge
+    // Function upserts — rider_positions alone is history that never
+    // reaches the map, so a direct insert here left this rider's pin
+    // permanently missing from the lead's ops view. See LiveOps.tsx's
+    // sendFix for the same call (full retry/backoff there; this tester page
+    // keeps it best-effort since it's a single fire-and-forget per fix).
+    void supabase.functions
+      .invoke("positions-ingest", {
+        body: {
+          ride_id: rideId,
+          user_id: userId.current,
+          lat: fix.lat,
+          lng: fix.lng,
+          heading: fix.heading,
+          speed: fix.speed,
+          accuracy: fix.accuracy,
+        },
+      })
+      .then(({ error }) => {
+        if (error) console.warn("[join] position ingest failed:", error.message);
+      });
     setPushes((n) => n + 1);
   }, [fix, rideId]);
 
