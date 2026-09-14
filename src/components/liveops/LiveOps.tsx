@@ -54,6 +54,20 @@ function pointOf(pt: Ride["start_point"]): LatLng | null {
   return null;
 }
 
+// Google's `overview_path` is decimated for whole-route display: its points are
+// spread thin across the full route, so at nav-mode zoom the line between them
+// visibly cuts across roads. Stitching the per-step paths keeps every road-curve
+// vertex, so the route hugs the road at any zoom level.
+function detailedPath(route: google.maps.DirectionsRoute): LatLng[] {
+  const pts: LatLng[] = [];
+  for (const leg of route.legs ?? []) {
+    for (const step of leg.steps ?? []) {
+      for (const p of step.path ?? []) pts.push({ lat: p.lat(), lng: p.lng() });
+    }
+  }
+  return pts;
+}
+
 export function LiveOps({ ride }: { ride: Ride }) {
   if (!MAPS_KEY) {
     return (
@@ -199,9 +213,13 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         },
         (result, status) => {
           if (cancelled) return;
-          if (status === "OK" && result?.routes?.[0]) {
-            setRoute(result.routes[0].overview_path.map((p) => ({ lat: p.lat(), lng: p.lng() })));
+          const road = status === "OK" && result?.routes?.[0] ? detailedPath(result.routes[0]) : [];
+          if (road.length > 1) {
+            setRoute(road);
           } else {
+            if (status !== "OK") {
+              console.warn(`[LiveOps] Directions failed (${status}); drawing straight-line fallback.`);
+            }
             setRoute([a, ...waypointCoords, b]); // fall back to a straight polyline
           }
         },
