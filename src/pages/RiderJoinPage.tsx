@@ -44,7 +44,7 @@ export function RiderJoinPage() {
     })();
   }, [code]);
 
-  const { fix, error: geoError } = useGeolocation(!!rideId);
+  const { fix, error: geoError, retry: retryGps } = useGeolocation(!!rideId);
 
   // Notifications (Flow 4 first cut, PRD/signals_haptics_plan.md §7a) — this
   // is the actual "someone else's phone" tester page for signal alerts, so
@@ -89,6 +89,11 @@ export function RiderJoinPage() {
             <strong>{fix ? "Tracking active" : "Waiting for GPS…"}</strong>
           </div>
           {geoError && <p style={{ color: "#FF9F0A", fontSize: 13 }}>{geoError}</p>}
+          {geoError && (
+            <Button variant="secondary" fullWidth={false} onClick={retryGps}>
+              Retry GPS
+            </Button>
+          )}
           {fix && (
             <p style={{ color: "var(--color-text-secondary)", fontSize: 13, marginBottom: 0 }}>
               {fix.lat.toFixed(5)}, {fix.lng.toFixed(5)} · {pushes} updates sent

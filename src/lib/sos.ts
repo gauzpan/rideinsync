@@ -190,6 +190,145 @@ export async function closeSos(alertId: string, userId: string): Promise<void> {
   console.info("[sos] closed", { alertId });
 }
 
+// ---- Ops resolution (lead / co-lead / sweep) --------------------------------
+
+export const OPS_ROLES = ["leader", "co_leader", "sweep"] as const;
+
+/** Ops-crew roles allowed to resolve another rider's SOS (mirrors is_ride_ops). */
+export function canResolveSos(role: string | null | undefined): boolean {
+  return role === "leader" || role === "co_leader" || role === "sweep";
+}
+
+export type SosResolution = {
+  alertId: string;
+  rideId: string;
+  /** The rider who raised the SOS. */
+  riderUserId: string;
+  riderName: string;
+  riderTriggeredAt: string;
+  /** The ops member resolving it. */
+  resolverUserId: string;
+  resolvedAt: string;
+};
+
+export type SosResolutionLog = {
+  resolvedAt: string;
+  /** ride_events payload so the resolution is queryable alongside the SOS. */
+  eventPayload: {
+    action: "sos_resolved";
+    alert_id: string;
+    resolved_at: string;
+    resolved_by: string;
+    rider: { user_id: string; name: string; triggered_at: string };
+  };
+};
+
+/**
+ * Pure seam for the resolution audit record: timestamp + ride id + the SOS
+ * rider's details. Unit-tested; resolveSosAlert stamps it into sos_alerts,
+ * ride_events, and the console.
+ */
+export function buildSosResolutionLog(input: {
+  alertId: string;
+  rideId: string;
+  riderUserId: string;
+  riderName: string;
+  riderTriggeredAt: string;
+  resolverUserId: string;
+  resolvedAt?: string;
+}): SosResolutionLog {
+  const resolvedAt = input.resolvedAt ?? new Date().toISOString();
+  return {
+    resolvedAt,
+    eventPayload: {
+      action: "sos_resolved",
+      alert_id: input.alertId,
+      resolved_at: resolvedAt,
+      resolved_by: input.resolverUserId,
+      rider: {
+        user_id: input.riderUserId,
+        name: input.riderName,
+        triggered_at: input.riderTriggeredAt,
+      },
+    },
+  };
+}
+
+/**
+ * Resolve another rider's SOS as ops crew. Stamps resolved_at/resolved_by
+ * (RLS: owner via sos_alerts_resolve_own, ops via sos_alerts_resolve_ops),
+ * then best-effort appends a ride_events 'sos' row carrying the resolution
+ * audit (timestamp, ride id, SOS rider details, resolver) and logs the same
+ * object to the console. The events insert never fails the resolve: a
+ * resolved alert must disappear from the live view even if logging fails.
+ */
+export async function resolveSosAlert(input: {
+  alertId: string;
+  rideId: string;
+  riderUserId: string;
+  riderName: string;
+  riderTriggeredAt: string;
+  resolverUserId: string;
+}): Promise<SosResolution> {
+  const log = buildSosResolutionLog(input);
+  if (isDemoBackend) {
+    await demoCloseSos(input.alertId, input.resolverUserId);
+  } else {
+    const { error } = await supabase
+      .from("sos_alerts")
+      .update({ resolved_at: log.resolvedAt, resolved_by: input.resolverUserId })
+      .eq("id", input.alertId);
+    if (error) {
+      console.warn("[sos] resolve failed", error.message);
+      throw error;
+    }
+    const { error: logError } = await supabase.from("ride_events").insert({
+      ride_id: input.rideId,
+      user_id: input.resolverUserId,
+      type: "sos",
+      payload: log.eventPayload,
+    });
+    if (logError) console.warn("[sos] resolution log insert failed", logError.message);
+  }
+  const resolution: SosResolution = {
+    alertId: input.alertId,
+    rideId: input.rideId,
+    riderUserId: input.riderUserId,
+    riderName: input.riderName,
+    riderTriggeredAt: input.riderTriggeredAt,
+    resolverUserId: input.resolverUserId,
+    resolvedAt: log.resolvedAt,
+  };
+  console.info("[sos] resolved", resolution);
+  return resolution;
+}
+
+/** The current user's membership role in a ride (null when not a member). */
+export function useMyRideRole(rideId: string | null, userId: string | null): string | null {
+  const [role, setRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRole(null);
+    if (!rideId || !userId) return;
+    let active = true;
+    supabase
+      .from("ride_members")
+      .select("role")
+      .eq("ride_id", rideId)
+      .eq("user_id", userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!active) return;
+        setRole((data as { role?: string } | null)?.role ?? null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [rideId, userId]);
+
+  return role;
+}
+
 /**
  * Rider taps "Stay" — still needs help after a responder reported reaching them.
  * Sets stay_requested_at = now() on the alert (RLS: owner only). This re-shows

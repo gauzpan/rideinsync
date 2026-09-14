@@ -477,9 +477,11 @@ export function LeadViewPage() {
       {detail.roster.map(({ member, profile }) => {
         const canReassign = rosterExcludingLeader.some((r) => r.member.id === member.id);
 
+        // Draft or live rides: ended/cancelled are history (see 0029). The
+        // server RPC enforces the same rule; this just hides the control.
         const canRemove =
           isLeader &&
-          detail.ride.status === "draft" &&
+          (detail.ride.status === "draft" || detail.ride.status === "active") &&
           member.user_id !== detail.ride.leader_id &&
           member.role !== "leader";
 

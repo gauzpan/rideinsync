@@ -6,8 +6,8 @@ import { Loader } from "../components/ui/Loader";
 import type { FeedbackSentiment, Ride, RideMember, RideSummary, UserBadge } from "../lib/models";
 import { BadgeGrid, type Vehicle } from "../components/ui/RideBadge";
 import { closeRide, loadSummaryView, markReachedHome, submitFeedback } from "../lib/ending";
-import { shareRide } from "../lib/shareCard";
 import { appOrigin } from "../lib/appUrl";
+import { ShareSheet } from "../components/ShareSheet";
 
 const sentiments: { value: FeedbackSentiment; label: string }[] = [
   { value: "like", label: "Liked it" },
@@ -28,6 +28,7 @@ export function RideSummaryPage() {
   const [liked, setLiked] = useState("");
   const [improve, setImprove] = useState("");
   const [status, setStatus] = useState<string>("");
+  const [showShareSheet, setShowShareSheet] = useState(false);
 
   const reload = useCallback(async () => {
     const v = await loadSummaryView(rideId);
@@ -185,28 +186,28 @@ export function RideSummaryPage() {
       </Card>
 
       {/* Share */}
-      <Button
-        variant="secondary"
-        onClick={() =>
-          run("Shared.", async () => {
-            const res = await shareRide({
-              rideName: ride?.name ?? "My ride",
-              fromCity: (ride?.start_point as { label?: string } | null)?.label ?? ride?.city ?? "Start",
-              toCity: (ride?.destination as { label?: string } | null)?.label ?? "Destination",
-              distanceKm,
-              durationMin,
-              badges: badges.map((b) => b.badge_key),
-              appUrl: appOrigin(),
-            });
-            if (res === "link-copied") setStatus("Link copied.");
-          })
-        }
-      >
+      <Button variant="secondary" onClick={() => setShowShareSheet(true)}>
         Share this ride
       </Button>
 
       {status && (
         <p style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>{status}</p>
+      )}
+
+      {showShareSheet && (
+        <ShareSheet
+          data={{
+            rideName: ride?.name ?? "My ride",
+            fromCity: (ride?.start_point as { label?: string } | null)?.label ?? ride?.city ?? "Start",
+            toCity: (ride?.destination as { label?: string } | null)?.label ?? "Destination",
+            distanceKm,
+            durationMin,
+            badges: badges.map((b) => b.badge_key),
+            appUrl: appOrigin(),
+          }}
+          onClose={() => setShowShareSheet(false)}
+          onStatus={setStatus}
+        />
       )}
     </div>
   );

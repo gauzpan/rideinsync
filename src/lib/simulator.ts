@@ -43,9 +43,13 @@ export class RideSimulator {
     const riders = await Promise.all(
       names.map(async (name, i): Promise<SimRider> => {
         const guest = await makeGuestClient(name);
-        const { data: requestId } = await guest.client.rpc("request_join_ride", {
+        const { data: requestId, error: joinError } = await guest.client.rpc("request_join_ride", {
           join_code: this.code,
         });
+        // Surface join failures (ride full, bad code) instead of running a
+        // ghost pack: without membership every position push below fails RLS
+        // and the map stays empty while the button claims "Pack riding".
+        if (joinError) throw new Error(`Couldn't join ${name}: ${joinError.message}`);
         if (opts?.approve && typeof requestId === "string") {
           await opts.approve(requestId);
         }
@@ -88,14 +92,18 @@ export class RideSimulator {
           speed: r.stopped ? 0 : 28,
         };
         // History (close_ride's distance calc) — unchanged from before M2/M3.
-        await r.client.from("rider_positions").insert(row);
+        const { error: histError } = await r.client.from("rider_positions").insert(row);
+        if (histError) console.warn("[sim] position insert failed", r.name, histError.message);
         // Hot table — the live map (LiveOps' broadcast aggregator, M3) only
         // reads latest_positions now. Sim riders don't go through the real
         // positions-ingest Edge Function (its 3s rate limit would drop half
         // this simulator's 1.5s ticks) — each rider's own RLS-scoped client
         // upserts its own row directly instead, same as a real ingest would
         // land it.
-        await r.client.from("latest_positions").upsert(row, { onConflict: "ride_id,user_id" });
+        const { error: hotError } = await r.client
+          .from("latest_positions")
+          .upsert(row, { onConflict: "ride_id,user_id" });
+        if (hotError) console.warn("[sim] latest position upsert failed", r.name, hotError.message);
       }),
     );
   }

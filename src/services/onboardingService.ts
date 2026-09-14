@@ -1095,8 +1095,8 @@ export async function assignRideRole(rideId: string, userId: string, role: Assig
   if (error) throw error;
 }
 /**
- * Leader removes another member from a draft ride via the `remove_ride_member` RPC.
- * Only the ride leader can perform this, only while the ride is in draft, and
+ * Leader removes another member from a draft or active ride via the `remove_ride_member` RPC.
+ * Only the ride leader can perform this, never once the ride is ended/cancelled, and
  * the leader cannot be removed. Cleans up dangling pillion links and membership.
  */
 export async function removeMember(rideId: string, userId: string): Promise<void> {

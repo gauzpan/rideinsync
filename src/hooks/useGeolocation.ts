@@ -4,7 +4,7 @@
 //  - on web: falls back to navigator.geolocation.
 // Foreground only; the watch is cleared on unmount / when inactive.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Geolocation } from "@capacitor/geolocation";
 import { haversineMeters } from "../lib/geo";
 
@@ -26,10 +26,30 @@ export type Fix = {
 const num = (v: number | null | undefined) =>
   typeof v === "number" && Number.isFinite(v) ? v : null;
 
+// Browser error codes (GeolocationPositionError) survive the Capacitor
+// passthrough on web, so translate them into actionable messages instead of
+// surfacing the raw (often cryptic) provider text.
+function describeWatchError(err: unknown): string {
+  const code = typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined;
+  if (code === 1) return "Location permission denied. Enable it to share your position.";
+  if (code === 2)
+    return "No GPS fix right now — weak signal, indoors, or this device has no location hardware. Move outdoors and retry.";
+  if (code === 3) return "GPS timed out waiting for a fix. Tap retry.";
+  return err instanceof Error && err.message ? err.message : "Couldn't get your location.";
+}
+
 export function useGeolocation(active: boolean) {
   const [fix, setFix] = useState<Fix | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by retry() to tear down the current watch and start a fresh one —
+  // a denied/timed-out watch never recovers on its own.
+  const [attempt, setAttempt] = useState(0);
+  // Falls back to true after a high-accuracy timeout with no fix yet: some
+  // devices (desktops, indoor phones) can never lock GPS but can serve a
+  // coarse network fix. A coarse fix beats no fix for a live group map.
+  const [lowAccuracy, setLowAccuracy] = useState(false);
   const watchId = useRef<string | null>(null);
+  const gotFix = useRef(false);
   // Last *accepted* fix (not every raw fix) — compared against on each new
   // native fix to decide whether to accept it. Null until the first fix.
   const lastAccepted = useRef<{ lat: number; lng: number; t: number } | null>(null);
@@ -51,14 +71,34 @@ export function useGeolocation(active: boolean) {
       }
       try {
         const id = await Geolocation.watchPosition(
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 2000 },
+          {
+            enableHighAccuracy: !lowAccuracy,
+            // High-accuracy GPS can take a while for first lock (cold start,
+            // indoors); the old 10 s budget expired before the fix arrived.
+            timeout: lowAccuracy ? 15000 : 30000,
+            maximumAge: 2000,
+          },
           (pos, err) => {
             if (cancelled) return;
             if (err) {
-              setError(err.message ?? "Couldn't get your location.");
+              console.warn("[gps] watch error", err);
+              const code =
+                typeof err === "object" && err !== null
+                  ? (err as { code?: unknown }).code
+                  : undefined;
+              // No fix yet on the sharp watch and the provider gave up
+              // (timeout OR unavailable): fall back to a coarse watch instead
+              // of parking in an error state. Only the coarse watch failing
+              // surfaces an error to the UI.
+              if ((code === 3 || code === 2) && !gotFix.current && !lowAccuracy) {
+                setLowAccuracy(true);
+                return;
+              }
+              setError(describeWatchError(err));
               return;
             }
             if (pos) {
+              gotFix.current = true;
               setError(null);
               const next: Fix = {
                 lat: pos.coords.latitude,
@@ -94,7 +134,15 @@ export function useGeolocation(active: boolean) {
         watchId.current = null;
       }
     };
-  }, [active]);
+  }, [active, attempt, lowAccuracy]);
 
-  return { fix, error };
+  /** Clear the error and restart the position watch (re-prompts if needed). */
+  const retry = useCallback(() => {
+    setError(null);
+    setLowAccuracy(false);
+    gotFix.current = false;
+    setAttempt((n) => n + 1);
+  }, []);
+
+  return { fix, error, retry };
 }

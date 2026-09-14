@@ -1,5 +1,6 @@
 import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
+import { SosResolveButton } from "./SosResolveButton";
 import type { Responder } from "../lib/sos";
 
 type Props = {
@@ -10,6 +11,9 @@ type Props = {
   still: boolean;
   onRespond: () => void;
   onReached: (responseId: string) => void;
+  /** Ops-only: shown when the viewer may resolve this SOS. */
+  canResolve?: boolean;
+  onResolve?: () => Promise<void>;
 };
 
 function relativeTime(iso: string): string {
@@ -97,6 +101,8 @@ export function SosAlertCard({
   still,
   onRespond,
   onReached,
+  canResolve,
+  onResolve,
 }: Props) {
   const self = responders.find((r) => r.userId === selfUserId) ?? null;
   const others = responders.filter((r) => r.userId !== selfUserId);
@@ -139,6 +145,7 @@ export function SosAlertCard({
           </Button>
         )}
         {self && self.reachedAt && <span style={compactReachedStyle}>You reached them</span>}
+        {canResolve && onResolve && <SosResolveButton compact onResolve={onResolve} />}
       </div>
     );
   }
@@ -176,6 +183,7 @@ export function SosAlertCard({
           You reached them
         </Button>
       )}
+      {canResolve && onResolve && <SosResolveButton onResolve={onResolve} />}
     </Card>
   );
 }

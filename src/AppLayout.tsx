@@ -10,7 +10,7 @@ import { SosButton, shouldShowSos } from "./components/SosButton";
 import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
 import { consumePendingJoinCode, consumePendingGroupJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
-import { markReached, respondToSos, sosCardState, useSosAlerts, useSosResponses } from "./lib/sos";
+import { canResolveSos, markReached, resolveSosAlert, respondToSos, sosCardState, useMyRideRole, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
 import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
 import { usePersistedToggle } from "./lib/preference";
 import { useVoiceCommand, VOICE_COMMANDS_KEY } from "./lib/voiceCommands";
@@ -91,6 +91,8 @@ export function AppLayout() {
 
   const alerts = useSosAlerts(inApp ? rideId : null, userId);
   const responsesByAlert = useSosResponses(inApp ? rideId : null);
+  const myRole = useMyRideRole(inApp ? rideId : null, userId);
+  const canResolve = canResolveSos(myRole);
 
   // A card is shown until any responder reaches the rider; it returns only if the
   // rider taps Stay (stay_requested_at > that reach). No local hide state.
@@ -125,6 +127,18 @@ export function AppLayout() {
     void markReached(responseId).catch(() => {
       /* logged in markReached */
     });
+  }
+
+  function handleResolve(alert: IncomingAlert) {
+    if (!rideId || !userId) return Promise.reject(new Error("Not in a ride."));
+    return resolveSosAlert({
+      alertId: alert.id,
+      rideId,
+      riderUserId: alert.userId,
+      riderName: alert.name,
+      riderTriggeredAt: alert.triggeredAt,
+      resolverUserId: userId,
+    }).then(() => {});
   }
 
   // "Sync, ___" wake word + signal command (toggled on Profile). Runs
@@ -297,6 +311,8 @@ export function AppLayout() {
               still={still}
               onRespond={() => handleRespond(a.id)}
               onReached={handleReached}
+              canResolve={canResolve}
+              onResolve={() => handleResolve(a)}
             />
           ))}
         </div>

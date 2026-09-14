@@ -1,9 +1,12 @@
 // ============================================================================
 // Flow 6 — social share card. Generates a branded PNG (own stats only, route
 // generalized to city→city, no raw GPS, no co-rider PII) and shares it via
-// navigator.share, falling back to a link copy. App logo (convoy chevrons)
-// top-right, per the design system.
+// navigator.share, falling back to a link copy. Stamped top-right with the
+// real RideInSync brand lockup (design/components/core — same asset as
+// src/components/ui/Logo.tsx), not a redrawn approximation.
 // ============================================================================
+
+const LOGO_SRC = "/icons/rideinsync-logo.png";
 
 const ACCENT = "#C4F82A";
 const BG = "#0A0A0B";
@@ -18,27 +21,27 @@ export type ShareCardData = {
   durationMin: number;
   badges: string[]; // display names
   appUrl: string;
+  /** User-supplied photo (data URL) drawn as the card background instead of
+   *  the default ambient glow, with a dark scrim behind the text for contrast. */
+  customImageDataUrl?: string;
 };
 
-/** Draw the convoy-chevron mark at (x,y) sized `s` on the canvas. */
-function drawMark(ctx: CanvasRenderingContext2D, x: number, y: number, s: number) {
-  const chevrons: [number, string][] = [
-    [0, "#3A3A3C"],
-    [0.19, WHITE],
-    [0.38, ACCENT],
-  ];
-  ctx.lineWidth = s * 0.1;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  for (const [dx, color] of chevrons) {
-    const ox = x + dx * s;
-    ctx.strokeStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(ox, y);
-    ctx.lineTo(ox + s * 0.28, y + s * 0.25);
-    ctx.lineTo(ox, y + s * 0.5);
-    ctx.stroke();
-  }
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Couldn't load the custom image."));
+    img.src = src;
+  });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /** Render the 1080×1080 share card to a PNG Blob. */
@@ -49,24 +52,34 @@ export async function renderShareCard(d: ShareCardData): Promise<Blob> {
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
 
-  // Background + ambient glow.
+  // Background: either a user-supplied photo (cover-fit, scrimmed for
+  // contrast) or the default ambient glow.
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, size, size);
-  const glow = ctx.createRadialGradient(880, 200, 0, 880, 200, 520);
-  glow.addColorStop(0, "rgba(178,232,46,0.16)");
-  glow.addColorStop(1, "rgba(178,232,46,0)");
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, size, size);
+  if (d.customImageDataUrl) {
+    const img = await loadImage(d.customImageDataUrl);
+    const scale = Math.max(size / img.width, size / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
+    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+    ctx.fillStyle = "rgba(10,10,11,0.55)";
+    ctx.fillRect(0, 0, size, size);
+  } else {
+    const glow = ctx.createRadialGradient(880, 200, 0, 880, 200, 520);
+    glow.addColorStop(0, "rgba(178,232,46,0.16)");
+    glow.addColorStop(1, "rgba(178,232,46,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, size, size);
+  }
 
-  // Logo top-right.
-  drawMark(ctx, 900, 90, 120);
-
-  // Wordmark.
-  ctx.fillStyle = WHITE;
-  ctx.font = "600 44px Poppins, system-ui, sans-serif";
-  ctx.fillText("RideInSync", 80, 140);
+  // Brand lockup, stamped top-right (the real logo asset, not a redrawn mark).
+  const logo = await loadImage(LOGO_SRC);
+  const logoH = 64;
+  const logoW = logo.width * (logoH / logo.height);
+  ctx.drawImage(logo, size - 80 - logoW, 70, logoW, logoH);
 
   // Ride name + route.
+  ctx.fillStyle = WHITE;
   ctx.font = "600 68px Inter, system-ui, sans-serif";
   ctx.fillText(d.rideName, 80, 320);
   ctx.fillStyle = MUTED;
@@ -100,6 +113,12 @@ export async function renderShareCard(d: ShareCardData): Promise<Blob> {
   );
 }
 
+/** Render the card and save it straight to the user's device. */
+export async function downloadShareCard(d: ShareCardData): Promise<void> {
+  const blob = await renderShareCard(d);
+  downloadBlob(blob, "rideinsync.png");
+}
+
 /** Share the card via the native sheet; fall back to copying the app link. */
 export async function shareRide(d: ShareCardData): Promise<"shared" | "link-copied" | "unsupported"> {
   const blob = await renderShareCard(d);
@@ -120,4 +139,58 @@ export async function shareRide(d: ShareCardData): Promise<"shared" | "link-copi
   } catch {
     return "unsupported";
   }
+}
+
+/** Instagram has no web share-intent for arbitrary images. On mobile the
+ *  native share sheet (which lists Instagram as a target) is the closest
+ *  direct handoff. Everywhere else — desktop, or a mobile browser without the
+ *  File Web Share API — there is no way to hand Instagram a locally rendered
+ *  image at all, so we download the card and *do* still redirect: the
+ *  Instagram app via its custom URL scheme on mobile (falling back to
+ *  instagram.com if the app isn't installed), or instagram.com directly on
+ *  desktop, so the button always takes the user somewhere in Instagram to
+ *  post the file they just got. */
+export async function shareToInstagram(d: ShareCardData): Promise<"shared" | "app-opened" | "downloaded"> {
+  const blob = await renderShareCard(d);
+  const file = new File([blob], "rideinsync.png", { type: "image/png" });
+  const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+  if (nav.share && nav.canShare?.({ files: [file] })) {
+    await nav.share({ files: [file], title: d.rideName, text: "My ride on RideInSync" });
+    return "shared";
+  }
+
+  downloadBlob(blob, "rideinsync.png");
+
+  const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (isMobile) {
+    const start = Date.now();
+    window.location.href = "instagram://app";
+    // If the app deep link had no handler, the page stays foregrounded and
+    // this timeout fires close to on schedule; if it opened the app, the tab
+    // backgrounds and the timer is delayed well past the threshold — the
+    // standard app-link/web-fallback pattern.
+    setTimeout(() => {
+      if (Date.now() - start < 2000) {
+        window.open("https://www.instagram.com/", "_blank", "noopener,noreferrer");
+      }
+    }, 1200);
+    return "app-opened";
+  }
+
+  window.open("https://www.instagram.com/", "_blank", "noopener,noreferrer");
+  return "downloaded";
+}
+
+/** X only accepts a URL/text intent from the web (no image attach), so we
+ *  open its compose intent and let the user attach the downloaded card. */
+export function shareToX(d: ShareCardData): void {
+  const text = `${d.rideName} — ${d.distanceKm.toFixed(0)}km with RideInSync`;
+  const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(d.appUrl)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+/** Same constraint as X — Facebook's sharer only takes a URL from the web. */
+export function shareToFacebook(d: ShareCardData): void {
+  const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(d.appUrl)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
 }
