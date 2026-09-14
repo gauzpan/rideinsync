@@ -6,13 +6,14 @@
 // without needing many phones.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { APIProvider, AdvancedMarker, Map, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
 import { SIM_RIDER_NAMES } from "../../lib/demoRide";
 import { approveJoinRequest, buildJoinUrl } from "../../services/onboardingService";
 import { closeRide, startRide } from "../../lib/ending";
-import { sendSos, useSosAlerts } from "../../lib/sos";
+import { useSosAlerts } from "../../lib/sos";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import { supabase } from "../../lib/supabase";
@@ -73,9 +74,9 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const simRef = useRef<RideSimulator | null>(null);
 
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { riders, rideStatus } = useRideChannel(ride.id);
   const [ending, setEnding] = useState(false);
-  const [sosSending, setSosSending] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [navMode, setNavMode] = useState(false); // heading-up follow-me (rider nav)
   const isLeader = user?.id === ride.leader_id;
@@ -194,18 +195,12 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     }
   }
 
-  async function raiseSos() {
-    if (!user) return;
-    setSosSending(true);
-    setNote(null);
-    try {
-      await sendSos(ride.id, user.id);
-      setNote("SOS sent to the group.");
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : "Couldn't send SOS.");
-    } finally {
-      setSosSending(false);
-    }
+  // Route the map's SOS to the shared /sos flow (confirm → 5s countdown →
+  // live tracking + responders + close), carrying THIS ride's id so it works
+  // even before the ride is marked active. This replaces the old bare inline
+  // send that fired on a single tap with no confirmation or way to cancel.
+  function openSos() {
+    navigate("/sos", { state: { rideId: ride.id } });
   }
 
   async function beginRide() {
@@ -362,7 +357,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         {fullscreen && !ended && (
           <button
             type="button"
-            onClick={() => void raiseSos()}
+            onClick={openSos}
             style={{
               position: "absolute", top: topInset, left: 12, height: 44, padding: "0 18px",
               borderRadius: 999, border: "none", background: "#FF453A", color: "#fff",
@@ -421,8 +416,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
       {!ended && (
         <Button
           fullWidth={false}
-          loading={sosSending}
-          onClick={() => void raiseSos()}
+          onClick={openSos}
           style={{ background: "#FF453A", color: "#fff", marginTop: "var(--space-xs)" }}
         >
           SOS

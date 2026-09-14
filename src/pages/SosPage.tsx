@@ -37,7 +37,13 @@ export function SosPage() {
   const location = useLocation();
   const auto = Boolean((location.state as { auto?: boolean } | null)?.auto);
   const { userId } = useSession();
-  const { rideId, loading } = useActiveRide(userId);
+  // The map's SOS button passes the current ride's id explicitly (so it works
+  // even before the ride is 'active'); the floating button and voice trigger
+  // fall back to resolving the active ride.
+  const stateRideId = (location.state as { rideId?: string } | null)?.rideId ?? null;
+  const { rideId: activeRideId, loading: activeLoading } = useActiveRide(userId);
+  const rideId = stateRideId ?? activeRideId;
+  const loading = stateRideId ? false : activeLoading;
 
   const [phase, setPhase] = useState<Phase>(auto ? "countdown" : "confirm");
   const [count, setCount] = useState(COUNTDOWN_FROM);
