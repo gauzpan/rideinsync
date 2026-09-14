@@ -68,6 +68,24 @@ export async function getSession(): Promise<Session | null> {
   return data.session;
 }
 
+/** Server-validated session read for app boot. getSession() alone trusts
+ *  local storage, so a JWT for a deleted/unknown user (local `db reset`,
+ *  account wipe, project recreate) still looks "signed in" until the first
+ *  query fails cryptically (RLS 401 / FK 409 on profiles). getUser() hits
+ *  the server, which rejects such ghost tokens — purge the dead session
+ *  locally and report signed-out, so the app bounces to the landing instead
+ *  of failing mid-flow. */
+export async function getValidSession(): Promise<Session | null> {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return null;
+  const { error } = await supabase.auth.getUser();
+  if (error) {
+    await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    return null;
+  }
+  return data.session;
+}
+
 /** Foreground/background auto-refresh control. supabase-js keeps the access
  *  token fresh on a JS interval, but a backgrounded Capacitor WebView (or a
  *  hidden browser tab) suspends that interval — so after the app has been away

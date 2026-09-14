@@ -1,5 +1,5 @@
 -- ============================================================================
--- 0011 — Persistent rider groups (Groups tab)
+-- 0017 — Persistent rider groups (Groups tab)
 -- ----------------------------------------------------------------------------
 -- A ride_group is a long-lived crew that plans rides together repeatedly
 -- (unlike a ride, which is one trip). Creation is a multi-step client wizard:

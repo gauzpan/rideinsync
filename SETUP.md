@@ -150,6 +150,9 @@ Rule of thumb: **pulled a schema change → re-apply migrations → regenerate t
 - **Auth/redirect fails** — add your dev URL under Supabase → Auth → URL Configuration.
 - **`supabase start` errors** — Docker Desktop isn't running.
 - **Types out of date / TS errors after a pull** — regenerate `database.types.ts` (§5).
+- **`supabase db reset` wipes local users too.** Stored sessions become ghosts
+  (RLS 401 / FK 409 on `profiles`). The app now detects this at boot
+  (`getValidSession`) and bounces to the landing — just sign in again.
 - **RLS: a query returns 0 rows unexpectedly** — you're likely not a member of that
   ride; join via the `request_join_ride` RPC. See the RLS smoke tests in
   `docs/DATA_MODEL.md`.

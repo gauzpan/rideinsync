@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { BackLink } from "../components/ui/BackLink";
 import { APIProvider } from "@vis.gl/react-google-maps";
@@ -29,15 +29,20 @@ const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const STOP_OPTIONS = STOP_KINDS.map((k) => ({
   value: k,
   label: (
-    <>
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "var(--space-2xs)",
+      }}
+    >
       <Icon name={STOP_ICONS[k]} size={16} strokeWidth={1.75} aria-hidden="true" />
       <span>{STOP_LABELS[k]}</span>
-    </>
+    </span>
   ),
   ariaLabel: STOP_LABELS[k],
 }));
 
-let stopKey = 0;
 type DraftStop = {
   key: number;
   kind: StopKind;
@@ -199,6 +204,11 @@ export function CreateRidePage() {
   const [error, setError] = useState<string | null>(null);
   const [googlePending, setGooglePending] = useState(false);
   const [locating, setLocating] = useState(false);
+  // Monotonic id for stop rows. A ref (not a module-level counter) so a
+  // module reload with preserved component state (Vite HMR) can never reuse
+  // a key — duplicate keys made updateStop/removeStop hit every matching row
+  // at once, so one stop's category flip toggled all stops together.
+  const stopKeyRef = useRef(0);
 
   async function useCurrentLocation() {
     setLocating(true);
@@ -253,7 +263,7 @@ useEffect(() => {
         setDestination(parseJsonPoint(detail.ride.destination));
         setStops(
           detail.stops.map((stop) => ({
-            key: stopKey++,
+            key: stopKeyRef.current++,
             kind: (stop.kind as StopKind) || "fuel",
             point: parseJsonPoint(stop.location) ?? (stop.name ? { label: stop.name } : null),
           }))
@@ -278,7 +288,7 @@ useEffect(() => {
   }, [rideId, user]);
 
   function addStop() {
-    setStops((s) => [...s, { key: stopKey++, kind: "fuel", point: null }]);   
+    setStops((s) => [...s, { key: stopKeyRef.current++, kind: "fuel", point: null }]);   
   }
   function updateStop(key: number, patch: Partial<DraftStop>) {
     setStops((s) => s.map((stop) => (stop.key === key ? { ...stop, ...patch } : stop)));

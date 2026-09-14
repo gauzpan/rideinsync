@@ -1,5 +1,5 @@
 -- ============================================================================
--- Push notifications (0010) — Flow 4 "notifications" first cut, per
+-- Push notifications (0015) — Flow 4 "notifications" first cut, per
 -- PRD/signals_haptics_plan.md §7a/§8/§10. Stores one row per (user, ride,
 -- device) subscription; the actual send happens in the push-notify Edge
 -- Function (supabase/functions/push-notify), invoked directly by the client

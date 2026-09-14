@@ -1,7 +1,7 @@
 -- ============================================================================
--- 0009 — Seed the badge catalog (Flow 6 dependency)
+-- 0013 — Seed the badge catalog (Flow 6 dependency)
 -- ----------------------------------------------------------------------------
--- close_ride() (0007) awards badges, and user_badges.badge_key has a FK to
+-- close_ride() (0011) awards badges, and user_badges.badge_key has a FK to
 -- badges(key). The catalog was only in seed.sql, which isn't run on projects
 -- that apply migrations only — so end-ride failed with a FK violation. Seed the
 -- catalog as a migration so it's always present. Idempotent.

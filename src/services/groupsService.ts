@@ -1,7 +1,8 @@
 // Groups (ride_groups / ride_group_members) — persistent crews that plan rides
 // together repeatedly. Thin wrappers per decision D18: pages never call
-// supabase directly. Mirrors supabase/migrations/0011_groups.sql.
+// supabase directly. Mirrors supabase/migrations/0017_groups.sql.
 import { supabase } from "../lib/supabase";
+import { appOrigin } from "../lib/appUrl";
 import type {
   GroupMemberRole,
   RideGroup,
@@ -139,15 +140,16 @@ export async function setGroupMemberRole(groupId: string, userId: string, role: 
 }
 
 /** The deep-link shared from the invite screen (/groups/join/:code) — same
- *  shape as rides' buildJoinUrl. Opening it while signed out routes through
- *  sign-in (or app install) first; signed in, it joins immediately. */
+ *  shape as rides' buildJoinUrl, same canonical origin (see lib/appUrl).
+ *  Opening it while signed out routes through sign-in (or app install)
+ *  first; signed in, it joins immediately. */
 export function buildGroupInviteUrl(code: string): string {
-  return `${window.location.origin}/groups/join/${code}`;
+  return `${appOrigin()}/groups/join/${code}`;
 }
 
 /** Joins the signed-in user into the group behind an invite code, as a plain
  *  member. Returns the group id. Throws "invalid invite code" for an unknown
- *  code (see join_group_by_code, supabase/migrations/0012_group_invite.sql). */
+ *  code (see join_group_by_code, supabase/migrations/0019_group_invite.sql). */
 export async function joinGroupByCode(code: string): Promise<string> {
   const { data, error } = await supabase.rpc("join_group_by_code", { p_code: code });
   if (error) throw error;

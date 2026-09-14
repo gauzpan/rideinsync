@@ -20,7 +20,19 @@ export function useSession(): SessionState {
     if (DEMO) return;
     let active = true;
 
-    supabase.auth.getSession().then(({ data }) => {
+    // Server-validate like services/authService.getValidSession: drop a
+    // stored JWT whose user no longer exists instead of booting "signed in".
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (!active) return;
+      if (data.session) {
+        const { error } = await supabase.auth.getUser();
+        if (!active) return;
+        if (error) {
+          await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+          if (active) setState({ userId: null, loading: false });
+          return;
+        }
+      }
       if (!active) return;
       setState({ userId: data.session?.user?.id ?? null, loading: false });
     });

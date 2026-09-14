@@ -1,0 +1,1 @@
+select code, name, status, created_at from rides order by created_at desc limit 5

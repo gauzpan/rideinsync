@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_GOOGLE_MAPS_API_KEY: string;
   readonly VITE_MAP_ID: string;
   readonly VITE_VAPID_PUBLIC_KEY: string;
+  /** Canonical public origin for shareable links (lib/appUrl). Unset in dev. */
+  readonly VITE_APP_URL?: string;
 }
 
 interface ImportMeta {

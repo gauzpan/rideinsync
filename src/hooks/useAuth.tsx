@@ -13,7 +13,7 @@ import { Capacitor } from "@capacitor/core";
 import { supabase } from "../lib/supabase";
 import type { Profile } from "../lib/models";
 import {
-  getSession,
+  getValidSession,
   onAuthStateChange,
   signInAsGuest,
   signInWithGoogle,
@@ -73,7 +73,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
-    getSession()
+    // getValidSession (not raw getSession): a stored JWT for a user that no
+    // longer exists must boot to signed-out, never to a fake session that
+    // fails later with RLS/FK errors.
+    getValidSession()
       .then((s) => !cancelled && setSession(s))
       .finally(() => !cancelled && setLoading(false));
 
