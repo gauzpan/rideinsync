@@ -234,7 +234,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
 
   // Push the current user's own GPS so their heading arrow (lead=red / you=green)
   // appears and moves on the map. Foreground only; stops once the ride ends.
-  const { fix, error: geoError, retry: retryGps } = useGeolocation(!ended && !!user);
+  const { fix } = useGeolocation(!ended && !!user);
 
   // M5 hardening (docs/scale-readiness-roadmap.md): the raw .then/.catch ->
   // console.warn here used to silently drop a fix on any ingest failure
@@ -586,23 +586,6 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         <span style={{ position: "absolute", left: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: "#fff", padding: "6px 12px", borderRadius: 999, fontSize: 13, fontWeight: 600 }}>
           {inSync}/{total} in sync
         </span>
-        {/* GPS status: when the watch fails it never recovers on its own, so
-            the pill becomes a retry button that restarts the watch. */}
-        {geoError ? (
-          <button
-            type="button"
-            onClick={retryGps}
-            title={geoError}
-            aria-label={`GPS unavailable (${geoError}). Retry GPS.`}
-            style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: "#FF453A", padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", border: "1px solid #FF453A", cursor: "pointer", minHeight: 44 }}
-          >
-            GPS unavailable — tap to retry
-          </button>
-        ) : (
-          <span style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: fix ? "#34C759" : "#FF9F0A", padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {fix ? `GPS ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}` : "Locating…"}
-          </span>
-        )}
       </div>
 
       {/* Tappable rider strip — every member can focus any rider to pan the
