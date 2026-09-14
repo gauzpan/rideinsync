@@ -74,6 +74,14 @@ function latestOpenAlert(): SosAlert | null {
 // ---- Functions mirroring the live library (same signatures) -----------------
 
 export async function demoSendSos(rideId: string, userId: string): Promise<SendSosResult> {
+  // Dedup: one active alert per rider — a repeat press returns the open one.
+  const open = store.alerts.find(
+    (a) => a.ride_id === rideId && a.user_id === userId && !a.resolved_at,
+  );
+  if (open) {
+    console.info("[sos:demo] alert already active", { alertId: open.id, rideId, userId });
+    return { alertId: open.id, hasLocation: false };
+  }
   const alert: SosAlert = {
     id: newId(),
     ride_id: rideId,

@@ -12,7 +12,7 @@ import { RideSimulator } from "../../lib/simulator";
 import { SIM_RIDER_NAMES } from "../../lib/demoRide";
 import { approveJoinRequest } from "../../services/onboardingService";
 import { closeRide, startRide } from "../../lib/ending";
-import { canResolveSos, resolveSosAlert, sendSos, useSosAlerts } from "../../lib/sos";
+import { canResolveSos, markReached, resolveSosAlert, respondToSos, sendSos, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import type { Fix } from "../../hooks/useGeolocation";
@@ -23,7 +23,7 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Icon } from "../ui/Icon";
 import { IconButton } from "../ui/IconButton";
-import { SosResolveButton } from "../SosResolveButton";
+import { SosAlertStack } from "../SosAlertStack";
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const MAP_ID = import.meta.env.VITE_MAP_ID;
@@ -119,22 +119,35 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const notStarted = status === "draft";
   const [starting, setStarting] = useState(false);
 
-  const activeSos = useSosAlerts(ride.id, user?.id ?? null).filter((a) => !a.resolved);
+  // SOS alerts render embedded in this page via the shared SosAlertStack
+  // (collapse-to-strip + responder/resolve actions). AppLayout suppresses its
+  // global fixed overlay on the ride view so there's no fixed duplicate here.
+  const sosAlerts = useSosAlerts(ride.id, user?.id ?? null);
+  const sosResponsesByAlert = useSosResponses(ride.id);
   const selfRole = riders.find((r) => r.member.user_id === user?.id)?.member.role ?? null;
   const canResolve = canResolveSos(selfRole);
 
-  async function resolveAlert(alertId: string) {
-    const alert = activeSos.find((a) => a.id === alertId);
-    if (!alert || !user) return;
-    // Errors propagate to the resolve button, which shows them inline.
-    await resolveSosAlert({
+  function handleSosRespond(alertId: string) {
+    if (!user) return;
+    void respondToSos(alertId, ride.id, user.id).catch(() => {
+      /* logged in respondToSos; duplicate responses are expected */
+    });
+  }
+  function handleSosReached(responseId: string) {
+    void markReached(responseId).catch(() => {
+      /* logged in markReached */
+    });
+  }
+  function handleSosResolve(alert: IncomingAlert): Promise<void> {
+    if (!user) return Promise.reject(new Error("Not signed in."));
+    return resolveSosAlert({
       alertId: alert.id,
       rideId: ride.id,
       riderUserId: alert.userId,
       riderName: alert.name,
       riderTriggeredAt: alert.triggeredAt,
       resolverUserId: user.id,
-    });
+    }).then(() => {});
   }
 
   // Geocode the form's start/destination labels → a driving route polyline.
@@ -447,29 +460,15 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           </span>
         </Card>
       )}
-      {activeSos.length > 0 &&
-        activeSos.map((a) => (
-          <Card key={a.id} style={{ borderLeft: "3px solid #FF453A" }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "var(--space-sm)",
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <strong style={{ color: "#FF453A" }}>SOS</strong>
-                <span style={{ color: "var(--color-text-secondary)", marginLeft: 8, fontSize: 13 }}>
-                  {a.name} needs help
-                </span>
-              </div>
-              {canResolve && (
-                <SosResolveButton compact onResolve={() => resolveAlert(a.id)} />
-              )}
-            </div>
-          </Card>
-        ))}
+      <SosAlertStack
+        alerts={sosAlerts}
+        responsesByAlert={sosResponsesByAlert}
+        selfUserId={user?.id ?? null}
+        canResolve={canResolve}
+        onRespond={handleSosRespond}
+        onReached={handleSosReached}
+        onResolve={handleSosResolve}
+      />
       <div
         style={
           fullscreen
@@ -646,10 +645,16 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             <div style={{ marginTop: "var(--space-xs)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-sm)", fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>
               <span>
                 <strong style={{ color: "var(--color-text-primary)" }}>{selectedIsSelf ? "You" : selectedRider.profile.display_name || "Rider"}</strong>
-                {" · "}{selectedRider.status}
-                {selectedPos
-                  ? <> · <span style={{ fontVariantNumeric: "tabular-nums" }}>{selectedPos.lat.toFixed(5)}, {selectedPos.lng.toFixed(5)}</span></>
-                  : " · locating…"}
+                {notStarted
+                  ? " · start the ride to get rider location"
+                  : (
+                    <>
+                      {" · "}{selectedRider.status}
+                      {selectedPos
+                        ? <> · <span style={{ fontVariantNumeric: "tabular-nums" }}>{selectedPos.lat.toFixed(5)}, {selectedPos.lng.toFixed(5)}</span></>
+                        : " · locating…"}
+                    </>
+                  )}
               </span>
               <button
                 type="button"

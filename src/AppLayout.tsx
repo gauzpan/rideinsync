@@ -5,12 +5,12 @@ import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
 import { Loader } from "./components/ui/Loader";
-import { SosAlertCard } from "./components/SosAlertCard";
+import { SosAlertStack } from "./components/SosAlertStack";
 import { SosButton, shouldShowSos } from "./components/SosButton";
 import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
 import { consumePendingJoinCode, consumePendingGroupJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
-import { canResolveSos, markReached, resolveSosAlert, respondToSos, sosCardState, useMyRideRole, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
+import { canResolveSos, markReached, resolveSosAlert, respondToSos, useMyRideRole, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
 import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
 import { usePersistedToggle } from "./lib/preference";
 import { useVoiceCommand, VOICE_COMMANDS_KEY } from "./lib/voiceCommands";
@@ -94,11 +94,14 @@ export function AppLayout() {
   const myRole = useMyRideRole(inApp ? rideId : null, userId);
   const canResolve = canResolveSos(myRole);
 
-  // A card is shown until any responder reaches the rider; it returns only if the
-  // rider taps Stay (stay_requested_at > that reach). No local hide state.
-  const visibleAlerts = alerts
-    .map((a) => ({ alert: a, ...sosCardState(a, responsesByAlert[a.id] ?? []) }))
-    .filter((x) => x.visible);
+  // The SOS alerts surface (SosAlertStack) — collapse-to-strip + seen state —
+  // is shared. On the ride view (LiveOps) it's rendered *embedded* in the page,
+  // so suppress this global fixed overlay there to avoid a fixed duplicate;
+  // every other in-app screen still gets it fixed above the TabBar.
+  const onRideView =
+    /^\/ride\/[^/]+(\/lead)?$/.test(pathname) &&
+    pathname !== "/ride/create" &&
+    pathname !== "/ride/demo";
 
   // In-app sound (§7d/§7e) for incoming SOS — Critical tier, 3 beeps. `alerts`
   // already excludes the current user's own (useSosAlerts filters self out),
@@ -283,7 +286,7 @@ export function AppLayout() {
         <Outlet />
       </div>
 
-      {inApp && visibleAlerts.length > 0 && (
+      {inApp && !onRideView && (
         <div
           style={{
             position: "fixed",
@@ -296,25 +299,17 @@ export function AppLayout() {
             maxWidth: 600,
             margin: "0 auto",
             padding: "0 var(--gutter)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-sm)",
           }}
         >
-          {visibleAlerts.map(({ alert: a, still }) => (
-            <SosAlertCard
-              key={a.id}
-              name={a.name}
-              triggeredAt={a.triggeredAt}
-              responders={responsesByAlert[a.id] ?? []}
-              selfUserId={userId}
-              still={still}
-              onRespond={() => handleRespond(a.id)}
-              onReached={handleReached}
-              canResolve={canResolve}
-              onResolve={() => handleResolve(a)}
-            />
-          ))}
+          <SosAlertStack
+            alerts={alerts}
+            responsesByAlert={responsesByAlert}
+            selfUserId={userId}
+            canResolve={canResolve}
+            onRespond={handleRespond}
+            onReached={handleReached}
+            onResolve={handleResolve}
+          />
         </div>
       )}
 
