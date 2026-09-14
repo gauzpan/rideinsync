@@ -140,7 +140,9 @@ export function useActiveRide(userId: string | null, refreshKey?: string): Activ
     return () => {
       active = false;
     };
-  }, [userId]);
+    // `refreshKey` is intentionally a dependency: when it changes (e.g. on
+    // navigation) we re-resolve, since ride_members isn't in Realtime.
+  }, [userId, refreshKey]);
 
   return state;
 }

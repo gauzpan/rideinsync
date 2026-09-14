@@ -45,7 +45,8 @@ export const STOP_ICONS: Record<StopKind, IconName> = {
 
 
 export type CreateRideStopInput = {
-    label: string;
+  kind: StopKind;
+  label: string;
   lat?: number;
   lng?: number;
   placeId?: string;
@@ -54,13 +55,16 @@ export type CreateRideStopInput = {
 
 export type CreateRideInput = {
   name: string;
-    /** Scheduled departure date-time (ISO string) */
+  /** Scheduled departure date-time (ISO string) */
   scheduledStart: string;
   /** Optional scheduled end date-time (ISO string | null) */
   scheduledEnd?: string | null;
-  startLabel: string;
-  destinationLabel: string;
-  /** Exact coordinates when the label was picked via Places autocomplete. */
+  /** Full point (lat/lng/placeId/label) picked via autocomplete, or a plain label. */
+  start?: PlacePoint | string;
+  destination?: PlacePoint | string;
+  /** Back-compat: label-only callers that don't pass a full point. */
+  startLabel?: string;
+  destinationLabel?: string;
   startPoint?: { lat: number; lng: number } | null;
   destinationPoint?: { lat: number; lng: number } | null;
   stops: CreateRideStopInput[];
@@ -68,6 +72,7 @@ export type CreateRideInput = {
   memberCapacity?: number | null;
   guidelines?: string | null;
   permits?: string | null;
+  feeAmount?: number | null;
 };
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I — easy to read aloud
@@ -462,9 +467,6 @@ export type RidePreview = {
   createdAt: string;
   scheduledStart: string | null;
   scheduledEnd: string | null;
-  //check btw both which is needed as same names  
-  scheduled_start: string | null;
-  scheduled_end: string | null;
   leaderName: string | null;
   startLabel: string | null;
   destinationLabel: string | null;
@@ -483,6 +485,8 @@ type RidePreviewJson = {
   status: Ride["status"];
   is_demo: boolean;
   created_at: string;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
   leader_name: string | null;
   start_label: string | null;
   destination_label: string | null;

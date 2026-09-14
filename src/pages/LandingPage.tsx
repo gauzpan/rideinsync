@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Carousel } from "../components/ui/Carousel";
@@ -25,7 +26,9 @@ function rideDestination(ride: MyRideSummary): string {
   return `/ride/${ride.rideId}`;
 }
 
-function YourRides() {
+// Built but not yet rendered on any screen — exported so it's preserved for
+// wiring up (e.g. a signed-in home surface) instead of being dropped.
+export function YourRides() {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [rides, setRides] = useState<MyRideSummary[] | null>(null);

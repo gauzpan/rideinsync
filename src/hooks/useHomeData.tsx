@@ -68,6 +68,7 @@ export function demoHomeData(): HomeData {
       code: "DEMO01",
       role: "leader",
       riderCount: 4,
+      status: "active",
     },
     completeness: { done: 0, total: COMPLETENESS_TOTAL },
     stats: DEMO_STATS,
