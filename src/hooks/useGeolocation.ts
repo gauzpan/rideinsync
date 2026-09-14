@@ -6,6 +6,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Geolocation } from "@capacitor/geolocation";
+import { haversineMeters } from "../lib/geo";
+
+// Gate raw native fixes down to a demo-tuned rate before they ever reach
+// setFix: at most one accepted fix per MIN_INTERVAL_MS, unless the rider has
+// moved at least MIN_DISTANCE_M since the last accepted fix (OR, not AND) —
+// this is what caps rider_positions insert volume upstream of LiveOps.tsx.
+const MIN_INTERVAL_MS = 5000;
+const MIN_DISTANCE_M = 20;
 
 export type Fix = {
   lat: number;
@@ -22,6 +30,9 @@ export function useGeolocation(active: boolean) {
   const [fix, setFix] = useState<Fix | null>(null);
   const [error, setError] = useState<string | null>(null);
   const watchId = useRef<string | null>(null);
+  // Last *accepted* fix (not every raw fix) — compared against on each new
+  // native fix to decide whether to accept it. Null until the first fix.
+  const lastAccepted = useRef<{ lat: number; lng: number; t: number } | null>(null);
 
   useEffect(() => {
     if (!active) return;
@@ -49,13 +60,23 @@ export function useGeolocation(active: boolean) {
             }
             if (pos) {
               setError(null);
-              setFix({
+              const next: Fix = {
                 lat: pos.coords.latitude,
                 lng: pos.coords.longitude,
                 heading: num(pos.coords.heading),
                 speed: num(pos.coords.speed),
                 accuracy: num(pos.coords.accuracy),
-              });
+              };
+              const now = Date.now();
+              const last = lastAccepted.current;
+              const accepted =
+                !last ||
+                now - last.t >= MIN_INTERVAL_MS ||
+                haversineMeters({ lat: last.lat, lng: last.lng }, { lat: next.lat, lng: next.lng }) >=
+                  MIN_DISTANCE_M;
+              if (!accepted) return;
+              lastAccepted.current = { lat: next.lat, lng: next.lng, t: now };
+              setFix(next);
             }
           },
         );

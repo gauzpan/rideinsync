@@ -89,13 +89,33 @@ export type GeoPoint = {
 export type PlacePoint = GeoPoint;
 // ---- Composite view models (derived on the client, not tables) --------------
 
-/** Client-derived group status for the lead/sweep ops view (no backing table). */
+/**
+ * Group status for the lead/sweep ops view (no backing table). As of M3
+ * (docs/scale-readiness-roadmap.md) this is computed server-side by the
+ * broadcast aggregator, not derived on the client from raw positions.
+ */
 export type GroupStatus = "intact" | "behind" | "stopped" | "stale";
+
+/**
+ * A rider's latest known position as delivered by the M3 broadcast
+ * aggregator's "pack" event (or the `latest_positions` seed row shape it
+ * mirrors) — a narrower, table-agnostic shape than the old `rider_positions`
+ * row (no `id`/PK; that table is history-only now, see M2/M3 in the
+ * roadmap). `status` is only present once a broadcast has actually arrived.
+ */
+export type LiveRiderPosition = {
+  lat: number;
+  lng: number;
+  heading: number | null;
+  speed: number | null;
+  accuracy: number | null;
+  recorded_at: string;
+};
 
 /** A rider as rendered on the live map: membership + latest known position. */
 export type RiderOnMap = {
   member: RideMember;
   profile: Pick<Profile, "id" | "display_name" | "avatar_url">;
-  latest: RiderPosition | null;
+  latest: LiveRiderPosition | null;
   status: GroupStatus;
 };

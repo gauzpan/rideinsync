@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
+import { acquireRideChannel, type PgChangePayload } from "./rideChannel";
 import {
   isDemoBackend,
   demoName,
@@ -15,11 +16,9 @@ import {
 import { triggerPushNotify } from "./pushNotifications";
 import type {
   SosAlert,
-  SosAlertInsert,
   SosResponse,
   SosResponseInsert,
   RiderPositionInsert,
-  RideEventInsert,
 } from "./models";
 
 // ============================================================================
@@ -79,9 +78,15 @@ export type SendSosResult = { alertId: string; hasLocation: boolean };
 /**
  * Raise an SOS. Order of operations:
  * 1. read location (best effort, never blocks),
- * 2. insert sos_alerts (required — failure throws → error state),
- * 3. insert rider_positions if we have a fix (best effort),
- * 4. insert ride_events type 'sos' (best effort).
+ * 2. call raise_sos_alert RPC, which atomically:
+ *    a. inserts sos_alerts (required — failure throws → error state),
+ *    b. inserts rider_positions if we have a fix (best effort server-side),
+ *    c. inserts ride_events type 'sos' (best effort server-side).
+ * All 3 used to be separate unwrapped client round trips (required +
+ * best-effort + best-effort); the RPC (0022_raise_sos_alert.sql) now does
+ * them in one transaction, so a dropped connection can no longer leave a
+ * sos_alerts row with no matching ride_events/rider_positions row. The
+ * required-vs-best-effort semantics for each insert are unchanged.
  */
 export async function sendSos(rideId: string, userId: string): Promise<SendSosResult> {
   if (isDemoBackend) return demoSendSos(rideId, userId);
@@ -93,36 +98,19 @@ export async function sendSos(rideId: string, userId: string): Promise<SendSosRe
     note: pos ? undefined : "location_unavailable",
   };
 
-  const alertRow: SosAlertInsert = { ride_id: rideId, user_id: userId, kind: "manual", payload };
-  const { data, error } = await supabase
-    .from("sos_alerts")
-    .insert(alertRow)
-    .select("id")
-    .single();
+  const { data, error } = await supabase.rpc("raise_sos_alert", {
+    p_ride_id: rideId,
+    p_user_id: userId,
+    p_payload: payload,
+  });
   if (error || !data) {
     console.warn("[sos] alert insert failed", error?.message);
     throw error ?? new Error("alert insert failed");
   }
-  const alertId = data.id;
-
-  if (pos) {
-    const { error: pErr } = await supabase
-      .from("rider_positions")
-      .insert(positionInsert(rideId, userId, pos));
-    if (pErr) console.warn("[sos] position insert failed", pErr.message);
-  }
-
-  const eventRow: RideEventInsert = {
-    ride_id: rideId,
-    user_id: userId,
-    type: "sos",
-    payload: { alert_id: alertId },
-  };
-  const { error: eErr } = await supabase.from("ride_events").insert(eventRow);
-  if (eErr) console.warn("[sos] event insert failed", eErr.message);
+  const alertId = data as string;
 
   // Critical tier, per PRD/signals_haptics_plan.md §8: never throttled, fires
-  // regardless of the (best-effort) ride_events insert above.
+  // regardless of the (best-effort) ride_events insert inside the RPC above.
   triggerPushNotify(rideId, userId, "sos");
 
   console.info("[sos] alert sent", { alertId, rideId, hasLocation: Boolean(pos) });
@@ -345,23 +333,23 @@ export function useSosAlerts(rideId: string | null, selfUserId: string | null): 
         data?.forEach((row) => void add(row as SosAlert));
       });
 
-    const channel = supabase
-      .channel(`ride:${rideId}:sos:${Math.random().toString(36).slice(2)}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "sos_alerts", filter: `ride_id=eq.${rideId}` },
-        (payload) => void add(payload.new as SosAlert),
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "sos_alerts", filter: `ride_id=eq.${rideId}` },
-        (payload) => onUpdate(payload.new as SosAlert),
-      )
-      .subscribe();
+    // M3 channel consolidation: sos_alerts INSERT/UPDATE now ride on the
+    // same shared `ride-<id>` channel useRideChannel owns (src/lib/
+    // rideChannel.ts), instead of this hook opening its own
+    // `ride:<id>:sos:*` channel. External contract (params in, alerts out)
+    // is unchanged.
+    const handle = acquireRideChannel(rideId);
+    const onSosAlertsChange = (payload: PgChangePayload) => {
+      const row = payload.new as SosAlert;
+      if (payload.eventType === "INSERT") void add(row);
+      else if (payload.eventType === "UPDATE") onUpdate(row);
+    };
+    handle.listeners.sosAlerts.add(onSosAlertsChange);
 
     return () => {
       active = false;
-      supabase.removeChannel(channel);
+      handle.listeners.sosAlerts.delete(onSosAlertsChange);
+      handle.release();
     };
   }, [rideId, selfUserId]);
 

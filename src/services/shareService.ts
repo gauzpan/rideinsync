@@ -62,3 +62,37 @@ export async function shareContent(data: ShareData): Promise<ShareResult> {
   }
   return "unsupported";
 }
+
+export type InviteShareData = ShareData & {
+  /** PNG data URL of the join QR (see qrService.generateQrDataUrl). Attached
+   *  as a file so messaging apps receive the image alongside the link. */
+  qrDataUrl?: string | null;
+  qrFileName?: string;
+};
+
+/** Shares an invite as link + QR image in one sheet. Where the platform can
+ *  share files (mobile), the QR goes along as an image; otherwise degrades
+ *  to the plain link share (then clipboard copy) via shareContent. */
+export async function shareInvite(data: InviteShareData): Promise<ShareResult> {
+  const files = await qrImageFile(data.qrDataUrl, data.qrFileName ?? "ride-qr.png");
+  if (files && typeof navigator.canShare === "function" && navigator.canShare({ files })) {
+    try {
+      await navigator.share({ title: data.title, text: data.text, url: data.url, files });
+      return "shared";
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return "unsupported";
+      // Any other failure: fall through to the link-only share below.
+    }
+  }
+  return shareContent({ title: data.title, text: data.text, url: data.url });
+}
+
+async function qrImageFile(dataUrl: string | null | undefined, name: string): Promise<File[] | null> {
+  if (!dataUrl) return null;
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    return [new File([blob], name, { type: blob.type || "image/png" })];
+  } catch {
+    return null;
+  }
+}

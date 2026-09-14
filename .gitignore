@@ -40,4 +40,8 @@ src/lib/flow6.mock.ts
 *.tsbuildinfo
 next-env.d.ts
 
-.playwright-mcp 
+.playwright-mcp
+
+# loadtest/seed.mjs output — throwaway guest JWTs + ride ids from a local run,
+# regenerate with `node loadtest/seed.mjs` rather than committing a snapshot.
+loadtest/vus.json 

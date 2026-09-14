@@ -107,6 +107,18 @@ export interface Database {
         { ride_id: string; user_id: string; lat: number; lng: number; heading?: number | null;
           speed?: number | null; accuracy?: number | null; recorded_at?: string }
       >;
+      // Hot counterpart to rider_positions (M2, supabase/migrations/0023_latest_positions.sql):
+      // one row per (ride_id, user_id), upserted by supabase/functions/positions-ingest.
+      // Also read by M3's seed query (useRideChannel.ts) and its broadcast aggregator.
+      latest_positions: Table<
+        {
+          ride_id: string; user_id: string; lat: number; lng: number;
+          heading: number | null; speed: number | null; accuracy: number | null;
+          recorded_at: string; updated_at: string;
+        },
+        { ride_id: string; user_id: string; lat: number; lng: number; heading?: number | null;
+          speed?: number | null; accuracy?: number | null; recorded_at?: string; updated_at?: string }
+      >;
       ride_events: Table<
         { id: string; ride_id: string; user_id: string; type: EventType; payload: Json | null; created_at: string },
         { ride_id: string; user_id: string; type: EventType; payload?: Json | null }
@@ -244,6 +256,8 @@ export interface Database {
       is_group_lead: { Args: { gid: string }; Returns: boolean };
       // supabase/migrations/0019_group_invite.sql
       join_group_by_code: { Args: { p_code: string }; Returns: string };
+      // supabase/migrations/0022_raise_sos_alert.sql — M0 correctness hardening.
+      raise_sos_alert: { Args: { p_ride_id: string; p_user_id: string; p_payload: Json }; Returns: string };
     };
     Enums: {
       member_role: MemberRole;

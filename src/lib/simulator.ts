@@ -77,16 +77,25 @@ export class RideSimulator {
 
   private async pushAll(): Promise<void> {
     await Promise.all(
-      this.riders.map((r) => {
+      this.riders.map(async (r) => {
         const { pos, heading } = pointAlong(this.path, r.progress);
-        return r.client.from("rider_positions").insert({
+        const row = {
           ride_id: this.rideId,
           user_id: r.userId,
           lat: pos.lat,
           lng: pos.lng,
           heading,
           speed: r.stopped ? 0 : 28,
-        });
+        };
+        // History (close_ride's distance calc) — unchanged from before M2/M3.
+        await r.client.from("rider_positions").insert(row);
+        // Hot table — the live map (LiveOps' broadcast aggregator, M3) only
+        // reads latest_positions now. Sim riders don't go through the real
+        // positions-ingest Edge Function (its 3s rate limit would drop half
+        // this simulator's 1.5s ticks) — each rider's own RLS-scoped client
+        // upserts its own row directly instead, same as a real ingest would
+        // land it.
+        await r.client.from("latest_positions").upsert(row, { onConflict: "ride_id,user_id" });
       }),
     );
   }
