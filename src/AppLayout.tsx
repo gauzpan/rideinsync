@@ -24,6 +24,7 @@ import {
 } from "./lib/voiceActivity";
 import { SIGNAL_LABEL, SIGNAL_TIER, sendRideSignal, useRideSignalListener, type SignalKind } from "./lib/signals";
 import { playSignalTone } from "./lib/earcon";
+import { ensureNotificationPermission, fireLocalNotification } from "./lib/localNotify";
 import { vibrateForTier } from "./lib/haptics";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
@@ -103,6 +104,12 @@ export function AppLayout() {
   // so this only ever tones for someone *else's* SOS landing on this device.
   // Tracked by id, not just "alerts.length > 0", so it fires once per alert
   // rather than replaying every time this component re-renders.
+  // Ask for the OS notification permission once the user is in the app, so the
+  // SOS / ride-start / ride-end heads-ups can show.
+  useEffect(() => {
+    if (inApp) void ensureNotificationPermission();
+  }, [inApp]);
+
   const tonedAlertIds = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const a of alerts) {
@@ -110,6 +117,8 @@ export function AppLayout() {
         tonedAlertIds.current.add(a.id);
         playSignalTone("critical");
         vibrateForTier("critical");
+        // On-device heads-up so a rider on another screen sees the SOS.
+        void fireLocalNotification("🆘 SOS", `${a.name} needs help — tap to respond.`);
       }
     }
   }, [alerts]);

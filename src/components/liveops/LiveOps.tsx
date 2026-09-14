@@ -14,6 +14,7 @@ import { SIM_RIDER_NAMES } from "../../lib/demoRide";
 import { approveJoinRequest, buildJoinUrl } from "../../services/onboardingService";
 import { closeRide, startRide } from "../../lib/ending";
 import { useSosAlerts } from "../../lib/sos";
+import { fireLocalNotification } from "../../lib/localNotify";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import { supabase } from "../../lib/supabase";
@@ -89,6 +90,18 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const [starting, setStarting] = useState(false);
 
   const activeSos = useSosAlerts(ride.id, user?.id ?? null).filter((a) => !a.resolved);
+
+  // On-device heads-up when the ride starts or ends, for riders watching (not
+  // the leader who triggered it). Only fires on a real transition, never on the
+  // first observed status.
+  const prevStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+    if (prev == null || prev === status || isLeader) return;
+    if (status === "active") void fireLocalNotification("Ride started", `"${ride.name}" is underway.`);
+    else if (status === "ended") void fireLocalNotification("Ride ended", `"${ride.name}" has ended.`);
+  }, [status, isLeader, ride.name]);
 
   // Geocode the form's start/destination labels → a driving route polyline.
   useEffect(() => {
