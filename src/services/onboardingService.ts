@@ -46,7 +46,8 @@ export const STOP_ICONS: Record<StopKind, IconName> = {
 
 
 export type CreateRideStopInput = {
-    label: string;
+  kind: StopKind;
+  label: string;
   lat?: number;
   lng?: number;
   placeId?: string;
@@ -55,18 +56,18 @@ export type CreateRideStopInput = {
 
 export type CreateRideInput = {
   name: string;
-    /** Scheduled departure date-time (ISO string) */
+  /** Scheduled departure date-time (ISO string) */
   scheduledStart: string;
   /** Optional scheduled end date-time (ISO string | null) */
   scheduledEnd?: string | null;
-  startLabel: string;
-  destinationLabel: string;
-  /** Exact coordinates when the label was picked via Places autocomplete. */
-  startPoint?: { lat: number; lng: number } | null;
-  destinationPoint?: { lat: number; lng: number } | null;
+  /** Start/destination as picked via Places autocomplete (labels + coords). */
+  start: PlacePoint;
+  destination: PlacePoint;
   stops: CreateRideStopInput[];
   /** null/omitted = no capacity limit set. */
   memberCapacity?: number | null;
+  /** Fee amount (UI-only in v1, no payment processing). null/omitted = none. */
+  feeAmount?: number | null;
   guidelines?: string | null;
   permits?: string | null;
 };
@@ -146,8 +147,8 @@ export function parseJsonPoint(json: unknown): PlacePoint | null {
  */
 export async function createRide(leaderId: string, input: CreateRideInput): Promise<Ride> {
   const name = input.name.trim();
-  const startPt = extractPoint(input.start, input.startLabel);
-  const destPt = extractPoint(input.destination, input.destinationLabel);
+  const startPt = extractPoint(input.start);
+  const destPt = extractPoint(input.destination);
   if (!name) throw new Error("Ride name is required.");
     if (!input.scheduledStart) throw new Error("Departure date and time is required.");
   if (!startPt || !startPt.label) throw new Error("Start point is required.");
@@ -253,8 +254,8 @@ export async function updateRide(
   }
 
   const name = input.name.trim();
-  const startPt = extractPoint(input.start, input.startLabel);
-  const destPt = extractPoint(input.destination, input.destinationLabel);
+  const startPt = extractPoint(input.start);
+  const destPt = extractPoint(input.destination);
   if (!name) throw new Error("Ride name is required.");
   if (!input.scheduledStart) throw new Error("Departure date and time is required.");
   if (!startPt || !startPt.label) throw new Error("Start point is required.");
@@ -465,9 +466,6 @@ export type RidePreview = {
   createdAt: string;
   scheduledStart: string | null;
   scheduledEnd: string | null;
-  //check btw both which is needed as same names  
-  scheduled_start: string | null;
-  scheduled_end: string | null;
   leaderName: string | null;
   startLabel: string | null;
   destinationLabel: string | null;
@@ -486,6 +484,8 @@ type RidePreviewJson = {
   status: Ride["status"];
   is_demo: boolean;
   created_at: string;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
   leader_name: string | null;
   start_label: string | null;
   destination_label: string | null;
