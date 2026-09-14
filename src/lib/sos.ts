@@ -261,7 +261,7 @@ export async function closeSos(alertId: string, userId: string): Promise<void> {
 
 /**
  * Raiser cancels their own SOS. Calls the cancel_sos_alert RPC
- * (0032_sos_cancel.sql), which flips the alert to resolved + stamps
+ * (0034_sos_cancel.sql), which flips the alert to resolved + stamps
  * cancelled_at in one transaction — so every SosAlertCard and the raiser's own
  * bar disappear for the whole ride via the shared sos_alerts UPDATE. Then,
  * fire-and-forget (same best-effort contract as sendSos, never blocks or fails

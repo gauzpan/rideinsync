@@ -260,7 +260,7 @@ export interface Database {
       raise_sos_alert: { Args: { p_ride_id: string; p_user_id: string; p_payload: Json }; Returns: string };
       // supabase/migrations/0031_ride_capacity_update.sql — lead raises capacity draft/active.
       update_ride_capacity: { Args: { p_ride_id: string; p_capacity: number | null }; Returns: undefined };
-      // supabase/migrations/0032_sos_cancel.sql — raiser cancels their own SOS.
+      // supabase/migrations/0034_sos_cancel.sql — raiser cancels their own SOS.
       cancel_sos_alert: { Args: { p_alert_id: string }; Returns: Database["public"]["Tables"]["sos_alerts"]["Row"] };
     };
     Enums: {
