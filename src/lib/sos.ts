@@ -14,6 +14,7 @@ import {
   subscribe as subscribeDemo,
 } from "./sosDemo";
 import { triggerPushNotify } from "./pushNotifications";
+import { triggerSosEmail } from "./sosEmail";
 import type {
   SosAlert,
   SosResponse,
@@ -112,6 +113,9 @@ export async function sendSos(rideId: string, userId: string): Promise<SendSosRe
   // Critical tier, per PRD/signals_haptics_plan.md §8: never throttled, fires
   // regardless of the (best-effort) ride_events insert inside the RPC above.
   triggerPushNotify(rideId, userId, "sos");
+  // Also email the rider's emergency contact(s). Same fire-and-forget contract
+  // as triggerPushNotify — never blocks or fails the alert (see sosEmail.ts).
+  triggerSosEmail(alertId);
 
   console.info("[sos] alert sent", { alertId, rideId, hasLocation: Boolean(pos) });
   return { alertId, hasLocation: Boolean(pos) };
