@@ -1126,6 +1126,24 @@ export async function removeMember(rideId: string, userId: string): Promise<void
   if (error) throw error;
 }
 
+/**
+ * Lead/co-lead adjusts a draft or active ride's capacity via the
+ * `update_ride_capacity` RPC (supabase/migrations/0031_ride_capacity_update.sql).
+ * `capacity` is null for no limit, else 1..50 and never below the current
+ * member count — the RPC enforces all of this server-side; the client only
+ * pre-validates for a faster error message.
+ */
+export async function updateRideCapacity(rideId: string, capacity: number | null): Promise<void> {
+  if (capacity !== null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 50)) {
+    throw new Error("Capacity must be between 1 and 50 riders, or no limit.");
+  }
+  const { error } = await supabase.rpc("update_ride_capacity", {
+    p_ride_id: rideId,
+    p_capacity: capacity,
+  });
+  if (error) throw error;
+}
+
 
 // ---------------------------------------------------------------------------
 // Ticket 06 — pillion join, linked to rider

@@ -258,6 +258,8 @@ export interface Database {
       join_group_by_code: { Args: { p_code: string }; Returns: string };
       // supabase/migrations/0022_raise_sos_alert.sql — M0 correctness hardening.
       raise_sos_alert: { Args: { p_ride_id: string; p_user_id: string; p_payload: Json }; Returns: string };
+      // supabase/migrations/0031_ride_capacity_update.sql — lead raises capacity draft/active.
+      update_ride_capacity: { Args: { p_ride_id: string; p_capacity: number | null }; Returns: undefined };
     };
     Enums: {
       member_role: MemberRole;

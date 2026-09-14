@@ -6,6 +6,7 @@ import { Card } from "../components/ui/Card";
 import { IconButton } from "../components/ui/IconButton";
 import { LoadingState } from "../components/ui/Loader";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
+import { Stepper } from "../components/ui/Stepper";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigateOnRideEnd } from "../hooks/useNavigateOnRideEnd";
 import { LiveOps } from "../components/liveops/LiveOps";
@@ -19,6 +20,7 @@ import {
   getPendingJoinRequests,
   getRideDetail,
   removeMember,
+  updateRideCapacity,
   type AssignableRole,
   type PendingJoinRequest,
   type RideDetail,
@@ -104,6 +106,10 @@ export function LeadViewPage() {
   const [copied, setCopied] = useState<"code" | "link" | null>(null);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  // Capacity editor draft: 0 = no limit (mirrors the create form's Stepper).
+  const [capacityDraft, setCapacityDraft] = useState(0);
+  const [capacitySaving, setCapacitySaving] = useState(false);
+  const [capacityNote, setCapacityNote] = useState<string | null>(null);
   const load = useCallback(async () => {
     if (!rideId) return;
     const [d, p] = await Promise.all([getRideDetail(rideId), getPendingJoinRequests(rideId)]);
@@ -139,6 +145,8 @@ export function LeadViewPage() {
   const capacity = detail?.ride.member_capacity ?? null;
   const memberCount = detail?.roster.length ?? 0;
   const isFull = capacity != null && memberCount >= capacity;
+  // Capacity can only change while riders can still join.
+  const canChangeCapacity = detail?.ride.status === "draft" || detail?.ride.status === "active";
 
   const rosterExcludingLeader = useMemo(
     () => detail?.roster.filter((r) => r.member.role !== "leader") ?? [],
@@ -160,6 +168,34 @@ export function LeadViewPage() {
       cancelled = true;
     };
   }, [inviteOpen, joinUrl, qrDataUrl]);
+
+  // Keep the capacity Stepper in sync with the loaded ride (0 = no limit).
+  // Must stay above the early returns with the other hooks.
+  useEffect(() => {
+    if (detail) setCapacityDraft(detail.ride.member_capacity ?? 0);
+  }, [detail]);
+
+  async function handleSaveCapacity() {
+    if (!rideId || capacitySaving) return;
+    const next = capacityDraft === 0 ? null : capacityDraft;
+    if ((next ?? null) === (capacity ?? null)) return;
+    if (next !== null && next < memberCount) {
+      setActionError(`Capacity can't be below the ${memberCount} riders already joined.`);
+      return;
+    }
+    setActionError(null);
+    setCapacityNote(null);
+    setCapacitySaving(true);
+    try {
+      await updateRideCapacity(rideId, next);
+      await load();
+      setCapacityNote(next === null ? "Capacity set to no limit." : `Capacity set to ${next} riders.`);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Couldn't update capacity.");
+    } finally {
+      setCapacitySaving(false);
+    }
+  }
 
   async function refresh() {
     try {
@@ -298,12 +334,59 @@ export function LeadViewPage() {
       >
         {ride.name}
       </h1>
-      <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-lg)" }}>
+      <p style={{ color: "var(--color-text-secondary)", margin: "0 0 var(--space-md)" }}>
         {capacity != null ? `${memberCount} / ${capacity} riders` : `${memberCount} riders`}
         {isFull && (
           <span style={{ color: "var(--color-role-sweep)" }}> · Ride full</span>
         )}
       </p>
+
+      {/* Capacity — the lead can open seats mid-lifecycle (draft or active)
+          so more riders can join or be approved without leaving this screen. */}
+      {canChangeCapacity && (
+        <Card padding="var(--space-md)" style={{ marginBottom: "var(--space-lg)" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "var(--space-md)",
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: "var(--text-body-size)", fontWeight: "var(--weight-medium)" as unknown as number }}>
+                Rider capacity
+              </div>
+              <div style={{ fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>
+                {isFull
+                  ? "Ride is full — raise capacity to approve more riders."
+                  : "0 = no limit. New riders join by code while seats are open."}
+              </div>
+            </div>
+            <Stepper
+              value={capacityDraft}
+              min={0}
+              max={50}
+              display={capacityDraft === 0 ? "No limit" : `${capacityDraft} riders`}
+              onChange={setCapacityDraft}
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", marginTop: "var(--space-sm)" }}>
+            <Button
+              variant="secondary"
+              loading={capacitySaving}
+              disabled={capacitySaving || capacityDraft === (capacity ?? 0)}
+              onClick={() => void handleSaveCapacity()}
+            >
+              Save capacity
+            </Button>
+            {capacityNote && (
+              <span style={{ fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>{capacityNote}</span>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Invite — same join link + native share as the invite screen, inline
           so the lead can pull in late riders without leaving the roster. */}
