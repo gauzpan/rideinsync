@@ -1,11 +1,11 @@
 import type { CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
-import { useHomeData, type ActiveRide, type PastRide } from "../hooks/useHomeData";
+import { useHomeData, type PastRide } from "../hooks/useHomeData";
+import { ActiveRideHero, resumePath } from "../components/ActiveRideHero";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Icon } from "../components/ui/Icon";
 import { LoadingState } from "../components/ui/Loader";
-import { RoleBadge, toBadgeRole } from "../components/ui/RoleBadge";
 
 /** Base page for the Ride tab: the active ride (if any), past rides, and the
  *  entry points into the create/join flows — Home stays a separate landing
@@ -118,67 +118,6 @@ export function RidesPage() {
   );
 }
 
-function resumePath(ride: ActiveRide): string {
-  const isOps = ride.role === "leader" || ride.role === "co_leader" || ride.role === "sweep";
-  return isOps ? `/ride/${ride.id}/lead` : `/ride/${ride.id}`;
-}
-
-function ActiveRideHero({ ride, onResume }: { ride: ActiveRide; onResume: () => void }) {
-  const isDraft = ride.status === "draft";
-  return (
-    <Card glow padding="var(--space-lg)">
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-sm)" }}>
-        <div>
-          <Eyebrow>{isDraft ? "Not started yet" : "Active ride"}</Eyebrow>
-          <h2 style={{ margin: "var(--space-2xs) 0 0", fontFamily: "var(--font-brand)", fontSize: "calc(var(--text-h2) + 2px)", lineHeight: "var(--lh-h2)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
-            {ride.name}
-          </h2>
-        </div>
-        {!isDraft && <LivePill />}
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", marginTop: "var(--space-sm)", flexWrap: "wrap" }}>
-        <RoleBadge role={toBadgeRole(ride.role)} />
-        <Meta>
-          <span style={{ fontVariantNumeric: "tabular-nums" }}>{ride.riderCount}</span>{" "}
-          {ride.riderCount === 1 ? "rider" : "riders"}
-        </Meta>
-        <Meta>
-          Code <span style={{ color: "var(--color-text-primary)", fontVariantNumeric: "tabular-nums", letterSpacing: "0.04em" }}>{ride.code}</span>
-        </Meta>
-      </div>
-
-      <div style={{ marginTop: "var(--space-lg)" }}>
-        <Button variant="primary" onClick={onResume}>
-          {isDraft ? "Open ride" : "Resume ride"}
-        </Button>
-      </div>
-    </Card>
-  );
-}
-
-function LivePill() {
-  return (
-    <span
-      style={{
-        flex: "none",
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "var(--space-2xs)",
-        height: 26,
-        padding: "0 var(--space-sm)",
-        borderRadius: "var(--radius-full)",
-        background: "var(--color-surface-3)",
-        color: "var(--color-text-secondary)",
-        fontSize: "var(--text-label)",
-      }}
-    >
-      <span style={{ width: 8, height: 8, borderRadius: "var(--radius-full)", background: "var(--color-role-member)" }} />
-      Live
-    </span>
-  );
-}
-
 function PastRideRow({ ride, onClick }: { ride: PastRide; onClick: () => void }) {
   const date = new Date(ride.endedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   return (
@@ -210,8 +149,4 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
-}
-
-function Meta({ children }: { children: React.ReactNode }) {
-  return <span style={{ fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>{children}</span>;
 }

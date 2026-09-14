@@ -39,8 +39,10 @@ export type Completeness = { done: number; total: number };
 
 export type HomeStats = { rides: number; distanceKm: number; ridesLed: number };
 
-// TODO(Flow 2): replace with live user_stats aggregation. Flagged as demo data.
+// Demo-mode-only stand-in (no backend to aggregate against). Real sessions
+// compute HomeStats live below from ride_members + ride_summaries.
 const DEMO_STATS: HomeStats = { rides: 12, distanceKm: 486, ridesLed: 3 };
+const EMPTY_STATS: HomeStats = { rides: 0, distanceKm: 0, ridesLed: 0 };
 
 export type HomeData = {
   loading: boolean;
@@ -85,7 +87,7 @@ export function useHomeData(): HomeData {
           loading: true,
           activeRide: null,
           completeness: { done: 0, total: COMPLETENESS_TOTAL },
-          stats: DEMO_STATS,
+          stats: EMPTY_STATS,
           pastRides: [],
           isEmpty: false,
         },
@@ -118,6 +120,11 @@ export function useHomeData(): HomeData {
       const rideIds = memberships.map((m) => m.ride_id);
       let activeRide: ActiveRide | null = null;
       let pastRides: PastRide[] = [];
+      let stats: HomeStats = {
+        rides: rideIds.length,
+        distanceKm: 0,
+        ridesLed: memberships.filter((m) => m.role === "leader" || m.role === "co_leader").length,
+      };
 
       if (rideIds.length) {
         const rides = await safe(() =>
@@ -149,21 +156,24 @@ export function useHomeData(): HomeData {
 
         const endedIds = rides.filter((r) => r.status === "ended").map((r) => r.id);
         if (endedIds.length) {
+          // Unlimited — the stats strip needs the *total* across every ended
+          // ride the user was in, not just the recent slice shown as pastRides.
           const summaries = await safe(() =>
             supabase
               .from("ride_summaries")
               .select("ride_id, total_distance_m, ended_at")
               .in("ride_id", endedIds)
               .order("ended_at", { ascending: false })
-              .limit(5)
           );
           const nameById = new Map(rides.map((r) => [r.id, r.name]));
-          pastRides = summaries.map((s) => ({
+          pastRides = summaries.slice(0, 5).map((s) => ({
             rideId: s.ride_id,
             name: nameById.get(s.ride_id) ?? "Ride",
             endedAt: s.ended_at,
             distanceKm: Math.round((s.total_distance_m ?? 0) / 100) / 10,
           }));
+          const totalDistanceM = summaries.reduce((sum, s) => sum + (s.total_distance_m ?? 0), 0);
+          stats = { ...stats, distanceKm: Math.round(totalDistanceM / 1000) };
         }
       }
 
@@ -172,7 +182,7 @@ export function useHomeData(): HomeData {
         loading: false,
         activeRide,
         completeness: { done, total: COMPLETENESS_TOTAL },
-        stats: DEMO_STATS,
+        stats,
         pastRides,
         isEmpty: !activeRide && pastRides.length === 0,
       });

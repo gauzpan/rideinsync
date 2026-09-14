@@ -12,7 +12,7 @@ import { RideSimulator } from "../../lib/simulator";
 import { SIM_RIDER_NAMES } from "../../lib/demoRide";
 import { approveJoinRequest } from "../../services/onboardingService";
 import { closeRide, startRide } from "../../lib/ending";
-import { sendSos, useSosAlerts } from "../../lib/sos";
+import { canResolveSos, resolveSosAlert, sendSos, useSosAlerts } from "../../lib/sos";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import type { Fix } from "../../hooks/useGeolocation";
@@ -21,6 +21,7 @@ import type { Ride, RiderOnMap, GroupStatus } from "../../lib/models";
 import type { LatLng } from "../../lib/geo";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { SosResolveButton } from "../SosResolveButton";
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const MAP_ID = import.meta.env.VITE_MAP_ID;
@@ -92,6 +93,22 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const [starting, setStarting] = useState(false);
 
   const activeSos = useSosAlerts(ride.id, user?.id ?? null).filter((a) => !a.resolved);
+  const selfRole = riders.find((r) => r.member.user_id === user?.id)?.member.role ?? null;
+  const canResolve = canResolveSos(selfRole);
+
+  async function resolveAlert(alertId: string) {
+    const alert = activeSos.find((a) => a.id === alertId);
+    if (!alert || !user) return;
+    // Errors propagate to the resolve button, which shows them inline.
+    await resolveSosAlert({
+      alertId: alert.id,
+      rideId: ride.id,
+      riderUserId: alert.userId,
+      riderName: alert.name,
+      riderTriggeredAt: alert.triggeredAt,
+      resolverUserId: user.id,
+    });
+  }
 
   // Geocode the form's start/destination labels → a driving route polyline.
   useEffect(() => {
@@ -159,7 +176,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
 
   // Push the current user's own GPS so their heading arrow (lead=red / you=green)
   // appears and moves on the map. Foreground only; stops once the ride ends.
-  const { fix, error: geoError } = useGeolocation(!ended && !!user);
+  const { fix, error: geoError, retry: retryGps } = useGeolocation(!ended && !!user);
 
   // M5 hardening (docs/scale-readiness-roadmap.md): the raw .then/.catch ->
   // console.warn here used to silently drop a fix on any ingest failure
@@ -362,14 +379,29 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           </span>
         </Card>
       )}
-      {activeSos.length > 0 && (
-        <Card style={{ borderLeft: "3px solid #FF453A" }}>
-          <strong style={{ color: "#FF453A" }}>SOS</strong>
-          <span style={{ color: "var(--color-text-secondary)", marginLeft: 8, fontSize: 13 }}>
-            {activeSos.map((a) => a.name).join(", ")} need{activeSos.length === 1 ? "s" : ""} help
-          </span>
-        </Card>
-      )}
+      {activeSos.length > 0 &&
+        activeSos.map((a) => (
+          <Card key={a.id} style={{ borderLeft: "3px solid #FF453A" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "var(--space-sm)",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <strong style={{ color: "#FF453A" }}>SOS</strong>
+                <span style={{ color: "var(--color-text-secondary)", marginLeft: 8, fontSize: 13 }}>
+                  {a.name} needs help
+                </span>
+              </div>
+              {canResolve && (
+                <SosResolveButton compact onResolve={() => resolveAlert(a.id)} />
+              )}
+            </div>
+          </Card>
+        ))}
       <div
         style={
           fullscreen
@@ -462,9 +494,23 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         <span style={{ position: "absolute", left: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: "#fff", padding: "6px 12px", borderRadius: 999, fontSize: 13, fontWeight: 600 }}>
           {inSync}/{total} in sync
         </span>
-        <span style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: fix ? "#34C759" : geoError ? "#FF453A" : "#FF9F0A", padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {fix ? `GPS ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}` : geoError ? `GPS: ${geoError}` : "Locating…"}
-        </span>
+        {/* GPS status: when the watch fails it never recovers on its own, so
+            the pill becomes a retry button that restarts the watch. */}
+        {geoError ? (
+          <button
+            type="button"
+            onClick={retryGps}
+            title={geoError}
+            aria-label={`GPS unavailable (${geoError}). Retry GPS.`}
+            style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: "#FF453A", padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", border: "1px solid #FF453A", cursor: "pointer", minHeight: 44 }}
+          >
+            GPS unavailable — tap to retry
+          </button>
+        ) : (
+          <span style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: fix ? "#34C759" : "#FF9F0A", padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {fix ? `GPS ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}` : "Locating…"}
+          </span>
+        )}
       </div>
 
 

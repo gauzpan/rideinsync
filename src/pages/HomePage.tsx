@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useHomeData } from "../hooks/useHomeData";
+import { ActiveRideHero, resumePath } from "../components/ActiveRideHero";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Icon } from "../components/ui/Icon";
@@ -11,10 +12,23 @@ import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
 
 export function HomePage() {
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
-  const { completeness, stats } = useHomeData();
+  const { user, profile, isGuest, signInWithGoogle } = useAuth();
+  const { activeRide, completeness, stats } = useHomeData();
   const [voiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
   const [showVoiceSheet, setShowVoiceSheet] = useState(false);
+  const [googlePending, setGooglePending] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+
+  async function handleGoogleUpgrade() {
+    setGoogleError(null);
+    setGooglePending(true);
+    try {
+      await signInWithGoogle();
+    } catch (e) {
+      setGooglePending(false);
+      setGoogleError(e instanceof Error ? e.message : "Couldn't start Google sign-in.");
+    }
+  }
 
   // Profile display_name is the default "Rider" for most OAuth sign-ins (the
   // provisioning trigger only reads a `display_name` metadata key), so fall
@@ -47,7 +61,13 @@ export function HomePage() {
         </span>
       </h1>
 
-      {/* 2. Quick actions — active/past rides now live on the Ride tab (see
+      {/* 1b. Active ride — surfaced at the top so a rider mid-trip (or a lead
+          with a draft waiting to start) can jump straight back in instead of
+          hunting for it on the Ride tab. Shares ActiveRideHero with
+          RidesPage.tsx so the card and its resume/open logic stay identical. */}
+      {activeRide && <ActiveRideHero ride={activeRide} onResume={() => navigate(resumePath(activeRide))} />}
+
+      {/* 2. Quick actions — past rides live on the Ride tab (see
           RidesPage.tsx) instead of being duplicated here. */}
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
         <Button onClick={() => navigate("/ride/create")}>
@@ -124,16 +144,63 @@ export function HomePage() {
         </button>
       )}
 
-      {/* 4. Stats strip — stubbed demo constants until Flow 2's user_stats lands.
-          Sentence case, no caps (docs/plan-update-visual.md §10) — "sample
-          data" dropped from the visible label, still true in the code comment. */}
+      {/* 4. Stats strip — live from ride_members + ride_summaries for a real
+          account. A guest session has no durable identity to aggregate
+          against (it can vanish on sign-out), so the numbers are masked and
+          replaced with a nudge to create an account instead. Sentence case,
+          no caps (docs/plan-update-visual.md §10). */}
       <section>
         <SectionLabel>Your riding</SectionLabel>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--space-sm)", marginTop: "var(--space-sm)" }}>
-          <StatCard value={String(stats.rides)} label="Rides" />
-          <StatCard value={String(stats.distanceKm)} unit="km" label="Distance" />
-          <StatCard value={String(stats.ridesLed)} label="Led" />
+          <StatCard value={isGuest ? "X" : String(stats.rides)} label="Rides" />
+          <StatCard value={isGuest ? "X" : String(stats.distanceKm)} unit={isGuest ? undefined : "km"} label="Distance" />
+          <StatCard value={isGuest ? "X" : String(stats.ridesLed)} label="Led" />
         </div>
+
+        {isGuest && (
+          <Card padding="var(--space-md)" style={{ marginTop: "var(--space-sm)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+              <div
+                style={{
+                  flex: "none",
+                  width: 40,
+                  height: 40,
+                  borderRadius: "var(--radius-full)",
+                  background: "color-mix(in srgb, var(--color-accent) 16%, transparent)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "var(--color-accent)",
+                }}
+              >
+                <Icon name="user" size={20} />
+              </div>
+              <div>
+                <div style={{ fontSize: "var(--text-body-size)", lineHeight: "22px", fontWeight: "var(--weight-semibold)" as unknown as number, color: "var(--color-text-primary)" }}>
+                  Save your ride stats
+                </div>
+                <div style={{ marginTop: "var(--space-2xs)", fontSize: "var(--text-label)", fontWeight: "var(--weight-medium)" as unknown as number, color: "var(--color-text-secondary)" }}>
+                  Guest rides aren't kept against an account. Sign in with Google so your rides,
+                  distance and lead count stick around.
+                </div>
+              </div>
+            </div>
+            {googleError && (
+              <p style={{ margin: "var(--space-sm) 0 0", fontSize: "var(--text-label)", color: "var(--color-role-sweep)" }}>
+                {googleError}
+              </p>
+            )}
+            <Button
+              variant="secondary"
+              onClick={() => void handleGoogleUpgrade()}
+              loading={googlePending}
+              style={{ marginTop: "var(--space-sm)", gap: "var(--space-xs)" }}
+            >
+              <Icon name="brand-google" size={18} />
+              Continue with Google
+            </Button>
+          </Card>
+        )}
       </section>
 
       {/* 5. Privacy line — addresses location-sharing concern directly */}
