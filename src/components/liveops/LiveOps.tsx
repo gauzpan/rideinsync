@@ -471,6 +471,18 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
       ? { lat: selectedRider.latest.lat, lng: selectedRider.latest.lng }
       : null;
 
+  // Your own marker: prefer the live GPS fix, but fall back to your last known
+  // DB position so you never vanish from the map while a fix is pending (GPS
+  // still resolving, weak signal, or a momentary gap). Heading likewise: live
+  // when we have it, otherwise your last broadcast heading.
+  const selfRider = riders.find((r) => r.member.user_id === user?.id) ?? null;
+  const selfPos: LatLng | null = fix
+    ? { lat: fix.lat, lng: fix.lng }
+    : selfRider?.latest
+      ? { lat: selfRider.latest.lat, lng: selfRider.latest.lng }
+      : null;
+  const selfHeading = fix ? navHeading : selfRider?.latest?.heading ?? navHeading;
+
   // Maximizing the map = ride/nav mode (heading-up follow); minimizing = overview.
   function toggleFullscreen() {
     setFullscreen((f) => {
@@ -583,12 +595,13 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
               </AdvancedMarker>
             );
           })}
-          {/* Your own arrow, straight from live GPS — no DB round-trip. */}
-          {fix && (
-            <AdvancedMarker position={{ lat: fix.lat, lng: fix.lng }} zIndex={selectedIsSelf ? 1000 : undefined}>
+          {/* Your own arrow: live GPS when available, else your last known
+              position, so you always see yourself (not just the lead). */}
+          {selfPos && (
+            <AdvancedMarker position={selfPos} zIndex={selectedIsSelf ? 1000 : undefined}>
               <ArrowPin
                 color={isLeader ? "#FF453A" : "#34C759"}
-                heading={navHeading - mapHeading}
+                heading={selfHeading - mapHeading}
                 name="You"
                 kind={isLeader ? "Lead" : "You"}
                 selected={selectedIsSelf}
