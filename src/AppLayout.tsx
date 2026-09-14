@@ -6,11 +6,12 @@ import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
 import { Loader } from "./components/ui/Loader";
 import { SosAlertStack } from "./components/SosAlertStack";
+import { OwnSosBar } from "./components/OwnSosBar";
 import { SosButton, shouldShowSos } from "./components/SosButton";
 import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
 import { consumePendingJoinCode, consumePendingGroupJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
-import { canResolveSos, markReached, resolveSosAlert, respondToSos, useMyRideRole, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
+import { canResolveSos, markReached, resolveSosAlert, respondToSos, useMyRideRole, useOwnSosAlert, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
 import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
 import { usePersistedToggle } from "./lib/preference";
 import { useVoiceCommand, VOICE_COMMANDS_KEY } from "./lib/voiceCommands";
@@ -91,6 +92,11 @@ export function AppLayout() {
 
   const alerts = useSosAlerts(inApp ? rideId : null, userId);
   const responsesByAlert = useSosResponses(inApp ? rideId : null);
+  // The raiser's OWN unresolved alert (useSosAlerts filters it out). Drives a
+  // "help is coming" bar shown to the raiser on every in-app screen but /sos,
+  // which has its own responder list. Hidden on /sos to avoid doubling up.
+  const ownAlert = useOwnSosAlert(inApp ? rideId : null, userId);
+  const showOwnSosBar = Boolean(ownAlert) && pathname !== "/sos";
   const myRole = useMyRideRole(inApp ? rideId : null, userId);
   const canResolve = canResolveSos(myRole);
 
@@ -286,7 +292,7 @@ export function AppLayout() {
         <Outlet />
       </div>
 
-      {inApp && !onRideView && (
+      {inApp && (showOwnSosBar || !onRideView) && (
         <div
           style={{
             position: "fixed",
@@ -301,15 +307,29 @@ export function AppLayout() {
             padding: "0 var(--gutter)",
           }}
         >
-          <SosAlertStack
-            alerts={alerts}
-            responsesByAlert={responsesByAlert}
-            selfUserId={userId}
-            canResolve={canResolve}
-            onRespond={handleRespond}
-            onReached={handleReached}
-            onResolve={handleResolve}
-          />
+          {/* Raiser's own "help is coming" bar — shown above the incoming
+              stack on every in-app screen but /sos, ride view included (LiveOps
+              embeds SosAlertStack but has no own-SOS UI, so this is the raiser's
+              only status there). */}
+          {showOwnSosBar && ownAlert && (
+            <OwnSosBar
+              responders={responsesByAlert[ownAlert.id] ?? []}
+              onView={() => navigate("/sos")}
+            />
+          )}
+          {/* Incoming SOS surface — suppressed on the ride view, where LiveOps
+              renders its own embedded SosAlertStack, to avoid a fixed duplicate. */}
+          {!onRideView && (
+            <SosAlertStack
+              alerts={alerts}
+              responsesByAlert={responsesByAlert}
+              selfUserId={userId}
+              canResolve={canResolve}
+              onRespond={handleRespond}
+              onReached={handleReached}
+              onResolve={handleResolve}
+            />
+          )}
         </div>
       )}
 
