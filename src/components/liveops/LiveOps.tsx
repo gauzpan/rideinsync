@@ -263,25 +263,31 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // appears and moves on the map. Foreground only; stops once the ride ends.
   const { fix, error: geoError, retry: retryGps } = useGeolocation(!ended && !!user);
 
-  // Stable travel heading for the nav camera + self arrow. The raw GPS
-  // `coords.heading` is null when slow/stationary and noisy on many devices, so
-  // relying on it snaps the map north-up mid-ride — which reads as the arrow
-  // running backwards. Instead: trust device course only when actually moving,
-  // otherwise derive course-over-ground from the last position, and hold the
-  // last good heading when we can't tell (so it never flips to north at a stop).
+  // Stable travel heading for the nav camera + self arrow. Course over ground —
+  // the bearing between consecutive positions — is the reliable signal and is
+  // used first: `coords.heading` is unreliable (null when slow, and on many
+  // Android GPS layers a spurious 0 whenever there's no real bearing, which
+  // pinned navHeading to 0 and left the arrow stuck facing north). We only fall
+  // back to device course when we haven't moved enough to derive a bearing, and
+  // only when it looks real (non-null, non-zero, actually moving). Otherwise we
+  // hold the last good heading, so it never snaps back to north at a stop.
   const prevFixRef = useRef<LatLng | null>(null);
   const [navHeading, setNavHeading] = useState(0);
   useEffect(() => {
     if (!fix) return;
     const prev = prevFixRef.current;
     let next: number | null = null;
-    if (fix.heading != null && (fix.speed ?? 0) > 1) {
-      next = fix.heading; // device course is reliable once we're moving
-    } else if (prev && haversineMeters(prev, fix) > 5) {
-      next = bearingDeg(prev, fix); // bearing between consecutive positions
+    const moved = prev ? haversineMeters(prev, fix) : 0;
+    if (prev && moved > 5) {
+      next = bearingDeg(prev, fix); // course over ground: our primary signal
+    } else if (fix.heading != null && fix.heading !== 0 && (fix.speed ?? 0) > 1) {
+      next = fix.heading; // device course, only when it looks genuine
     }
     if (next != null) setNavHeading(((next % 360) + 360) % 360);
-    prevFixRef.current = { lat: fix.lat, lng: fix.lng };
+    // Advance the baseline only once we've actually moved (or on the first fix),
+    // so slow drift accumulates into a real bearing instead of resetting to
+    // near-identical points that never clear the 5m threshold.
+    if (!prev || moved > 5) prevFixRef.current = { lat: fix.lat, lng: fix.lng };
   }, [fix]);
 
   // Rendezvous route: before the pack is together, a rider who is elsewhere gets
