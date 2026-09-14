@@ -10,6 +10,7 @@ import {
   demoRespond,
   demoMarkReached,
   demoCloseSos,
+  demoCancelSos,
   demoStay,
   subscribe as subscribeDemo,
 } from "./sosDemo";
@@ -258,6 +259,27 @@ export async function closeSos(alertId: string, userId: string): Promise<void> {
   console.info("[sos] closed", { alertId });
 }
 
+/**
+ * Raiser cancels their own SOS. Calls the cancel_sos_alert RPC
+ * (0032_sos_cancel.sql), which flips the alert to resolved + stamps
+ * cancelled_at in one transaction — so every SosAlertCard and the raiser's own
+ * bar disappear for the whole ride via the shared sos_alerts UPDATE. Then,
+ * fire-and-forget (same best-effort contract as sendSos, never blocks or fails
+ * the cancel): push every OTHER member "<name> cancelled their SOS", and email
+ * the emergency contact the cancelled notice.
+ */
+export async function cancelSosAlert(alertId: string, rideId: string, userId: string): Promise<void> {
+  if (isDemoBackend) return demoCancelSos(alertId, userId);
+  const { error } = await supabase.rpc("cancel_sos_alert", { p_alert_id: alertId });
+  if (error) {
+    console.warn("[sos] cancel failed", error.message);
+    throw error;
+  }
+  console.info("[sos] cancelled", { alertId, rideId });
+  triggerPushNotify(rideId, userId, "sos_cancelled");
+  triggerSosEmail(alertId, { event: "cancelled" });
+}
+
 // ---- Ops resolution (lead / co-lead / sweep) --------------------------------
 
 export const OPS_ROLES = ["leader", "co_leader", "sweep"] as const;
@@ -437,6 +459,8 @@ export type IncomingAlert = {
   name: string;
   triggeredAt: string;
   resolved: boolean;
+  /** True only when the alert was resolved by the raiser cancelling it. */
+  cancelled: boolean;
   stayRequestedAt: string | null;
 };
 
@@ -492,6 +516,7 @@ export function useSosAlerts(rideId: string | null, selfUserId: string | null): 
               name: demoName(a.user_id),
               triggeredAt: a.triggered_at,
               resolved: Boolean(a.resolved_at),
+              cancelled: Boolean(a.cancelled_at),
               stayRequestedAt: a.stay_requested_at,
             })),
         );
@@ -507,13 +532,14 @@ export function useSosAlerts(rideId: string | null, selfUserId: string | null): 
       const name = await fetchDisplayName(row.user_id, names);
       if (!active) return;
       const resolved = Boolean(row.resolved_at);
+      const cancelled = Boolean(row.cancelled_at);
       const stayRequestedAt = row.stay_requested_at;
       setAlerts((prev) =>
         prev.some((a) => a.id === row.id)
-          ? prev.map((a) => (a.id === row.id ? { ...a, resolved, stayRequestedAt } : a))
+          ? prev.map((a) => (a.id === row.id ? { ...a, resolved, cancelled, stayRequestedAt } : a))
           : [
               ...prev,
-              { id: row.id, userId: row.user_id, name, triggeredAt: row.triggered_at, resolved, stayRequestedAt },
+              { id: row.id, userId: row.user_id, name, triggeredAt: row.triggered_at, resolved, cancelled, stayRequestedAt },
             ],
       );
     }
@@ -521,9 +547,11 @@ export function useSosAlerts(rideId: string | null, selfUserId: string | null): 
     function onUpdate(row: SosAlert) {
       if (row.user_id === selfUserId) return;
       const resolved = Boolean(row.resolved_at);
+      const cancelled = Boolean(row.cancelled_at);
       const stayRequestedAt = row.stay_requested_at;
-      if (resolved) console.info("[sos] resolved received", { alertId: row.id });
-      setAlerts((prev) => prev.map((a) => (a.id === row.id ? { ...a, resolved, stayRequestedAt } : a)));
+      if (cancelled) console.info("[sos] cancelled received", { alertId: row.id });
+      else if (resolved) console.info("[sos] resolved received", { alertId: row.id });
+      setAlerts((prev) => prev.map((a) => (a.id === row.id ? { ...a, resolved, cancelled, stayRequestedAt } : a)));
     }
 
     supabase
@@ -636,6 +664,7 @@ export function useOwnSosAlert(rideId: string | null, userId: string | null): In
                 name: demoName(a.user_id),
                 triggeredAt: a.triggered_at,
                 resolved: false,
+                cancelled: false,
                 stayRequestedAt: a.stay_requested_at,
               }
             : null,
@@ -658,6 +687,7 @@ export function useOwnSosAlert(rideId: string | null, userId: string | null): In
         name: "You",
         triggeredAt: row.triggered_at,
         resolved: false,
+        cancelled: false,
         stayRequestedAt: row.stay_requested_at,
       });
     };
