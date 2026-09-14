@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Carousel } from "../components/ui/Carousel";
@@ -268,6 +269,9 @@ export function LandingPage() {
           </p>
         </div>
       </section>
+
+      {/* Returning members' rides (renders nothing while signed out). */}
+      <YourRides />
 
       {/* Value carousel */}
       <section style={{ marginTop: "var(--space-2xl)" }}>
