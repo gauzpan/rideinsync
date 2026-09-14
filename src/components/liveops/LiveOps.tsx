@@ -281,6 +281,50 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     prevFixRef.current = { lat: fix.lat, lng: fix.lng };
   }, [fix]);
 
+  // Rendezvous route: before the pack is together, a rider who is elsewhere gets
+  // a blue "go to the lead" route (their position -> the lead's live position) on
+  // top of the green actual route. It disappears once they're within 500m of the
+  // lead (regrouped). Lead never sees it (they are the target).
+  const RENDEZVOUS_HIDE_M = 500;
+  const leadRider = riders.find((r) => r.member.user_id === ride.leader_id);
+  const leadPos: LatLng | null = leadRider?.latest
+    ? { lat: leadRider.latest.lat, lng: leadRider.latest.lng }
+    : null;
+  const gapToLead = fix && leadPos ? haversineMeters({ lat: fix.lat, lng: fix.lng }, leadPos) : null;
+  const showRendezvous =
+    !isLeader && !ended && !!fix && !!leadPos && gapToLead != null && gapToLead > RENDEZVOUS_HIDE_M;
+
+  const [rendezvousRoute, setRendezvousRoute] = useState<LatLng[]>([]);
+  // Last endpoints we routed for; used to throttle Directions calls to ~75m of
+  // movement (either endpoint) instead of one per accepted GPS fix.
+  const lastRvRef = useRef<{ from: LatLng; to: LatLng } | null>(null);
+  useEffect(() => {
+    if (!routesLib || !showRendezvous || !fix || !leadPos) {
+      setRendezvousRoute([]);
+      lastRvRef.current = null;
+      return;
+    }
+    const from = { lat: fix.lat, lng: fix.lng };
+    const to = { lat: leadPos.lat, lng: leadPos.lng };
+    const last = lastRvRef.current;
+    if (last && haversineMeters(last.from, from) < 75 && haversineMeters(last.to, to) < 75) return;
+    lastRvRef.current = { from, to };
+    let cancelled = false;
+    const ds = new routesLib.DirectionsService();
+    ds.route(
+      { origin: from, destination: to, travelMode: google.maps.TravelMode.DRIVING },
+      (result, status) => {
+        if (cancelled) return;
+        const road = status === "OK" && result?.routes?.[0] ? detailedPath(result.routes[0]) : [];
+        setRendezvousRoute(road.length > 1 ? road : [from, to]); // straight-line fallback
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routesLib, showRendezvous, fix?.lat, fix?.lng, leadPos?.lat, leadPos?.lng]);
+
   // M5 hardening (docs/scale-readiness-roadmap.md): the raw .then/.catch ->
   // console.warn here used to silently drop a fix on any ingest failure
   // (network error, or the 429 positions-ingest returns under its own 3s
@@ -485,6 +529,9 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // Speed-adaptive zoom, like a real nav app: tight when slow / stopped (see the
   // next turn or intersection), widening on the highway for situational awareness.
   const navZoom = zoomForSpeed(fix?.speed ?? null);
+  // In overview, frame the rendezvous path (rider -> lead) while it's active so
+  // a distant rider can see their way in; otherwise frame the actual route.
+  const fitPath = showRendezvous && rendezvousRoute.length > 1 ? rendezvousRoute : route;
   // In fullscreen the overlay sits under the status bar/notch — clear it.
   const topInset = fullscreen ? "calc(env(safe-area-inset-top, 0px) + 52px)" : 12;
 
@@ -556,7 +603,12 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           style={{ width: "100%", height: "100%" }}
         >
           {route.length > 1 && <RoutePolyline path={route} />}
-          {route.length > 1 && !(navMode && fix) && !selectedPos && <FitToRoute path={route} />}
+          {/* Blue "go to the lead" route, drawn above the green route so the
+              immediate rendezvous path reads first. Hidden within 500m. */}
+          {showRendezvous && rendezvousRoute.length > 1 && (
+            <RoutePolyline path={rendezvousRoute} color="#2E7DFF" weight={6} zIndex={2} />
+          )}
+          {!(navMode && fix) && !selectedPos && fitPath.length > 1 && <FitToRoute path={fitPath} />}
           {navMode && fix && (
             <FollowCamera target={{ lat: fix.lat, lng: fix.lng }} zoom={navZoom} heading={navHeading} tilt={45} />
           )}
@@ -784,20 +836,33 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   );
 }
 
-function RoutePolyline({ path }: { path: LatLng[] }) {
+function RoutePolyline({
+  path,
+  color = "#C4F82A",
+  weight = 5,
+  opacity = 0.95,
+  zIndex,
+}: {
+  path: LatLng[];
+  color?: string;
+  weight?: number;
+  opacity?: number;
+  zIndex?: number;
+}) {
   const map = useMap();
   const mapsLib = useMapsLibrary("maps");
   useEffect(() => {
     if (!map || !mapsLib) return;
     const line = new mapsLib.Polyline({
       path,
-      strokeColor: "#C4F82A",
-      strokeOpacity: 0.95,
-      strokeWeight: 5,
+      strokeColor: color,
+      strokeOpacity: opacity,
+      strokeWeight: weight,
+      zIndex,
       map,
     });
     return () => line.setMap(null);
-  }, [map, mapsLib, path]);
+  }, [map, mapsLib, path, color, weight, opacity, zIndex]);
   return null;
 }
 
