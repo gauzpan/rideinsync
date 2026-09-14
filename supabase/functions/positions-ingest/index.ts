@@ -42,10 +42,23 @@ const RATE_LIMIT_MS = 3000;
 // regardless of how often ingest is called within that window.
 const SAMPLE_BUCKET_MS = 10_000;
 
+// CORS: the app calls this function from a browser (localhost in dev, the
+// deployed PWA's origin in prod) via supabase.functions.invoke, which sends
+// Authorization/apikey/Content-Type headers — all of which trigger a CORS
+// preflight (OPTIONS). Without these headers + an OPTIONS handler the browser
+// blocks the request before the POST is ever sent ("Failed to fetch"), so no
+// position is ever written and no rider pin appears. Native (Capacitor) builds
+// don't enforce CORS, which is why this only bites the web path.
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
 }
 
@@ -80,7 +93,12 @@ type LatestPositionRow = {
 };
 
 Deno.serve(async (req) => {
-  if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+  // Answer the CORS preflight before anything else, with the headers the
+  // browser needs, or the actual POST never fires from a web origin.
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+  if (req.method !== "POST") {
+    return new Response("Method not allowed", { status: 405, headers: CORS_HEADERS });
+  }
 
   let body: Body;
   try {

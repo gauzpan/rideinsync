@@ -81,12 +81,24 @@ export async function startRide(rideId: string): Promise<void> {
     if (mockView.ride) mockView.ride.status = "active";
     return;
   }
-  const { error } = await supabase
+  // .select() so we can tell whether the update actually flipped a row. A
+  // bare update returns error:null even when it matches ZERO rows (ride not
+  // in draft, or RLS blocked it because this session isn't the leader) — that
+  // silent no-op let a "start" appear to succeed while the ride stayed draft,
+  // which in turn made positions-ingest reject every position (409, active
+  // only) and no rider pins ever showed. Surface it instead.
+  const { data, error } = await supabase
     .from("rides")
     .update({ status: "active" })
     .eq("id", rideId)
-    .eq("status", "draft");
+    .eq("status", "draft")
+    .select("id, status");
   if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error(
+      "Couldn't start the ride: it's not in draft anymore, or you're not signed in as its leader.",
+    );
+  }
 }
 
 /** Leader/co-leader finalizes the ride (idempotent server-side). */
