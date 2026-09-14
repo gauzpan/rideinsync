@@ -140,7 +140,7 @@ export function useActiveRide(userId: string | null, refreshKey?: string): Activ
     return () => {
       active = false;
     };
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   return state;
 }

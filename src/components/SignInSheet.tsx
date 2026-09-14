@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "./ui/Button";
-import { Input } from "./ui/Input";
 import { Mark } from "./ui/Logo";
 import { useAuth } from "../hooks/useAuth";
 import { stashPendingJoinCode, stashPendingGroupJoinCode } from "../services/authService";
@@ -12,7 +11,6 @@ type Props = {
   /** Same idea, for a `/groups/join/:code` group-invite deep link. */
   groupJoinCode?: string;
 };
-type Step = "phone" | "otp";
 /**
  * Sign-in sheet: the entry gate offering "Continue with Google" and
  * "Continue as guest". Rendered full-screen (mobile PWA has no room for a
