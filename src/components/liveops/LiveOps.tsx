@@ -91,17 +91,17 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
 
   const activeSos = useSosAlerts(ride.id, user?.id ?? null).filter((a) => !a.resolved);
 
-  // On-device heads-up when the ride starts or ends, for riders watching (not
-  // the leader who triggered it). Only fires on a real transition, never on the
-  // first observed status.
+  // On-device heads-up when the ride starts or ends, for everyone watching the
+  // ride (the leader gets it as a confirmation too). Only fires on a real
+  // transition, never on the first observed status.
   const prevStatusRef = useRef<string | null>(null);
   useEffect(() => {
     const prev = prevStatusRef.current;
     prevStatusRef.current = status;
-    if (prev == null || prev === status || isLeader) return;
+    if (prev == null || prev === status) return;
     if (status === "active") void fireLocalNotification("Ride started", `"${ride.name}" is underway.`);
     else if (status === "ended") void fireLocalNotification("Ride ended", `"${ride.name}" has ended.`);
-  }, [status, isLeader, ride.name]);
+  }, [status, ride.name]);
 
   // Geocode the form's start/destination labels → a driving route polyline.
   useEffect(() => {
