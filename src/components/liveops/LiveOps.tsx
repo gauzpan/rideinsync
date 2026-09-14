@@ -23,6 +23,7 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Icon } from "../ui/Icon";
 import { IconButton } from "../ui/IconButton";
+import { ROLE_COLOR, ROLE_LABEL } from "../../lib/roles";
 import { SosAlertStack } from "../SosAlertStack";
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
@@ -102,6 +103,8 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // coordinates are shown. Tapping again (or the focused rider going away)
   // clears it.
   const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
+  // Folded rider list under the lead/sweep pills — names are revealed on demand.
+  const [ridersExpanded, setRidersExpanded] = useState(false);
   // Bumped on each navigate tap so the map pans+zooms to the rider even if
   // they're already selected (re-centering on demand).
   const [focusNonce, setFocusNonce] = useState(0);
@@ -570,7 +573,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         </span>
         {/* GPS status: when the watch fails it never recovers on its own, so
             the pill becomes a retry button that restarts the watch. */}
-        {geoError ? (
+        {geoError && (
           <button
             type="button"
             onClick={retryGps}
@@ -580,67 +583,132 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           >
             GPS unavailable — tap to retry
           </button>
-        ) : (
-          <span style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: fix ? "#34C759" : "#FF9F0A", padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {fix ? `GPS ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}` : "Locating…"}
-          </span>
-        )}
+        ) 
+        // : (
+        //   <span style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: fix ? "#34C759" : "#FF9F0A", padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        //     {fix ? `GPS ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}` : "Locating…"}
+        //   </span>
+        // )
+        }
       </div>
 
       {/* Tappable rider strip — every member can focus any rider to pan the
           map to them, highlight their pin, and read their live coordinates. */}
-      {riders.length > 0 && (
-        <div>
-          <div style={{ display: "flex", gap: "var(--space-xs)", overflowX: "auto", paddingBottom: 4 }}>
-            {riders.map((r) => {
-              const isSelf = r.member.user_id === user?.id;
-              const selected = r.member.user_id === selectedRiderId;
-              const name = isSelf ? "You" : r.profile.display_name || "Rider";
-              return (
-                <button
-                  key={r.member.user_id}
-                  type="button"
-                  title={`Focus ${name} on the map`}
-                  aria-label={`Focus ${name} on the map`}
-                  onClick={() => focusRider(r.member.user_id)}
+      {riders.length > 0 && (() => {
+        const isLeadRole = (r: RiderOnMap) => r.member.role === "leader" || r.member.role === "co_leader";
+        // Lead(s) and sweep(s) always sit first, tagged with their role. The
+        // rest fold into a collapsible strip whose names appear on demand.
+        const priority = riders
+          .filter((r) => isLeadRole(r) || r.member.role === "sweep")
+          .sort((a, b) => (isLeadRole(a) ? 0 : 1) - (isLeadRole(b) ? 0 : 1));
+        const others = riders.filter((r) => !isLeadRole(r) && r.member.role !== "sweep");
+
+        const riderPill = (r: RiderOnMap, opts?: { showName?: boolean }) => {
+          const isSelf = r.member.user_id === user?.id;
+          const selected = r.member.user_id === selectedRiderId;
+          const name = isSelf ? "You" : r.profile.display_name || "Rider";
+          const showName = opts?.showName ?? true;
+          const roleLabel = isLeadRole(r) ? ROLE_LABEL.leader : r.member.role === "sweep" ? ROLE_LABEL.sweep : null;
+          return (
+            <button
+              key={r.member.user_id}
+              type="button"
+              title={`Focus ${name} on the map`}
+              aria-label={roleLabel ? `Focus ${name} (${roleLabel}) on the map` : `Focus ${name} on the map`}
+              onClick={() => focusRider(r.member.user_id)}
+              style={{
+                flex: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "var(--space-2xs)",
+                height: 36,
+                padding: showName ? "0 var(--space-xs) 0 var(--space-sm)" : "0 var(--space-2xs)",
+                minWidth: showName ? undefined : 36,
+                justifyContent: "center",
+                borderRadius: "var(--radius-full)",
+                border: selected ? "1px solid var(--color-accent)" : "1px solid rgba(255,255,255,.14)",
+                background: selected ? "color-mix(in srgb, var(--color-accent) 18%, transparent)" : "var(--color-surface-3)",
+                color: "var(--color-text-primary)",
+                fontSize: "var(--text-label)",
+                fontWeight: "var(--weight-medium)" as unknown as number,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS_COLOR[r.status], flex: "none" }} />
+              {showName && name}
+              {showName && roleLabel && (
+                <span
                   style={{
-                    flex: "none",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "var(--space-2xs)",
-                    height: 36,
-                    padding: "0 var(--space-xs) 0 var(--space-sm)",
+                    padding: "1px 6px",
                     borderRadius: "var(--radius-full)",
-                    border: selected ? "1px solid var(--color-accent)" : "1px solid rgba(255,255,255,.14)",
-                    background: selected ? "color-mix(in srgb, var(--color-accent) 18%, transparent)" : "var(--color-surface-3)",
-                    color: "var(--color-text-primary)",
-                    fontSize: "var(--text-label)",
-                    fontWeight: "var(--weight-medium)" as unknown as number,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
+                    background: ROLE_COLOR[r.member.role],
+                    color: "var(--color-text-on-accent)",
+                    fontSize: 10,
+                    fontWeight: "var(--weight-semibold)" as unknown as number,
+                    lineHeight: 1.4,
                   }}
                 >
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS_COLOR[r.status], flex: "none" }} />
-                  {name}
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 24,
-                      height: 24,
-                      borderRadius: "50%",
-                      background: selected ? "var(--color-accent)" : "var(--color-surface-4)",
-                      color: selected ? "var(--color-text-on-accent)" : "var(--color-text-secondary)",
-                      flex: "none",
-                    }}
-                  >
-                    <Icon name="navigation" size={13} />
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                  {roleLabel}
+                </span>
+              )}
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  background: selected ? "var(--color-accent)" : "var(--color-surface-4)",
+                  color: selected ? "var(--color-text-on-accent)" : "var(--color-text-secondary)",
+                  flex: "none",
+                }}
+              >
+                <Icon name="navigation" size={13} />
+              </span>
+            </button>
+          );
+        };
+
+        return (
+        <div>
+          {priority.length > 0 && (
+            <div style={{ display: "flex", gap: "var(--space-xs)", overflowX: "auto", paddingBottom: 4 }}>
+              {priority.map((r) => riderPill(r))}
+            </div>
+          )}
+          {others.length > 0 && (
+            <div style={{ marginTop: priority.length > 0 ? "var(--space-2xs)" : 0 }}>
+              <button
+                type="button"
+                aria-expanded={ridersExpanded}
+                onClick={() => setRidersExpanded((v) => !v)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "var(--space-2xs)",
+                  minHeight: 36,
+                  padding: "0 var(--space-sm)",
+                  borderRadius: "var(--radius-full)",
+                  border: "1px solid rgba(255,255,255,.14)",
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-secondary)",
+                  fontSize: "var(--text-label)",
+                  fontWeight: "var(--weight-medium)" as unknown as number,
+                  cursor: "pointer",
+                }}
+              >
+                <span style={{ display: "inline-flex", transform: ridersExpanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}>
+                  <Icon name="chevron-right" size={14} />
+                </span>
+                {others.length} {others.length === 1 ? "rider" : "riders"}
+              </button>
+              <div style={{ display: "flex", gap: "var(--space-xs)", overflowX: "auto", paddingBottom: 4, marginTop: "var(--space-2xs)" }}>
+                {others.map((r) => riderPill(r, { showName: ridersExpanded }))}
+              </div>
+            </div>
+          )}
           {selectedRider && (
             <div style={{ marginTop: "var(--space-xs)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-sm)", fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>
               <span>
@@ -666,7 +734,8 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
 
       {/* Lead-only tools: a rider viewing the same map doesn't seed dummy

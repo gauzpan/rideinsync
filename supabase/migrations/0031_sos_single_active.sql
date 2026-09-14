@@ -17,6 +17,24 @@
 --      rather than erroring in the rider's face mid-emergency.
 -- ============================================================================
 
+-- Collapse any pre-existing duplicates first, or the partial unique index
+-- below can't be built. Keep the most recent active alert per (ride, rider);
+-- resolve the older ones (self-resolved, stamped now).
+with ranked as (
+  select id,
+         row_number() over (
+           partition by ride_id, user_id
+           order by triggered_at desc, id desc
+         ) as rn
+  from sos_alerts
+  where resolved_at is null
+)
+update sos_alerts s
+set resolved_at = now(),
+    resolved_by = s.user_id
+from ranked r
+where s.id = r.id and r.rn > 1;
+
 create unique index if not exists sos_alerts_one_active
   on sos_alerts (ride_id, user_id)
   where resolved_at is null;
