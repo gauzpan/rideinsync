@@ -52,6 +52,14 @@ type Listeners = {
   rides: Set<Listener<PgChangePayload>>;
   sosAlerts: Set<Listener<PgChangePayload>>;
   pack: Set<Listener<{ payload: unknown }>>;
+  // Direct latest_positions changes — the client-side fallback for the M3
+  // server aggregator's `pack` broadcast. When the aggregator is running the
+  // client just prefers its status; when it isn't (e.g. local dev without the
+  // pg_cron tick, or any environment where realtime.send isn't delivering),
+  // these row events keep fellow riders' pins and the in-sync count live on
+  // their own. One extra binding on the already-open shared channel — no new
+  // channel, so M3.3's per-client channel-count win is unaffected.
+  latestPositions: Set<Listener<PgChangePayload>>;
 };
 
 type Entry = {
@@ -69,6 +77,7 @@ function createEntry(rideId: string): Entry {
     rides: new Set(),
     sosAlerts: new Set(),
     pack: new Set(),
+    latestPositions: new Set(),
   };
 
   const dispatch =
@@ -98,6 +107,11 @@ function createEntry(rideId: string): Entry {
       "postgres_changes",
       { event: "*", schema: "public", table: "sos_alerts", filter: `ride_id=eq.${rideId}` },
       dispatch(listeners.sosAlerts),
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "latest_positions", filter: `ride_id=eq.${rideId}` },
+      dispatch(listeners.latestPositions),
     )
     .on("broadcast", { event: "pack" }, dispatch(listeners.pack))
     .subscribe();

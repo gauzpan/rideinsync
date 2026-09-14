@@ -217,7 +217,26 @@ async function processQueue(): Promise<Response> {
   });
 }
 
-Deno.serve(async (req) => {
+// CORS: the default (client-facing) path is called from the browser via
+// supabase.functions.invoke, which sends Authorization/apikey/Content-Type
+// headers and so triggers a CORS preflight (OPTIONS). Without an OPTIONS
+// handler + these response headers the browser blocks the call ("Failed to
+// fetch") before the POST is ever sent — same gap that silently broke
+// positions-ingest on web. The process_queue path is server-to-server
+// (pg_cron), so the extra headers are simply harmless there.
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+function withCors(res: Response): Response {
+  const headers = new Headers(res.headers);
+  for (const [k, v] of Object.entries(CORS_HEADERS)) headers.set(k, v);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
+async function handleRequest(req: Request): Promise<Response> {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
     console.error("[push-notify] VAPID keys not configured — see this file's header");
@@ -288,4 +307,9 @@ Deno.serve(async (req) => {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+  return withCors(await handleRequest(req));
 });

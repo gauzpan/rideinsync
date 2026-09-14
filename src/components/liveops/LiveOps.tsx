@@ -97,7 +97,20 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const [sosSending, setSosSending] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [navMode, setNavMode] = useState(false); // heading-up follow-me (rider nav)
+  // Any member can tap a rider in the strip below the map to focus them: the
+  // map pans to their fix, their pin is highlighted, and their live
+  // coordinates are shown. Tapping again (or the focused rider going away)
+  // clears it.
+  const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
+  // Bumped on each navigate tap so the map pans+zooms to the rider even if
+  // they're already selected (re-centering on demand).
+  const [focusNonce, setFocusNonce] = useState(0);
   const isLeader = user?.id === ride.leader_id;
+
+  function focusRider(id: string) {
+    setSelectedRiderId(id);
+    setFocusNonce((n) => n + 1);
+  }
   
   // Prefer the live status from Realtime, falling back to the prop the page
   // loaded with (Realtime may not have delivered the first row yet).
@@ -368,6 +381,20 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const total = riders.length;
   const center = route[Math.floor(route.length / 2)] ?? { lat: 12.9716, lng: 77.5946 };
 
+  // Focused rider (from the tappable strip). Self's freshest coordinates come
+  // from the live GPS fix; everyone else's from their last broadcast position.
+  const selectedIsSelf = !!selectedRiderId && selectedRiderId === user?.id;
+  const selectedRider = riders.find((r) => r.member.user_id === selectedRiderId) ?? null;
+  const selectedPos: LatLng | null = selectedIsSelf
+    ? fix
+      ? { lat: fix.lat, lng: fix.lng }
+      : selectedRider?.latest
+        ? { lat: selectedRider.latest.lat, lng: selectedRider.latest.lng }
+        : null
+    : selectedRider?.latest
+      ? { lat: selectedRider.latest.lat, lng: selectedRider.latest.lng }
+      : null;
+
   // Maximizing the map = ride/nav mode (heading-up follow); minimizing = overview.
   function toggleFullscreen() {
     setFullscreen((f) => {
@@ -465,10 +492,11 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           style={{ width: "100%", height: "100%" }}
         >
           {route.length > 1 && <RoutePolyline path={route} />}
-          {route.length > 1 && !(navMode && fix) && <FitToRoute path={route} />}
+          {route.length > 1 && !(navMode && fix) && !selectedPos && <FitToRoute path={route} />}
           {navMode && fix && (
             <FollowCamera target={{ lat: fix.lat, lng: fix.lng }} zoom={NAV_ZOOM} heading={fix.heading ?? 0} tilt={45} />
           )}
+          {!navMode && selectedPos && <PanToRider target={selectedPos} nonce={focusNonce} zoom={17} />}
           {stopPoints.map((p, i) => (
             <AdvancedMarker key={`stop-${i}`} position={p}>
               <StopPin index={i + 1} />
@@ -480,24 +508,26 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             if (!r.latest || r.member.user_id === user?.id) return null;
             const isLead = r.member.role === "leader" || r.member.role === "co_leader";
             const pos = { lat: r.latest.lat, lng: r.latest.lng };
+            const selected = r.member.user_id === selectedRiderId;
             return (
-              <AdvancedMarker key={r.member.user_id} position={pos}>
+              <AdvancedMarker key={r.member.user_id} position={pos} zIndex={selected ? 1000 : undefined}>
                 {isLead ? (
-                  <ArrowPin color="#FF453A" heading={(r.latest.heading ?? 0) - mapHeading} name={r.profile.display_name} kind="Lead" />
+                  <ArrowPin color="#FF453A" heading={(r.latest.heading ?? 0) - mapHeading} name={r.profile.display_name} kind="Lead" selected={selected} />
                 ) : (
-                  <RiderPin rider={r} />
+                  <RiderPin rider={r} selected={selected} />
                 )}
               </AdvancedMarker>
             );
           })}
           {/* Your own arrow, straight from live GPS — no DB round-trip. */}
           {fix && (
-            <AdvancedMarker position={{ lat: fix.lat, lng: fix.lng }}>
+            <AdvancedMarker position={{ lat: fix.lat, lng: fix.lng }} zIndex={selectedIsSelf ? 1000 : undefined}>
               <ArrowPin
                 color={isLeader ? "#FF453A" : "#34C759"}
                 heading={(fix.heading ?? 0) - mapHeading}
                 name="You"
                 kind={isLeader ? "Lead" : "You"}
+                selected={selectedIsSelf}
               />
             </AdvancedMarker>
           )}
@@ -557,6 +587,81 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           </span>
         )}
       </div>
+
+      {/* Tappable rider strip — every member can focus any rider to pan the
+          map to them, highlight their pin, and read their live coordinates. */}
+      {riders.length > 0 && (
+        <div>
+          <div style={{ display: "flex", gap: "var(--space-xs)", overflowX: "auto", paddingBottom: 4 }}>
+            {riders.map((r) => {
+              const isSelf = r.member.user_id === user?.id;
+              const selected = r.member.user_id === selectedRiderId;
+              const name = isSelf ? "You" : r.profile.display_name || "Rider";
+              return (
+                <button
+                  key={r.member.user_id}
+                  type="button"
+                  title={`Focus ${name} on the map`}
+                  aria-label={`Focus ${name} on the map`}
+                  onClick={() => focusRider(r.member.user_id)}
+                  style={{
+                    flex: "none",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "var(--space-2xs)",
+                    height: 36,
+                    padding: "0 var(--space-xs) 0 var(--space-sm)",
+                    borderRadius: "var(--radius-full)",
+                    border: selected ? "1px solid var(--color-accent)" : "1px solid rgba(255,255,255,.14)",
+                    background: selected ? "color-mix(in srgb, var(--color-accent) 18%, transparent)" : "var(--color-surface-3)",
+                    color: "var(--color-text-primary)",
+                    fontSize: "var(--text-label)",
+                    fontWeight: "var(--weight-medium)" as unknown as number,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS_COLOR[r.status], flex: "none" }} />
+                  {name}
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 24,
+                      height: 24,
+                      borderRadius: "50%",
+                      background: selected ? "var(--color-accent)" : "var(--color-surface-4)",
+                      color: selected ? "var(--color-text-on-accent)" : "var(--color-text-secondary)",
+                      flex: "none",
+                    }}
+                  >
+                    <Icon name="navigation" size={13} />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {selectedRider && (
+            <div style={{ marginTop: "var(--space-xs)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-sm)", fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>
+              <span>
+                <strong style={{ color: "var(--color-text-primary)" }}>{selectedIsSelf ? "You" : selectedRider.profile.display_name || "Rider"}</strong>
+                {" · "}{selectedRider.status}
+                {selectedPos
+                  ? <> · <span style={{ fontVariantNumeric: "tabular-nums" }}>{selectedPos.lat.toFixed(5)}, {selectedPos.lng.toFixed(5)}</span></>
+                  : " · locating…"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedRiderId(null)}
+                style={{ flex: "none", border: "none", background: "transparent", color: "var(--color-text-tertiary)", cursor: "pointer", fontSize: "var(--text-label)" }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
 
       {/* Lead-only tools: a rider viewing the same map doesn't seed dummy
@@ -658,6 +763,21 @@ function FollowCamera({
   return null;
 }
 
+// Pan + zoom to a focused rider. Keyed on `nonce` (bumped each time the user
+// taps a rider's navigate button), so it fires on the tap — not on every
+// position update — leaving the user free to pan/zoom afterward without the
+// camera yanking back as the rider moves.
+function PanToRider({ target, nonce, zoom }: { target: LatLng; nonce: number; zoom: number }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!map || nonce === 0) return;
+    map.panTo(target);
+    map.setZoom(zoom);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, nonce]);
+  return null;
+}
+
 function MapControlButton({
   title,
   active,
@@ -728,15 +848,27 @@ function ArrowPin({
   heading,
   name,
   kind,
+  selected,
 }: {
   color: string;
   heading: number;
   name: string;
   kind: "Lead" | "You";
+  selected?: boolean;
 }) {
+  const size = selected ? 40 : 30;
   return (
-    <div title={`${name} — ${kind}`} style={{ transform: `rotate(${heading}deg)`, transformOrigin: "50% 50%" }}>
-      <svg width="30" height="30" viewBox="0 0 24 24" aria-hidden>
+    <div
+      title={`${name} — ${kind}`}
+      style={{
+        transform: `rotate(${heading}deg)`,
+        transformOrigin: "50% 50%",
+        // Accent halo behind the arrow when focused from the rider strip.
+        borderRadius: "50%",
+        boxShadow: selected ? "0 0 0 4px rgba(196,248,42,.45)" : "none",
+      }}
+    >
+      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
         <path
           d="M12 2 L19 21 L12 16 L5 21 Z"
           fill={color}
@@ -749,26 +881,27 @@ function ArrowPin({
   );
 }
 
-function RiderPin({ rider }: { rider: RiderOnMap }) {
+function RiderPin({ rider, selected }: { rider: RiderOnMap; selected?: boolean }) {
   const isLeader = rider.member.role === "leader" || rider.member.role === "co_leader";
-  const ring = isLeader ? "#C4F82A" : STATUS_COLOR[rider.status];
+  const ring = selected ? "var(--color-accent)" : isLeader ? "#C4F82A" : STATUS_COLOR[rider.status];
   const initial = (rider.profile.display_name || "R").trim().charAt(0).toUpperCase();
+  const dim = selected ? 46 : 36;
   return (
     <div
       title={`${rider.profile.display_name} — ${rider.status}`}
       style={{
-        width: 36,
-        height: 36,
+        width: dim,
+        height: dim,
         borderRadius: "50%",
         background: "#1C1C1E",
         border: `3px solid ${ring}`,
-        boxShadow: "0 2px 8px rgba(0,0,0,.5)",
+        boxShadow: selected ? "0 0 0 4px rgba(196,248,42,.35), 0 2px 8px rgba(0,0,0,.5)" : "0 2px 8px rgba(0,0,0,.5)",
         color: "#fff",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         fontWeight: 600,
-        fontSize: 14,
+        fontSize: selected ? 18 : 14,
         fontFamily: "var(--font-ui)",
         overflow: "hidden",
         opacity: rider.status === "stale" ? 0.65 : 1,

@@ -20,6 +20,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { acquireRideChannel, type PgChangePayload } from "../lib/rideChannel";
+import { deriveStatus, nearestGapMeters } from "../lib/geo";
 import type { GroupStatus, LiveRiderPosition, Profile, RideEvent, RideMember, RiderOnMap } from "../lib/models";
 
 // One entry per rider: their last-known fix (if any) plus the aggregator's
@@ -155,6 +156,39 @@ export function useRideChannel(rideId: string | undefined) {
       setPack(next);
     };
 
+    // Fallback path: a single latest_positions row changed (INSERT/UPDATE).
+    // Merge just that rider's new fix into the pack, preserving any status the
+    // aggregator's last `pack` tick set for them — status stays null here so
+    // the `riders` memo derives it client-side when the aggregator is silent.
+    const onLatestPosition = (payload: PgChangePayload) => {
+      const row = payload.new as {
+        user_id?: string;
+        lat?: number;
+        lng?: number;
+        heading?: number | null;
+        speed?: number | null;
+        accuracy?: number | null;
+        recorded_at?: string;
+      };
+      if (!row?.user_id || row.lat == null || row.lng == null) return;
+      setPack((prev) => ({
+        ...prev,
+        [row.user_id!]: {
+          position: {
+            lat: row.lat!,
+            lng: row.lng!,
+            heading: row.heading ?? null,
+            speed: row.speed ?? null,
+            accuracy: row.accuracy ?? null,
+            recorded_at: row.recorded_at ?? new Date().toISOString(),
+          },
+          // Keep the aggregator's status if one already exists; otherwise null
+          // → client derivation in the memo below.
+          status: prev[row.user_id!]?.status ?? null,
+        },
+      }));
+    };
+
     const onRideMembers = (payload: PgChangePayload) => {
       const m = payload.new as RideMember;
       if (!m?.user_id) return;
@@ -198,6 +232,7 @@ export function useRideChannel(rideId: string | undefined) {
       setRideStatus((payload.new as { status?: string }).status ?? null);
 
     handle.listeners.pack.add(onPack);
+    handle.listeners.latestPositions.add(onLatestPosition);
     handle.listeners.rideMembers.add(onRideMembers);
     handle.listeners.rideEvents.add(onRideEvents);
     handle.listeners.rides.add(onRides);
@@ -205,6 +240,7 @@ export function useRideChannel(rideId: string | undefined) {
     return () => {
       cancelled = true;
       handle.listeners.pack.delete(onPack);
+      handle.listeners.latestPositions.delete(onLatestPosition);
       handle.listeners.rideMembers.delete(onRideMembers);
       handle.listeners.rideEvents.delete(onRideEvents);
       handle.listeners.rides.delete(onRides);
@@ -215,18 +251,46 @@ export function useRideChannel(rideId: string | undefined) {
   }, [rideId]);
 
   const riders: RiderOnMap[] = useMemo(() => {
+    const now = Date.now();
+    // Fresh fixes that count toward another rider's "nearest packmate" gap —
+    // 20s window, matching the aggregator SQL (0024_broadcast_aggregator.sql).
+    const FRESH_MS = 20_000;
+    const freshPositions = Object.values(pack)
+      .map((e) => e.position)
+      .filter(
+        (p): p is LiveRiderPosition =>
+          !!p && now - new Date(p.recorded_at).getTime() <= FRESH_MS,
+      )
+      .map((p) => ({ lat: p.lat, lng: p.lng }));
+
     return Object.keys(members).map((id) => {
       const member = members[id];
       const entry = pack[id];
       const profile = profiles[id];
-      // Manual member status wins immediately client-side (no need to wait
-      // a tick for the aggregator to notice a ride_members change), matching
-      // deriveStatus's old precedence; every other status comes straight
-      // from the server's last broadcast.
-      const status: GroupStatus =
-        member.status === "stopped" || member.status === "leaving"
-          ? "stopped"
-          : entry?.status ?? "stale";
+      // Precedence: manual member status → the aggregator's broadcast status
+      // (authoritative when it's running) → a client-side derivation from raw
+      // positions (the fallback when no `pack` tick has arrived, e.g. local
+      // dev or any environment where the aggregator broadcast isn't landing).
+      // This is what keeps fellow-rider pins and the in-sync count live even
+      // with the server aggregator silent.
+      let status: GroupStatus;
+      if (member.status === "stopped" || member.status === "leaving") {
+        status = "stopped";
+      } else if (entry?.status != null) {
+        status = entry.status;
+      } else {
+        const pos = entry?.position ?? null;
+        const others = pos
+          ? freshPositions.filter((o) => o.lat !== pos.lat || o.lng !== pos.lng)
+          : [];
+        status = deriveStatus({
+          memberStatus: member.status,
+          pos: pos ? { lat: pos.lat, lng: pos.lng } : null,
+          recordedAt: pos?.recorded_at ?? null,
+          nearestGap: pos ? nearestGapMeters({ lat: pos.lat, lng: pos.lng }, others) : null,
+          now,
+        });
+      }
       return {
         member,
         profile: {
