@@ -12,7 +12,7 @@ import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
 export function HomePage() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
-  const { completeness, stats } = useHomeData();
+  const { completeness, stats, pastRides } = useHomeData();
   const [voiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
   const [showVoiceSheet, setShowVoiceSheet] = useState(false);
 
@@ -136,7 +136,41 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* 5. Privacy line — addresses location-sharing concern directly */}
+      {/* 5. Past rides — restored on Home (also available on the Ride tab).
+          Hidden when there's no history. */}
+      {pastRides.length > 0 && (
+        <section>
+          <SectionLabel>Past rides</SectionLabel>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", marginTop: "var(--space-sm)" }}>
+            {pastRides.map((r) => (
+              <button
+                key={r.rideId}
+                type="button"
+                onClick={() => navigate(`/ride/${r.rideId}/summary`)}
+                style={{ border: "none", background: "transparent", padding: 0, textAlign: "left", cursor: "pointer" }}
+              >
+                <Card padding="var(--space-md)">
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-sm)" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: "var(--text-body-size)", fontWeight: "var(--weight-semibold)" as unknown as number, color: "var(--color-text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {r.name}
+                      </div>
+                      <div style={{ marginTop: "var(--space-2xs)", fontSize: "var(--text-label)", fontWeight: "var(--weight-medium)" as unknown as number, color: "var(--color-text-secondary)" }}>
+                        {new Date(r.endedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                      </div>
+                    </div>
+                    <div style={{ flex: "none", fontSize: "var(--text-label)", fontWeight: "var(--weight-medium)" as unknown as number, color: "var(--color-text-secondary)", fontVariantNumeric: "tabular-nums" }}>
+                      {r.distanceKm} km
+                    </div>
+                  </div>
+                </Card>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 6. Privacy line — addresses location-sharing concern directly */}
       <p style={{ margin: 0, fontSize: "var(--text-label)", color: "var(--color-text-tertiary)" }}>
         Live location only shares while a ride is active.
       </p>
