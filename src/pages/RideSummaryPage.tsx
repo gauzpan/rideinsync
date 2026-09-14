@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Loader } from "../components/ui/Loader";
@@ -72,6 +73,7 @@ export function RideSummaryPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-lg)" }}>
       <div>
+        <BackLink to="/ride">Rides</BackLink>
         <h1 style={{ fontSize: "var(--text-h1)", fontWeight: "var(--weight-semibold)", margin: 0 }}>
           {ride?.name ?? "Ride"} — summary
         </h1>

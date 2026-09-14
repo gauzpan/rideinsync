@@ -89,8 +89,39 @@ export type SendSosResult = { alertId: string; hasLocation: boolean };
  * sos_alerts row with no matching ride_events/rider_positions row. The
  * required-vs-best-effort semantics for each insert are unchanged.
  */
+// Collapses truly concurrent sends for the same (ride, rider) — e.g. a
+// double-tap that fires two handlers before the first round-trip returns —
+// onto one in-flight promise so they can't both insert an alert.
+const inFlightSends = new Map<string, Promise<SendSosResult>>();
+
 export async function sendSos(rideId: string, userId: string): Promise<SendSosResult> {
   if (isDemoBackend) return demoSendSos(rideId, userId);
+  const key = `${rideId}:${userId}`;
+  const existing = inFlightSends.get(key);
+  if (existing) return existing;
+  const p = sendSosInner(rideId, userId).finally(() => inFlightSends.delete(key));
+  inFlightSends.set(key, p);
+  return p;
+}
+
+async function sendSosInner(rideId: string, userId: string): Promise<SendSosResult> {
+  // Dedup repeat presses: if this rider already has an unresolved alert in
+  // this ride, return it and skip the RPC + push + email so the group isn't
+  // re-paged. The DB (sos_alerts_one_active index + raise_sos_alert) is the
+  // backstop for the concurrent-race case this pre-check can't see.
+  const { data: open } = await supabase
+    .from("sos_alerts")
+    .select("id")
+    .eq("ride_id", rideId)
+    .eq("user_id", userId)
+    .is("resolved_at", null)
+    .limit(1)
+    .maybeSingle();
+  if (open?.id) {
+    console.info("[sos] alert already active — repeat request dropped", { alertId: open.id, rideId });
+    return { alertId: open.id, hasLocation: true };
+  }
+
   const pos = await readPosition();
   const payload = {
     location: pos

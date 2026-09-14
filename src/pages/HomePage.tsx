@@ -95,7 +95,7 @@ export function HomePage() {
                   <span style={{ fontVariantNumeric: "tabular-nums" }}>
                     {completeness.done} of {completeness.total}
                   </span>{" "}
-                  done — needed for SOS and emergency help.
+                  done — helps your group assist you on the ride, from routing to SOS.
                 </div>
               </div>
               <SetupMeter done={completeness.done} total={completeness.total} />

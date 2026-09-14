@@ -1,5 +1,6 @@
 import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
+import { Icon } from "./ui/Icon";
 import { SosResolveButton } from "./SosResolveButton";
 import type { Responder } from "../lib/sos";
 
@@ -14,7 +15,40 @@ type Props = {
   /** Ops-only: shown when the viewer may resolve this SOS. */
   canResolve?: boolean;
   onResolve?: () => Promise<void>;
+  /** Close (X): mark this alert seen for the viewer → collapse + demote it. */
+  onDismiss?: () => void;
+  /** When true, render the slim collapsed bar instead of the full card. */
+  collapsed?: boolean;
+  /** Re-expand a collapsed card (tapping the slim bar). */
+  onExpand?: () => void;
 };
+
+// Small round X in the card corner — marks the alert seen for this viewer,
+// collapsing it to the slim bar and sinking it below unseen alerts.
+function DismissButton({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Dismiss"
+      onClick={onDismiss}
+      style={{
+        flexShrink: 0,
+        width: 32,
+        height: 32,
+        borderRadius: "var(--radius-full)",
+        border: "none",
+        background: "var(--color-surface-3)",
+        color: "var(--color-text-secondary)",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+      }}
+    >
+      <Icon name="x" size={16} />
+    </button>
+  );
+}
 
 function relativeTime(iso: string): string {
   const mins = Math.floor(Math.max(0, Date.now() - new Date(iso).getTime()) / 60000);
@@ -103,9 +137,45 @@ export function SosAlertCard({
   onReached,
   canResolve,
   onResolve,
+  onDismiss,
+  collapsed,
+  onExpand,
 }: Props) {
   const self = responders.find((r) => r.userId === selfUserId) ?? null;
   const others = responders.filter((r) => r.userId !== selfUserId);
+
+  // Collapsed (seen) state: a slim, low-priority bar. Tapping it re-expands.
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={onExpand}
+        aria-label={`${name} needs help — expand`}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-sm)",
+          width: "100%",
+          minHeight: 44,
+          padding: "var(--space-xs) var(--space-md)",
+          borderRadius: "var(--radius-md)",
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-divider)",
+          boxShadow: "var(--shadow-card, 0 8px 24px rgba(0,0,0,.5))",
+          color: "var(--color-text-primary)",
+          textAlign: "left",
+          cursor: "pointer",
+          opacity: 0.85,
+        }}
+      >
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--color-danger)", flex: "none" }} />
+        <span style={{ flex: 1, minWidth: 0, fontSize: "var(--text-label)", fontWeight: "var(--weight-semibold)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {still ? `${name} still needs help` : `${name} needs help`}
+        </span>
+        <Icon name="chevron-right" size={16} />
+      </button>
+    );
+  }
 
   // Compact state: at least one responder is engaged.
   if (responders.length > 0) {
@@ -146,6 +216,7 @@ export function SosAlertCard({
         )}
         {self && self.reachedAt && <span style={compactReachedStyle}>You reached them</span>}
         {canResolve && onResolve && <SosResolveButton compact onResolve={onResolve} />}
+        {onDismiss && <DismissButton onDismiss={onDismiss} />}
       </div>
     );
   }
@@ -153,9 +224,12 @@ export function SosAlertCard({
   // Full state: brand-new alert, no responders yet.
   return (
     <Card elevated role="alert" style={cardStyle}>
-      <div>
-        <h2 style={h2Style}>{still ? `${name} still needs help` : `${name} needs help`}</h2>
-        <p style={{ ...lineStyle, margin: "var(--space-2xs) 0 0" }}>{relativeTime(triggeredAt)}</p>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-sm)" }}>
+        <div>
+          <h2 style={h2Style}>{still ? `${name} still needs help` : `${name} needs help`}</h2>
+          <p style={{ ...lineStyle, margin: "var(--space-2xs) 0 0" }}>{relativeTime(triggeredAt)}</p>
+        </div>
+        {onDismiss && <DismissButton onDismiss={onDismiss} />}
       </div>
 
       {others.length > 0 && (
