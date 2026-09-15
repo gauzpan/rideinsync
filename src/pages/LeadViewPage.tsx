@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { BackLink } from "../components/ui/BackLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { Icon } from "../components/ui/Icon";
 import { IconButton } from "../components/ui/IconButton";
 import { LoadingState } from "../components/ui/Loader";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
@@ -110,6 +111,12 @@ export function LeadViewPage() {
   const [capacityDraft, setCapacityDraft] = useState(0);
   const [capacitySaving, setCapacitySaving] = useState(false);
   const [capacityNote, setCapacityNote] = useState<string | null>(null);
+  // Add-riders (capacity + invite) is folded under a strip at the bottom of the
+  // page; the roster list collapses, and its per-rider actions stay hidden
+  // until the lead flips into manage mode.
+  const [addRidersOpen, setAddRidersOpen] = useState(false);
+  const [rosterExpanded, setRosterExpanded] = useState(true);
+  const [manageRoster, setManageRoster] = useState(false);
   const load = useCallback(async () => {
     if (!rideId) return;
     const [d, p] = await Promise.all([getRideDetail(rideId), getPendingJoinRequests(rideId)]);
@@ -341,6 +348,258 @@ export function LeadViewPage() {
         )}
       </p>
 
+      {/* Flow 3 live tracker for this real ride — route geocoded from the
+          form's start/destination labels, real roster shown live. */}
+      <LiveOps ride={ride} />
+
+      {actionError && (
+        <p style={{ color: "var(--color-role-sweep)", margin: "var(--space-md) 0 var(--space-md)" }}>{actionError}</p>
+      )}
+
+      <SectionTitle>Join requests{pending.length > 0 ? ` (${pending.length})` : ""}</SectionTitle>
+      {pending.length === 0 ? (
+        <Card padding="var(--space-md)">
+          <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>No pending requests.</p>
+        </Card>
+      ) : (
+        pending.map((req) => (
+          <Card
+            key={req.id}
+            padding="var(--space-md)"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-md)",
+              marginBottom: "var(--space-sm)",
+            }}
+          >
+            <Avatar name={req.displayName} url={req.avatarUrl} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ margin: 0, fontSize: "var(--text-body-size)" }}>{req.displayName}</p>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "var(--text-caption)",
+                  color: "var(--color-text-secondary)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {req.vehiclePlate ?? req.vehicleMakeModel ?? "No vehicle on file"}
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "var(--space-xs)", flex: "none" }}>
+              <IconButton
+                name="x"
+                variant="surface"
+                onClick={() => void handleDecline(req.id)}
+                disabled={busyId === req.id}
+                aria-label={`Decline ${req.displayName}`}
+              />
+              <IconButton
+                name="check"
+                variant="accent"
+                onClick={() => void handleApprove(req.id)}
+                disabled={busyId === req.id || isFull}
+                aria-label={`Approve ${req.displayName}`}
+              />
+            </div>
+          </Card>
+        ))
+      )}
+
+      {/* Roster — collapsible; the names read cleanly by default and the
+          per-rider actions (role, remove) stay hidden until the lead taps
+          Manage. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "var(--space-sm)",
+          margin: "var(--space-xl) 0 var(--space-md)",
+        }}
+      >
+        <button
+          type="button"
+          aria-expanded={rosterExpanded}
+          onClick={() => setRosterExpanded((v) => !v)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "var(--space-xs)",
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            color: "var(--color-text-primary)",
+            fontSize: "var(--text-h2)",
+            lineHeight: "var(--lh-h2)",
+            fontWeight: "var(--weight-semibold)",
+          }}
+        >
+          Roster
+          <span style={{ color: "var(--color-text-secondary)", fontWeight: "var(--weight-regular)" as unknown as number }}>
+            ({memberCount})
+          </span>
+          <span style={{ display: "inline-flex", transform: rosterExpanded ? "rotate(90deg)" : "none", transition: "transform .15s", color: "var(--color-text-tertiary)" }}>
+            <Icon name="chevron-right" size={18} />
+          </span>
+        </button>
+        {isLead && rosterExpanded && rosterExcludingLeader.length > 0 && (
+          <button
+            type="button"
+            aria-pressed={manageRoster}
+            onClick={() => {
+              setManageRoster((v) => !v);
+              setConfirmingRemoveUserId(null);
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "var(--space-2xs) var(--space-xs)",
+              minHeight: 44,
+              cursor: "pointer",
+              color: manageRoster ? "var(--color-accent)" : "var(--color-text-secondary)",
+              fontSize: "var(--text-label)",
+              fontWeight: "var(--weight-semibold)" as unknown as number,
+            }}
+          >
+            {manageRoster ? "Done" : "Manage"}
+          </button>
+        )}
+      </div>
+      {rosterExpanded && detail.roster.map(({ member, profile }) => {
+        const canReassign = rosterExcludingLeader.some((r) => r.member.id === member.id);
+
+        // Draft or live rides: ended/cancelled are history (see 0029). The
+        // server RPC enforces the same rule; this just hides the control.
+        const canRemove =
+          isLeader &&
+          (detail.ride.status === "draft" || detail.ride.status === "active") &&
+          member.user_id !== detail.ride.leader_id &&
+          member.role !== "leader";
+
+        const currentLabel = ROLE_TO_LABEL[member.role] ?? "Rider";
+        const isConfirmingRemove = confirmingRemoveUserId === member.user_id;
+        return (
+          <Card
+            key={member.id}
+            padding="var(--space-md)"
+            style={{ marginBottom: "var(--space-sm)" }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-md)",
+                marginBottom: manageRoster && (canReassign || canRemove) ? "var(--space-sm)" : 0,
+              }}
+            >
+              <Avatar name={profile?.display_name ?? "Rider"} url={profile?.avatar_url ?? null} />
+              <span style={{ flex: 1 }}>
+                {profile?.display_name ?? "Rider"}
+                {member.user_id === user?.id && (
+                  <span style={{ color: "var(--color-text-tertiary)" }}> (you)</span>
+                )}
+              </span>
+              <span
+                style={{
+                  color: ROLE_COLOR[member.role],
+                  fontSize: "var(--text-label)",
+                  fontWeight: "var(--weight-semibold)" as unknown as number,
+                }}
+              >
+                {ROLE_LABEL[member.role]}
+              </span>
+            </div>
+            {manageRoster && canReassign && (
+              <SegmentedControl
+                options={ASSIGNABLE_LABELS}
+                value={currentLabel}
+                onChange={(label) => void handleAssign(member.user_id, label)}
+                style={busyId === member.user_id ? { opacity: 0.6, pointerEvents: "none" } : undefined}
+              />
+            )}
+
+                        {manageRoster && canRemove && isConfirmingRemove ? (
+              <div
+                style={{
+                  marginTop: "var(--space-md)",
+                  padding: "var(--space-md)",
+                  background: "var(--color-surface-1)",
+                  borderRadius: "var(--radius-md)",
+                  border: "1px solid var(--color-divider)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "var(--space-sm)",
+                }}
+              >
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "var(--text-body-size)",
+                    lineHeight: "var(--lh-body)",
+                    color: "var(--color-text-primary)",
+                    fontWeight: "var(--weight-medium)" as unknown as number,
+                  }}
+                >
+                  Remove {profile?.display_name ?? "this member"}?
+                </p>
+                <div style={{ display: "flex", gap: "var(--space-sm)" }}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setConfirmingRemoveUserId(null)}
+                    disabled={busyId === member.user_id}
+                    style={{ flex: 1 }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onClick={() => void handleRemove(member.user_id)}
+                    loading={busyId === member.user_id}
+                    disabled={busyId === member.user_id}
+                    style={{ flex: 1 }}
+                  >
+                    Confirm
+                  </Button>
+                </div>
+              </div>
+            ) : manageRoster && canRemove ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setActionError(null);
+                  setConfirmingRemoveUserId(member.user_id);
+                }}
+                disabled={busyId != null}
+                style={{
+                  marginTop: "var(--space-sm)",
+                  color: "var(--color-danger)",
+                }}
+              >
+                Remove member
+              </Button>
+            ) : null}
+          </Card>
+        );
+      })}
+      {/* Add riders — folded here at the bottom so the map and roster lead;
+          the lead opens this strip to raise capacity or share the invite. */}
+      {canChangeCapacity && (
+        <>
+          <Button
+            variant="secondary"
+            onClick={() => setAddRidersOpen((v) => !v)}
+            aria-expanded={addRidersOpen}
+            style={{ marginTop: "var(--space-xl)" }}
+          >
+            {addRidersOpen ? "Hide add riders" : "Add riders"}
+          </Button>
+          {addRidersOpen && (
+            <div style={{ marginTop: "var(--space-md)" }}>
       {/* Capacity — the lead can open seats mid-lifecycle (draft or active)
           so more riders can join or be approved without leaving this screen. */}
       {canChangeCapacity && (
@@ -494,185 +753,11 @@ export function LeadViewPage() {
           )}
         </Card>
       )}
-
-      {/* Flow 3 live tracker for this real ride — route geocoded from the
-          form's start/destination labels, real roster shown live. */}
-      <LiveOps ride={ride} />
-
-      {actionError && (
-        <p style={{ color: "var(--color-role-sweep)", margin: "var(--space-md) 0 var(--space-md)" }}>{actionError}</p>
+            </div>
+          )}
+        </>
       )}
 
-      <SectionTitle>Join requests{pending.length > 0 ? ` (${pending.length})` : ""}</SectionTitle>
-      {pending.length === 0 ? (
-        <Card padding="var(--space-md)">
-          <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>No pending requests.</p>
-        </Card>
-      ) : (
-        pending.map((req) => (
-          <Card
-            key={req.id}
-            padding="var(--space-md)"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-md)",
-              marginBottom: "var(--space-sm)",
-            }}
-          >
-            <Avatar name={req.displayName} url={req.avatarUrl} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ margin: 0, fontSize: "var(--text-body-size)" }}>{req.displayName}</p>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "var(--text-caption)",
-                  color: "var(--color-text-secondary)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {req.vehiclePlate ?? req.vehicleMakeModel ?? "No vehicle on file"}
-              </p>
-            </div>
-            <div style={{ display: "flex", gap: "var(--space-xs)", flex: "none" }}>
-              <IconButton
-                name="x"
-                variant="surface"
-                onClick={() => void handleDecline(req.id)}
-                disabled={busyId === req.id}
-                aria-label={`Decline ${req.displayName}`}
-              />
-              <IconButton
-                name="check"
-                variant="accent"
-                onClick={() => void handleApprove(req.id)}
-                disabled={busyId === req.id || isFull}
-                aria-label={`Approve ${req.displayName}`}
-              />
-            </div>
-          </Card>
-        ))
-      )}
-
-      <SectionTitle>Roster</SectionTitle>
-      {detail.roster.map(({ member, profile }) => {
-        const canReassign = rosterExcludingLeader.some((r) => r.member.id === member.id);
-
-        // Draft or live rides: ended/cancelled are history (see 0029). The
-        // server RPC enforces the same rule; this just hides the control.
-        const canRemove =
-          isLeader &&
-          (detail.ride.status === "draft" || detail.ride.status === "active") &&
-          member.user_id !== detail.ride.leader_id &&
-          member.role !== "leader";
-
-        const currentLabel = ROLE_TO_LABEL[member.role] ?? "Rider";
-        const isConfirmingRemove = confirmingRemoveUserId === member.user_id;
-        return (
-          <Card
-            key={member.id}
-            padding="var(--space-md)"
-            style={{ marginBottom: "var(--space-sm)" }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--space-md)",
-                marginBottom: canReassign || canRemove ? "var(--space-sm)" : 0,
-              }}
-            >
-              <Avatar name={profile?.display_name ?? "Rider"} url={profile?.avatar_url ?? null} />
-              <span style={{ flex: 1 }}>
-                {profile?.display_name ?? "Rider"}
-                {member.user_id === user?.id && (
-                  <span style={{ color: "var(--color-text-tertiary)" }}> (you)</span>
-                )}
-              </span>
-              <span
-                style={{
-                  color: ROLE_COLOR[member.role],
-                  fontSize: "var(--text-label)",
-                  fontWeight: "var(--weight-semibold)" as unknown as number,
-                }}
-              >
-                {ROLE_LABEL[member.role]}
-              </span>
-            </div>
-            {canReassign && (
-              <SegmentedControl
-                options={ASSIGNABLE_LABELS}
-                value={currentLabel}
-                onChange={(label) => void handleAssign(member.user_id, label)}
-                style={busyId === member.user_id ? { opacity: 0.6, pointerEvents: "none" } : undefined}
-              />
-            )}
-
-                        {canRemove && isConfirmingRemove ? (
-              <div
-                style={{
-                  marginTop: "var(--space-md)",
-                  padding: "var(--space-md)",
-                  background: "var(--color-surface-1)",
-                  borderRadius: "var(--radius-md)",
-                  border: "1px solid var(--color-divider)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "var(--space-sm)",
-                }}
-              >
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: "var(--text-body-size)",
-                    lineHeight: "var(--lh-body)",
-                    color: "var(--color-text-primary)",
-                    fontWeight: "var(--weight-medium)" as unknown as number,
-                  }}
-                >
-                  Remove {profile?.display_name ?? "this member"}?
-                </p>
-                <div style={{ display: "flex", gap: "var(--space-sm)" }}>
-                  <Button
-                    variant="secondary"
-                    onClick={() => setConfirmingRemoveUserId(null)}
-                    disabled={busyId === member.user_id}
-                    style={{ flex: 1 }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="danger"
-                    onClick={() => void handleRemove(member.user_id)}
-                    loading={busyId === member.user_id}
-                    disabled={busyId === member.user_id}
-                    style={{ flex: 1 }}
-                  >
-                    Confirm
-                  </Button>
-                </div>
-              </div>
-            ) : canRemove ? (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setActionError(null);
-                  setConfirmingRemoveUserId(member.user_id);
-                }}
-                disabled={busyId != null}
-                style={{
-                  marginTop: "var(--space-sm)",
-                  color: "var(--color-danger)",
-                }}
-              >
-                Remove member
-              </Button>
-            ) : null}
-          </Card>
-        );
-      })}
     </div>
   );
 }

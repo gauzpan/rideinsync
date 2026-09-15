@@ -9,8 +9,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { APIProvider, AdvancedMarker, Map, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
-import { SIM_RIDER_NAMES } from "../../lib/demoRide";
-import { approveJoinRequest } from "../../services/onboardingService";
 import { closeRide, startRide } from "../../lib/ending";
 import { canResolveSos, markReached, resolveSosAlert, respondToSos, sendSos, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
 import { useAuth } from "../../hooks/useAuth";
@@ -156,8 +154,6 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const routesLib = useMapsLibrary("routes");
   const [route, setRoute] = useState<LatLng[]>([]);
   const [stopPoints, setStopPoints] = useState<LatLng[]>([]);
-  const [populating, setPopulating] = useState(false);
-  const [populated, setPopulated] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const simRef = useRef<RideSimulator | null>(null);
 
@@ -540,25 +536,6 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     }, delay);
   }
 
-  async function simulatePack() {
-    if (route.length < 2) {
-      setNote("Waiting for the route to resolve…");
-      return;
-    }
-    setPopulating(true);
-    setNote(null);
-    try {
-      const sim = new RideSimulator(ride.id, ride.code, route);
-      simRef.current = sim;
-      // Real ride: the leader (current session) approves each sim's join request.
-      await sim.start(SIM_RIDER_NAMES, { approve: (reqId) => approveJoinRequest(reqId) });
-      setPopulated(true);
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : "Couldn't add demo riders.");
-    } finally {
-      setPopulating(false);
-    }
-  }
 
   async function raiseSos() {
     if (!user) return;
@@ -968,22 +945,21 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
 
         return (
         <div>
-          {priority.length > 0 && (
-            <div style={{ display: "flex", gap: "var(--space-xs)", overflowX: "auto", paddingBottom: 4 }}>
-              {priority.map((r) => riderPill(r))}
-            </div>
-          )}
-          {others.length > 0 && (
-            <div style={{ marginTop: priority.length > 0 ? "var(--space-2xs)" : 0 }}>
+          {/* Lead/sweep pills and the collapsed "N riders" toggle share one
+              line; the folded riders drop to a second line only when opened. */}
+          <div style={{ display: "flex", gap: "var(--space-xs)", overflowX: "auto", paddingBottom: 4 }}>
+            {priority.map((r) => riderPill(r))}
+            {others.length > 0 && (
               <button
                 type="button"
                 aria-expanded={ridersExpanded}
                 onClick={() => setRidersExpanded((v) => !v)}
                 style={{
+                  flex: "none",
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "var(--space-2xs)",
-                  minHeight: 36,
+                  height: 36,
                   padding: "0 var(--space-sm)",
                   borderRadius: "var(--radius-full)",
                   border: "1px solid rgba(255,255,255,.14)",
@@ -992,6 +968,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
                   fontSize: "var(--text-label)",
                   fontWeight: "var(--weight-medium)" as unknown as number,
                   cursor: "pointer",
+                  whiteSpace: "nowrap",
                 }}
               >
                 <span style={{ display: "inline-flex", transform: ridersExpanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}>
@@ -999,9 +976,11 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
                 </span>
                 {others.length} {others.length === 1 ? "rider" : "riders"}
               </button>
-              <div style={{ display: "flex", gap: "var(--space-xs)", overflowX: "auto", paddingBottom: 4, marginTop: "var(--space-2xs)" }}>
-                {others.map((r) => riderPill(r, { showName: ridersExpanded }))}
-              </div>
+            )}
+          </div>
+          {others.length > 0 && ridersExpanded && (
+            <div style={{ display: "flex", gap: "var(--space-xs)", overflowX: "auto", paddingBottom: 4, marginTop: "var(--space-2xs)" }}>
+              {others.map((r) => riderPill(r, { showName: true }))}
             </div>
           )}
           {selectedRider && (
@@ -1094,17 +1073,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
 
       {/* Lead-only tools: a rider viewing the same map doesn't seed dummy
           riders or own the invite QR. */}
-      {isLeader && (
-        <Button
-          variant="secondary"
-          fullWidth={false}
-          loading={populating}
-          disabled={populated}
-          onClick={() => void simulatePack()}
-        >
-          {populated ? "Pack riding" : populating ? "Riders joining…" : "Simulate pack (demo)"}
-        </Button>
-      )}
+    
       {note && <p style={{ color: "var(--color-role-sweep)", fontSize: 13, margin: 0 }}>{note}</p>}
 
       {!ended && (
