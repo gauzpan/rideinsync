@@ -4,6 +4,7 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Carousel } from "../components/ui/Carousel";
 import { Mark } from "../components/ui/Logo";
+import { RideAnimation } from "../components/RideAnimation";
 import { useAuth } from "../hooks/useAuth";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import { formatScheduleDateTime, getMyRides, type MyRideSummary } from "../services/onboardingService";
@@ -370,6 +371,11 @@ export function LandingPage() {
           By continuing you agree to share ride and safety details with your group.
         </p>
       </section>
+
+      {/* Hero flourish: three riders in sync, in the brand chevron colours. */}
+      <div style={{ marginTop: "var(--space-2xl)" }}>
+        <RideAnimation />
+      </div>
     </div>
   );
 }
