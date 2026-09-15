@@ -10,6 +10,7 @@ import {
   closeSos,
   diffResponders,
   sendSos,
+  skipPendingLocationRead,
   startSosTracking,
   staySos,
   stopSosTracking,
@@ -48,7 +49,7 @@ export function SosPage() {
   const location = useLocation();
   const auto = Boolean((location.state as { auto?: boolean } | null)?.auto);
   const { userId } = useSession();
-  const { rideId, loading } = useActiveRide(userId);
+  const { rideId, loading } = useActiveRide(userId, location.pathname);
 
   const [phase, setPhase] = useState<Phase>(auto ? "countdown" : "confirm");
   const [count, setCount] = useState(COUNTDOWN_FROM);
@@ -58,6 +59,9 @@ export function SosPage() {
   const [stayedIds, setStayedIds] = useState<Set<string>>(new Set());
   // Inline "Cancel your SOS request?" confirm, shown over the sent screen.
   const [confirmCancel, setConfirmCancel] = useState(false);
+  // After 1.5 s in the "sending" phase, offer "Send now without location" so a
+  // rider with GPS off is never stuck waiting on the location read.
+  const [showSendNow, setShowSendNow] = useState(false);
 
   const responsesByAlert = useSosResponses(phase === "sent" ? rideId : null);
   const responders = alertId ? responsesByAlert[alertId] ?? [] : [];
@@ -82,6 +86,16 @@ export function SosPage() {
     playSignalTone(RESPONSE_TIER);
     vibrateForTier(RESPONSE_TIER);
   }, [responders]);
+
+  // Reveal the "Send now without location" button 1.5 s into the sending phase.
+  useEffect(() => {
+    if (phase !== "sending") {
+      setShowSendNow(false);
+      return;
+    }
+    const id = window.setTimeout(() => setShowSendNow(true), 1500);
+    return () => window.clearTimeout(id);
+  }, [phase]);
 
   // Fall into no-ride only before any action has been taken.
   useEffect(() => {
@@ -202,10 +216,18 @@ export function SosPage() {
   if (phase === "sending") {
     return (
       <Card>
-        <h1 style={headingStyle}>Sending your location…</h1>
-        <Button variant="danger" loading>
-          Send SOS
-        </Button>
+        <h1 style={headingStyle}>Sending SOS…</h1>
+        <p style={bodyStyle}>Getting your location (a few seconds)…</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+          <Button variant="danger" loading>
+            Send SOS
+          </Button>
+          {showSendNow && (
+            <Button variant="secondary" onClick={() => skipPendingLocationRead()}>
+              Send now without location
+            </Button>
+          )}
+        </div>
       </Card>
     );
   }
