@@ -28,6 +28,7 @@ import {
 } from "../services/onboardingService";
 import { copyToClipboard, shareInvite } from "../services/shareService";
 import { generateQrDataUrl } from "../services/qrService";
+import { track } from "../lib/analytics";
 
 // The roster's role control offers these three — reassigning the leader
 // itself is out of scope (see docs/.../issues/05-lead-approval-roster-roles.md).
@@ -221,6 +222,8 @@ export function LeadViewPage() {
     setBusyId(requestId);
     try {
       await approveJoinRequest(requestId);
+      track("ride_joined", { ride_id: rideId, via: "approved" });
+      track("join_request_decided", { ride_id: rideId, decision: "approved" });
       await refresh();
     } catch (e) {
       if (e instanceof Error && e.message.includes("This ride is full")) {
@@ -238,6 +241,7 @@ export function LeadViewPage() {
     setBusyId(requestId);
     try {
       await declineJoinRequest(requestId);
+      track("join_request_decided", { ride_id: rideId, decision: "declined" });
       await refresh();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Couldn't decline that request.");
@@ -310,6 +314,13 @@ export function LeadViewPage() {
   async function handleCopy(target: Exclude<typeof copied, null>) {
     const text = target === "code" ? ride.code : joinUrl;
     const ok = await copyToClipboard(text);
+    if (ok) {
+      track("ride_shared", {
+        ride_id: ride.id,
+        via: target === "code" ? "copy_code" : "copy_link",
+        surface: "lead",
+      });
+    }
     setCopied(ok ? target : null);
     if (ok) setTimeout(() => setCopied(null), 2000);
   }
@@ -323,6 +334,9 @@ export function LeadViewPage() {
       url: joinUrl,
       qrDataUrl,
     });
+    if (result === "shared" || result === "copied") {
+      track("ride_shared", { ride_id: ride.id, via: "share", surface: "lead" });
+    }
     if (result === "shared") setShareMessage("Invite shared.");
     else if (result === "copied") setShareMessage("Link copied — share it your way.");
     else setShareMessage(null);

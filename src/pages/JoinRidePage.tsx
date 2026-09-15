@@ -23,6 +23,7 @@ import {
   type PillionRiderOption,
   type RidePreview,
 } from "../services/onboardingService";
+import { track } from "../lib/analytics";
 
 type Step = "code" | "preview" | "mode" | "profile" | "linkRider" | "pending";
 type JoinMode = "own" | "pillion";
@@ -133,19 +134,22 @@ export function JoinRidePage() {
   const [pendingRideId, setPendingRideId] = useState<string | null>(null);
   const [requestStatus, setRequestStatus] = useState<"pending" | "approved" | "rejected">("pending");
 
-  async function lookUpCode(value: string) {
+  async function lookUpCode(value: string, source: "manual" | "deeplink" | "qr" = "manual") {
     if (!value.trim()) return;
     setLoading(true);
     setError(null);
     try {
       const result = await getRidePreview(value);
       if (!result) {
+        track("code_lookup", { result: "not_found", via: source });
         setError("That code doesn't match an active ride. Check it and try again.");
         return;
       }
+      track("code_lookup", { result: "found", via: source });
       setPreview(result);
       setStep("preview");
     } catch (e) {
+      track("code_lookup", { result: "error", via: source });
       setError(e instanceof Error ? e.message : "Couldn't look up that code.");
     } finally {
       setLoading(false);
@@ -155,9 +159,42 @@ export function JoinRidePage() {
   // A deep-link (`/join/:code`) lands here with the code pre-filled — look it
   // up immediately instead of waiting for a submit.
   useEffect(() => {
-    if (codeParam) void lookUpCode(codeParam);
+    if (codeParam) void lookUpCode(codeParam, "deeplink");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codeParam]);
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("rideinsync:join_flow_fired")) return;
+      sessionStorage.setItem("rideinsync:join_flow_fired", "1");
+    } catch {
+      // private mode: fire anyway
+    }
+    track("join_flow_arrived", { via: codeParam ? "deeplink" : "manual" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (step !== "profile") return;
+    try {
+      if (sessionStorage.getItem("rideinsync:profile_step_fired")) return;
+      sessionStorage.setItem("rideinsync:profile_step_fired", "1");
+    } catch {
+      // private mode: fire anyway
+    }
+    track("profile_step_arrived");
+  }, [step]);
+
+  useEffect(() => {
+    if (step !== "profile" || !consentChecked) return;
+    try {
+      if (sessionStorage.getItem("rideinsync:consent_fired")) return;
+      sessionStorage.setItem("rideinsync:consent_fired", "1");
+    } catch {
+      // private mode: fire anyway
+    }
+    track("consent_ticked");
+  }, [step, consentChecked]);
 
   // Ride full (ticket 07): a client-side capacity guard — the join RPCs live
   // in the shared foundation and aren't altered here (see
@@ -185,6 +222,7 @@ export function JoinRidePage() {
       return;
     }
     setError(null);
+    track("join_preview_continued");
     setStep("mode");
   }
 
@@ -241,8 +279,10 @@ export function JoinRidePage() {
     try {
       const joined = await joinRideByCode(preview.code, user.id);
       if (joined.member) {
+        track("ride_joined", { ride_id: joined.rideId, via: "instant" });
         // Demo ride (or already-approved): membership materialised immediately.
         if (mode === "pillion") {
+          track("pillion_joined", { ride_id: joined.rideId });
           // Now a ride member, so the roster is readable under RLS — move to
           // picking which rider's bike they're on.
           setJoinedRideId(joined.rideId);
@@ -257,6 +297,15 @@ export function JoinRidePage() {
       // lead's approval — wait here rather than navigating to a ride-detail
       // fetch that RLS would block for a non-member. (A pillion whose join is
       // pending links their rider once approved, from ride detail.)
+      let alreadyRequested = false;
+      try {
+        const k = `rideinsync:join_requested:${joined.rideId}`;
+        alreadyRequested = sessionStorage.getItem(k) === "1";
+        sessionStorage.setItem(k, "1");
+      } catch {
+        // private mode: fire anyway
+      }
+      if (!alreadyRequested) track("join_requested", { ride_id: joined.rideId });
       setPendingRideId(joined.rideId);
       setRequestStatus("pending");
       setStep("pending");
@@ -275,6 +324,7 @@ export function JoinRidePage() {
     setError(null);
     try {
       await linkPillionToRider(joinedRideId, user.id, selectedRiderId);
+      track("pillion_linked", { ride_id: joinedRideId });
       navigate(`/ride/${joinedRideId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't link to that rider. Try again.");
@@ -332,6 +382,7 @@ export function JoinRidePage() {
         vehiclePlate: mode === "pillion" ? "" : vehiclePlate,
       });
       await refreshProfile();
+      track("profile_submitted", { mode, skipped_optional: profileIncomplete });
       await completeJoin();
     } catch (e) {
       if (e instanceof Error && e.message.includes("This ride is full")) {
@@ -355,6 +406,7 @@ export function JoinRidePage() {
     setError(null);
     try {
       await withdrawJoinRequest(pendingRideId, user.id);
+      track("join_request_withdrawn", { ride_id: pendingRideId });
       navigate("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't withdraw the request. Try again.");
@@ -372,7 +424,7 @@ export function JoinRidePage() {
     }
     setError(null);
     setCode(scannedCode);
-    void lookUpCode(scannedCode);
+    void lookUpCode(scannedCode, "qr");
   }
 
   return (
@@ -422,7 +474,7 @@ export function JoinRidePage() {
           {error && (
             <p style={{ color: "var(--color-role-sweep)", marginBottom: "var(--space-md)" }}>{error}</p>
           )}
-          <Button onClick={() => void lookUpCode(code)} loading={loading} disabled={!code.trim()}>
+          <Button onClick={() => void lookUpCode(code, "manual")} loading={loading} disabled={!code.trim()}>
             Find ride
           </Button>
           <Button

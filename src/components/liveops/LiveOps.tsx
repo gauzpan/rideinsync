@@ -10,6 +10,7 @@ import { APIProvider, AdvancedMarker, Map, useMap, useMapsLibrary } from "@vis.g
 import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
 import { closeRide, startRide } from "../../lib/ending";
+import { track } from "../../lib/analytics";
 import { canResolveSos, markReached, resolveSosAlert, respondToSos, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
@@ -266,9 +267,11 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     });
   }
   function handleSosReached(responseId: string) {
-    void markReached(responseId).catch(() => {
-      /* logged in markReached */
-    });
+    void markReached(responseId)
+      .then(() => track("sos_reached", { ride_id: ride.id }))
+      .catch(() => {
+        /* logged in markReached */
+      });
   }
   function handleSosResolve(alert: IncomingAlert): Promise<void> {
     if (!user) return Promise.reject(new Error("Not signed in."));
@@ -354,6 +357,25 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // appears and moves on the map. Foreground only; stops once the ride ends.
   const { fix, error: geoError, retry: retryGps } = useGeolocation(!ended && !!user);
 
+  const firstFixLoggedRef = useRef(false);
+  useEffect(() => {
+    if (firstFixLoggedRef.current) return;
+    if (notStarted || ended || !user) return; // only started rides, tracked user
+    const key = `rideinsync:first_fix:${ride.id}`;
+    let already = false;
+    try { already = sessionStorage.getItem(key) === "1"; } catch { /* ignore */ }
+    if (already) { firstFixLoggedRef.current = true; return; }
+
+    if (fix) {
+      firstFixLoggedRef.current = true;
+      try { sessionStorage.setItem(key, "1"); } catch { /* ignore */ }
+      track("rider_first_fix", { ride_id: ride.id, got_fix: true });
+    } else if (geoError) {
+      firstFixLoggedRef.current = true;
+      try { sessionStorage.setItem(key, "1"); } catch { /* ignore */ }
+      track("rider_first_fix", { ride_id: ride.id, got_fix: false });
+    }
+  }, [fix, geoError, notStarted, ended, user, ride.id]);
   // Stable travel heading for the nav camera + self arrow. Course over ground —
   // the bearing between consecutive positions — is the reliable signal and is
   // used first: `coords.heading` is unreliable (null when slow, and on many
@@ -541,6 +563,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     setNote(null);
     try {
       await startRide(ride.id); // leader-gated by RLS; draft → active
+      track("ride_started", { ride_id: ride.id });
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Couldn't start the ride.");
     } finally {
@@ -553,6 +576,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     setNote(null);
     try {
       await closeRide(ride.id); // leader-gated + idempotent server-side
+      track("ride_ended", { ride_id: ride.id });
       await simRef.current?.stop();
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Couldn't end the ride.");
