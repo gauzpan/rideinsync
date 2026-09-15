@@ -89,7 +89,7 @@ export function AppLayout() {
   const userId = isAuthenticated ? user?.id ?? null : null;
 
   const inApp = isAuthenticated && pathname !== "/";
-  const { rideId } = useActiveRide(inApp ? userId : null);
+  const { rideId } = useActiveRide(inApp ? userId : null, pathname);
 
   const alerts = useSosAlerts(inApp ? rideId : null, userId);
   const responsesByAlert = useSosResponses(inApp ? rideId : null);
