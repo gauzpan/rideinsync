@@ -38,7 +38,7 @@ type Pos = {
 };
 
 /** Read one position. Resolves null (never rejects) on deny/timeout/no-support. */
-function readPosition(): Promise<Pos | null> {
+export function readPosition(): Promise<Pos | null> {
   return new Promise((resolve) => {
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
       console.warn("[sos] geolocation unavailable");
@@ -61,6 +61,62 @@ function readPosition(): Promise<Pos | null> {
       { enableHighAccuracy: true, timeout: 8000 },
     );
   });
+}
+
+/** Location wait cap for a send — GPS-off must never hold the alert. */
+const LOCATION_WAIT_MS = 3000;
+
+/**
+ * Race `promise` against `ms`. Resolves the promise's value if it settles
+ * first; resolves null if `ms` elapses first. Never rejects. Pure + unit-tested.
+ * The timer is always cleared so a slow promise cannot leak it.
+ */
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      resolve(null);
+    }, ms);
+    promise.then(
+      (v) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(v);
+      },
+      () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
+
+/**
+ * Decide whether to skip the location read entirely before a send. Only a
+ * "denied" permission means we should not even try — the read would just burn
+ * the timeout while the rider stares at "Sending…". granted / prompt /
+ * undefined (Permissions API unavailable) → still attempt the read. Pure +
+ * unit-tested.
+ */
+export function shouldSkipLocationRead(state: PermissionState | undefined): boolean {
+  return state === "denied";
+}
+
+// Module-level hook so SosPage's "Send now without location" button can make
+// the in-flight location wait of the CURRENT send resolve immediately with
+// null. Set by sendSosInner only while it is awaiting location; cleared the
+// moment that wait ends. Single-flight by construction: sendSos already
+// collapses concurrent sends onto one promise, so at most one wait is pending.
+let resolveSkipNow: (() => void) | null = null;
+
+/** UI: abandon the current send's location wait and raise the alert at once. */
+export function skipPendingLocationRead(): void {
+  resolveSkipNow?.();
 }
 
 function positionInsert(rideId: string, userId: string, pos: Pos): RiderPositionInsert {
@@ -123,7 +179,33 @@ async function sendSosInner(rideId: string, userId: string): Promise<SendSosResu
     return { alertId: open.id, hasLocation: true };
   }
 
-  const pos = await readPosition();
+  // Best-effort location, but never let GPS hold the alert (founder: "even if
+  // GPS is not activated, at least the message for help should be sent").
+  // 1. Permission already denied → skip the read; it would only burn the
+  //    timeout. 2. Otherwise cap the wait at LOCATION_WAIT_MS (getCurrentPosition's
+  //    own 8s timeout stays as a backstop). 3. The UI may cut the wait short via
+  //    skipPendingLocationRead(). Any of these paths yields pos = null, and the
+  //    payload shape below is unchanged (location: null when absent).
+  let skip = false;
+  try {
+    const perms = typeof navigator !== "undefined" ? navigator.permissions : undefined;
+    const perm = await perms?.query?.({ name: "geolocation" });
+    if (shouldSkipLocationRead(perm?.state)) {
+      console.info("[sos] geolocation denied — sending without location");
+      skip = true;
+    }
+  } catch {
+    /* Permissions API unavailable/blocked — fall through and try the read. */
+  }
+  const pos = skip
+    ? null
+    : await Promise.race([
+        withTimeout(readPosition(), LOCATION_WAIT_MS),
+        new Promise<null>((resolve) => {
+          resolveSkipNow = () => resolve(null);
+        }),
+      ]);
+  resolveSkipNow = null;
   const payload = {
     location: pos
       ? { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy, recorded_at: new Date().toISOString() }
@@ -635,6 +717,22 @@ export function buildOwnSosStatus(responders: Responder[]): string {
   return extra > 0
     ? `Help is coming: ${onWay[0].name} and ${extra} other${extra > 1 ? "s" : ""} on the way`
     : `Help is coming: ${onWay[0].name} is on the way`;
+}
+
+/**
+ * Short status for the collapsed SOS strip's "Help is coming · <status>" label
+ * (SosStrip). Same precedence as buildOwnSosStatus — reached beats on-the-way
+ * beats waiting — but terse enough for a one-line strip: several on the way
+ * collapse to a bare count ("2 on the way") rather than naming one and counting
+ * the rest. buildOwnSosStatus stays the fuller form used in the expanded bar.
+ * Pure + unit-tested.
+ */
+export function buildOwnSosStatusShort(responders: Responder[]): string {
+  const reached = responders.filter((r) => r.reachedAt);
+  if (reached.length > 0) return `${reached[0].name} has reached you`;
+  const onWay = responders.filter((r) => !r.reachedAt);
+  if (onWay.length === 0) return "Waiting for a response…";
+  return onWay.length === 1 ? `${onWay[0].name} is on the way` : `${onWay.length} on the way`;
 }
 
 /**

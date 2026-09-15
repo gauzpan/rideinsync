@@ -39,10 +39,17 @@ export async function resolveActiveRideId(userId: string): Promise<string | null
   return ride?.id ?? null;
 }
 
+// A foreground return often fires visibilitychange AND focus back-to-back;
+// coalesce that burst into a single re-resolve query. Exported so tests can
+// wait past it deterministically.
+export const RERESOLVE_DEBOUNCE_MS = 150;
+
 /**
  * Resolve the active ride now, then keep it current by re-resolving whenever a
  * `rides` row the user can see is UPDATEd (draft→active, active→ended) and
- * whenever the tab returns to the foreground. `rides` is in the
+ * whenever the tab returns to the foreground (visibilitychange → visible, or
+ * window focus — a rider who switched apps while the leader started the ride
+ * gets no realtime event on the backgrounded tab). `rides` is in the
  * `supabase_realtime` publication (migration 0010_flow3_ride_realtime.sql) and
  * RLS scopes the stream to the user's own member rides, so the unfiltered
  * subscription only receives rows this user may read. Follows the channel
@@ -54,11 +61,21 @@ export function subscribeActiveRide(
   onResolve: (rideId: string | null) => void,
 ): () => void {
   let active = true;
+  let resolved = false;
+  let lastRideId: string | null = null;
 
   const run = async () => {
     const rideId = await resolveActiveRideId(userId);
     if (!active) return;
-    console.info("[sos] active ride ->", rideId);
+    // Log only a real change, at info level, so a burst of foreground
+    // re-resolves that finds the same ride stays quiet.
+    if (!resolved) {
+      console.info("[sos] active ride ->", rideId);
+    } else if (rideId !== lastRideId) {
+      console.info("[sos] active ride re-resolved", rideId);
+    }
+    resolved = true;
+    lastRideId = rideId;
     onResolve(rideId);
   };
   void run();
@@ -72,18 +89,34 @@ export function subscribeActiveRide(
     )
     .subscribe();
 
-  const onVisible = () => {
-    if (typeof document !== "undefined" && document.visibilityState === "visible") void run();
+  let debounce: ReturnType<typeof setTimeout> | null = null;
+  const scheduleReresolve = () => {
+    if (debounce != null) clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      debounce = null;
+      void run();
+    }, RERESOLVE_DEBOUNCE_MS);
   };
+  const onVisible = () => {
+    if (typeof document !== "undefined" && document.visibilityState === "visible") scheduleReresolve();
+  };
+  const onFocus = () => scheduleReresolve();
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", onVisible);
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener("focus", onFocus);
   }
 
   return () => {
     active = false;
+    if (debounce != null) clearTimeout(debounce);
     supabase.removeChannel(channel);
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", onVisible);
+    }
+    if (typeof window !== "undefined") {
+      window.removeEventListener("focus", onFocus);
     }
   };
 }
@@ -111,40 +144,18 @@ export function useActiveRide(userId: string | null, refreshKey?: string): Activ
       setState({ rideId: null, loading: false });
       return;
     }
-    let active = true;
     setState((s) => ({ ...s, loading: true }));
-
-    // Two typed queries (no embedded join) keep this clean against the
-    // hand-authored Database types: rides this user is a member of, then the
-    // first one that is currently active.
-    (async () => {
-      const { data: memberships, error: mErr } = await supabase
-        .from("ride_members")
-        .select("ride_id")
-        .eq("user_id", userId);
-      if (!active) return;
-      if (mErr || !memberships?.length) {
-        if (mErr) console.warn("[sos] membership lookup failed", mErr.message);
-        setState({ rideId: null, loading: false });
-        return;
-      }
-      const { data: ride, error: rErr } = await supabase
-        .from("rides")
-        .select("id")
-        .in("id", memberships.map((m) => m.ride_id))
-        .eq("status", "active")
-        // Exclude the /ride/demo simulation — it's not a real active ride.
-        .eq("is_demo", false)
-        .limit(1)
-        .maybeSingle();
-      if (!active) return;
-      if (rErr) console.warn("[sos] active ride lookup failed", rErr.message);
-      setState({ rideId: ride?.id ?? null, loading: false });
-    })();
-
-    return () => {
-      active = false;
-    };
+    // Single resolver (subscribeActiveRide): initial resolve + re-resolve on a
+    // `rides` UPDATE (draft→active, active→ended) and on foreground return.
+    // Its `active` flag guards against a late resolve landing after cleanup,
+    // so switching userId / unmounting cannot set stale state. `refreshKey`
+    // (route pathname, passed by callers) tears this down and resubscribes on
+    // navigation — that catches a `ride_members` join, which is not in the
+    // realtime publication.
+    const cleanup = subscribeActiveRide(userId, (rideId) => {
+      setState({ rideId, loading: false });
+    });
+    return cleanup;
   }, [userId, refreshKey]);
 
   return state;
