@@ -5,13 +5,12 @@ import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
 import { Loader } from "./components/ui/Loader";
-import { SosAlertStack } from "./components/SosAlertStack";
-import { OwnSosBar } from "./components/OwnSosBar";
+import { SosStrip } from "./components/SosStrip";
 import { SosButton, shouldShowSos, SOS_BUTTON_SIZE, SOS_BUTTON_FOOTPRINT } from "./components/SosButton";
 import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
 import { consumePendingJoinCode, consumePendingGroupJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
-import { canResolveSos, markReached, resolveSosAlert, respondToSos, useMyRideRole, useOwnSosAlert, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
+import { buildOwnSosStatusShort, canResolveSos, markReached, resolveSosAlert, respondToSos, useMyRideRole, useOwnSosAlert, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
 import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
 import { usePersistedToggle } from "./lib/preference";
 import { TOUR_WELCOME_KEY } from "./lib/tour";
@@ -66,6 +65,19 @@ export function alertContainerBottom(showSos: boolean): string {
   return showSos
     ? `calc(${navClearance} + ${SOS_BUTTON_FOOTPRINT} + var(--space-sm))`
     : `calc(${navClearance} + var(--space-sm))`;
+}
+
+// Pure decision for a "sync SOS" voice command: where to navigate. Opening /sos
+// with { auto: true } makes SosPage start its 5s countdown + auto-send instead
+// of sitting in the "confirm" phase waiting for a tap. When the rider is already
+// on the /sos screen (any /sos* path), there's nothing to do — SosPage owns the
+// flow from there — so this returns null and the caller does nothing extra.
+// Unit-tested seam (voiceSosNavigation) so the decision is checked without a DOM.
+export function voiceSosNavigation(
+  pathname: string,
+): { to: string; state: { auto: true } } | null {
+  if (pathname.startsWith("/sos")) return null;
+  return { to: "/sos", state: { auto: true } };
 }
 export function AppLayout() {
   const { loading, isAuthenticated, user } = useAuth();
@@ -210,7 +222,13 @@ export function AppLayout() {
     showVoiceFeedback("Sync heard");
     if (!rideId || !userId) return;
     if (kind === "sos") {
-      navigate("/sos");
+      const nav = voiceSosNavigation(pathname);
+      if (nav) {
+        console.info("[voice] sos command → /sos auto-send");
+        navigate(nav.to, { state: nav.state });
+      } else {
+        console.info("[voice] sos command ignored — already on /sos");
+      }
       return;
     }
     // Fired immediately rather than after the send resolves — a voice
@@ -358,29 +376,29 @@ export function AppLayout() {
             overflowY: "auto",
           }}
         >
-          {/* Raiser's own "help is coming" bar — shown above the incoming
-              stack on every in-app screen but /sos, ride view included (LiveOps
-              embeds SosAlertStack but has no own-SOS UI, so this is the raiser's
-              only status there). */}
-          {showOwnSosBar && ownAlert && (
-            <OwnSosBar
-              responders={responsesByAlert[ownAlert.id] ?? []}
-              onView={() => navigate("/sos")}
-            />
-          )}
-          {/* Incoming SOS surface — suppressed on the ride view, where LiveOps
-              renders its own embedded SosAlertStack, to avoid a fixed duplicate. */}
-          {!onRideView && (
-            <SosAlertStack
-              alerts={alerts}
-              responsesByAlert={responsesByAlert}
-              selfUserId={userId}
-              canResolve={canResolve}
-              onRespond={handleRespond}
-              onReached={handleReached}
-              onResolve={handleResolve}
-            />
-          )}
+          {/* One compact SOS strip replaces the old stack (own-SOS bar +
+              counter row + full cards). Incoming alerts are suppressed on the
+              ride view — LiveOps renders its own embedded SosAlertStack there —
+              so the strip only carries the raiser's own status ("Help is
+              coming · …", tap → /sos) on that screen. Off the ride view it
+              carries incoming ("SOS · … needs help (N)", tap → expand cards)
+              plus the own status as the expanded list's first line. */}
+          <SosStrip
+            alerts={onRideView ? [] : alerts}
+            responsesByAlert={responsesByAlert}
+            selfUserId={userId}
+            canResolve={canResolve}
+            onRespond={handleRespond}
+            onReached={handleReached}
+            onResolve={handleResolve}
+            ownStatus={
+              showOwnSosBar && ownAlert
+                ? buildOwnSosStatusShort(responsesByAlert[ownAlert.id] ?? [])
+                : null
+            }
+            ownResponders={ownAlert ? responsesByAlert[ownAlert.id] ?? [] : []}
+            onViewOwn={() => navigate("/sos")}
+          />
         </div>
       )}
 

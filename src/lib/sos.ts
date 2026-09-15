@@ -720,6 +720,22 @@ export function buildOwnSosStatus(responders: Responder[]): string {
 }
 
 /**
+ * Short status for the collapsed SOS strip's "Help is coming · <status>" label
+ * (SosStrip). Same precedence as buildOwnSosStatus — reached beats on-the-way
+ * beats waiting — but terse enough for a one-line strip: several on the way
+ * collapse to a bare count ("2 on the way") rather than naming one and counting
+ * the rest. buildOwnSosStatus stays the fuller form used in the expanded bar.
+ * Pure + unit-tested.
+ */
+export function buildOwnSosStatusShort(responders: Responder[]): string {
+  const reached = responders.filter((r) => r.reachedAt);
+  if (reached.length > 0) return `${reached[0].name} has reached you`;
+  const onWay = responders.filter((r) => !r.reachedAt);
+  if (onWay.length === 0) return "Waiting for a response…";
+  return onWay.length === 1 ? `${onWay[0].name} is on the way` : `${onWay.length} on the way`;
+}
+
+/**
  * The current user's own unresolved SOS alert in the ride, or null (Task 2b).
  * useSosAlerts deliberately filters the raiser's own alert out, so this is the
  * one hook that surfaces it — used by AppLayout to show the raiser a "help is
