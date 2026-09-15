@@ -14,6 +14,7 @@ import { useActiveRide } from "./lib/activeRide";
 import { canResolveSos, markReached, resolveSosAlert, respondToSos, useMyRideRole, useOwnSosAlert, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
 import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
 import { usePersistedToggle } from "./lib/preference";
+import { TOUR_WELCOME_KEY } from "./lib/tour";
 import { useVoiceCommand, VOICE_COMMANDS_KEY } from "./lib/voiceCommands";
 import {
   publishVoiceHeard,
@@ -174,6 +175,7 @@ export function AppLayout() {
   // the app by bringing the live ride view to front.
   const [voiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
   const [voiceOnboardingSeen, setVoiceOnboardingSeen] = usePersistedToggle(VOICE_ONBOARDING_KEY, false);
+  const [tourSeen] = usePersistedToggle(TOUR_WELCOME_KEY, false);
   const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
   const voiceFeedbackTimer = useRef<number | null>(null);
 
@@ -283,7 +285,17 @@ export function AppLayout() {
   if (isAuthenticated && pathname === "/home" && !voiceOnboardingSeen) {
     return <VoicePermissionSheet onDone={() => setVoiceOnboardingSeen(true)} />;
   }
+  // First-run tour: once the voice sheet is dealt with, a rider who hasn't
+  // seen the tour is sent to /welcome. Gated to /home so it never interrupts a
+  // ride, a join deep-link, or /sos — /welcome clears the flag on exit.
+  if (isAuthenticated && pathname === "/home" && !tourSeen) {
+    return <Navigate to="/welcome" replace />;
+  }
   const showSos = shouldShowSos(inApp, rideId, location.pathname);
+  // The welcome tour is a full-screen immersive route (like VoicePermissionSheet
+  // above): suppress the app chrome so the TabBar/SOS overlays — which render at
+  // the root, above this layout's content wrapper — don't paint over it.
+  const onWelcome = pathname === "/welcome";
 
   return (
     <>
@@ -310,7 +322,7 @@ export function AppLayout() {
         <Outlet />
       </div>
 
-      {inApp && (showOwnSosBar || !onRideView) && (
+      {inApp && !onWelcome && (showOwnSosBar || !onRideView) && (
         <div
           style={{
             position: "fixed",
@@ -378,8 +390,8 @@ export function AppLayout() {
           </span>
         </div>
       )}
-      {isAuthenticated && <TabBar activeRideId={rideId} />}
-      {showSos && (
+      {isAuthenticated && !onWelcome && <TabBar activeRideId={rideId} />}
+      {showSos && !onWelcome && (
         // Floating corner SOS: shown ONLY to a member of a started ride, and
         // never on the /sos screen itself (that screen has its own Send SOS
         // button). Taps open the /sos confirm screen. z-index 40 keeps it above

@@ -30,6 +30,9 @@ export async function resolveActiveRideId(userId: string): Promise<string | null
     .select("id")
     .in("id", memberships.map((m) => m.ride_id))
     .eq("status", "active")
+    // Demo rides (the guided /ride/demo simulation) are never the user's real
+    // active ride — they exist only to drive the live-map preview.
+    .eq("is_demo", false)
     .limit(1)
     .maybeSingle();
   if (rErr) console.warn("[sos] active ride lookup failed", rErr.message);
@@ -130,6 +133,8 @@ export function useActiveRide(userId: string | null, refreshKey?: string): Activ
         .select("id")
         .in("id", memberships.map((m) => m.ride_id))
         .eq("status", "active")
+        // Exclude the /ride/demo simulation — it's not a real active ride.
+        .eq("is_demo", false)
         .limit(1)
         .maybeSingle();
       if (!active) return;

@@ -129,7 +129,9 @@ export function useHomeData(): HomeData {
 
       if (rideIds.length) {
         const rides = await safe(() =>
-          supabase.from("rides").select("id, name, code, status, ended_at, created_at").in("id", rideIds)
+          // Demo rides (the /ride/demo simulation) never surface on Home — not
+          // as the active card, not as history.
+          supabase.from("rides").select("id, name, code, status, ended_at, created_at").in("id", rideIds).eq("is_demo", false)
         );
         // Prefer a live ride; otherwise fall back to the most recent draft the
         // user is in, so a created-but-unstarted ride (e.g. one just made or
