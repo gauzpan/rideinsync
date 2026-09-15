@@ -97,7 +97,7 @@ export type PopoverAction =
 
 /** Each incoming event opens the popover and replaces its text; the component
  *  owns the 5 s timer and restarts it whenever a new "event" arrives. */
-export function popoverReducer(state: PopoverState, action: PopoverAction): PopoverState {
+export function popoverReducer(_prev: PopoverState, action: PopoverAction): PopoverState {
   switch (action.type) {
     case "event":
       return { open: true, event: action.e };
