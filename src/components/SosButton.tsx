@@ -1,5 +1,15 @@
 import { useNavigate } from "react-router-dom";
 
+// Floating SOS button footprint above the tab bar — the single source of truth
+// consumed by AppLayout so nothing duplicates these magic numbers. The button is
+// SOS_BUTTON_SIZE px square, anchored SOS_BUTTON_BOTTOM above the nav+safe-area.
+// SOS_BUTTON_FOOTPRINT is the vertical space it occupies above the nav (offset +
+// height): AppLayout pads scrolling content clear of it AND keeps the fixed alert
+// container above it so the button stays tappable.
+export const SOS_BUTTON_SIZE = 60;
+export const SOS_BUTTON_BOTTOM = "var(--space-md)";
+export const SOS_BUTTON_FOOTPRINT = `${SOS_BUTTON_BOTTOM} + ${SOS_BUTTON_SIZE}px`;
+
 type Props = {
   showVoiceToggle: boolean; // rideId is set
   voiceOn: boolean;
@@ -57,7 +67,7 @@ export function SosButton({
       style={{
         position: "fixed",
         right: "var(--gutter)",
-        bottom: "calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-md))",
+        bottom: `calc(var(--tabbar-height) + env(safe-area-inset-bottom) + ${SOS_BUTTON_BOTTOM})`,
         zIndex: 40,
         display: "flex",
         flexDirection: "column",
@@ -118,8 +128,8 @@ export function SosButton({
         aria-label="SOS"
         onClick={() => navigate("/sos")}
         style={{
-          width: 60,
-          height: 60,
+          width: SOS_BUTTON_SIZE,
+          height: SOS_BUTTON_SIZE,
           borderRadius: "var(--radius-full)",
           border: "2px solid var(--color-surface-1)",
           background: "var(--grad-danger)",

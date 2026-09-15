@@ -7,7 +7,7 @@ import { TabBar } from "./components/ui/TabBar";
 import { Loader } from "./components/ui/Loader";
 import { SosAlertStack } from "./components/SosAlertStack";
 import { OwnSosBar } from "./components/OwnSosBar";
-import { SosButton, shouldShowSos } from "./components/SosButton";
+import { SosButton, shouldShowSos, SOS_BUTTON_SIZE, SOS_BUTTON_FOOTPRINT } from "./components/SosButton";
 import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
 import { consumePendingJoinCode, consumePendingGroupJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
@@ -38,19 +38,34 @@ const VOICE_ONBOARDING_KEY = "voice.onboarding.seen";
 // stays behind the sign-in gate below.
 const PUBLIC_PATHS = new Set(["/", "/ride/create", "/create"]);
 
-// Floating-SOS footprint above the tab bar, read (read-only) from SosButton.tsx:
-// the button sits `var(--space-md)` above the nav+safe-area and is
-// SOS_BUTTON_SIZE px tall. When it is shown, the scrolling content wrapper must
-// clear that whole footprint (plus a normal `var(--space-lg)` gap) so a control
-// at the very bottom of a page can always scroll clear of the button instead of
-// sitting under it. When SOS is hidden the padding is unchanged — just the nav
-// clearance. Pure seam so the arithmetic is unit-tested.
-export const SOS_BUTTON_SIZE = 60;
+// Floating-SOS footprint above the tab bar — SOS_BUTTON_SIZE and the derived
+// SOS_BUTTON_FOOTPRINT are owned by SosButton.tsx (single source of truth) and
+// re-exported here for the existing footprint tests. When the button is shown,
+// the scrolling content wrapper must clear that whole footprint (plus a normal
+// `var(--space-lg)` gap) so a control at the very bottom of a page can always
+// scroll clear of the button instead of sitting under it. When SOS is hidden the
+// padding is unchanged — just the nav clearance. Pure seam so the arithmetic is
+// unit-tested.
+export { SOS_BUTTON_SIZE, SOS_BUTTON_FOOTPRINT };
 export function contentBottomPadding(showSos: boolean): string {
   const navClearance = "var(--tabbar-height) + env(safe-area-inset-bottom)";
   return showSos
-    ? `calc(${navClearance} + var(--space-md) + ${SOS_BUTTON_SIZE}px + var(--space-lg))`
+    ? `calc(${navClearance} + ${SOS_BUTTON_FOOTPRINT} + var(--space-lg))`
     : `calc(${navClearance} + var(--space-lg))`;
+}
+
+// The fixed alert container (own-SOS bar + incoming SosAlertStack) is anchored
+// just above the tab bar and paints at z-index 41 — one above the z-40 floating
+// SOS button. Full-width, it would otherwise be drawn ACROSS the bottom-right
+// button and swallow its taps. When the button is shown we lift the container's
+// bottom edge ABOVE the button's footprint (+ a small gap) so the button keeps
+// its corner and the alerts stack upward from above it, never intersecting.
+// When the button is hidden the container keeps its plain nav clearance.
+export function alertContainerBottom(showSos: boolean): string {
+  const navClearance = "var(--tabbar-height) + env(safe-area-inset-bottom)";
+  return showSos
+    ? `calc(${navClearance} + ${SOS_BUTTON_FOOTPRINT} + var(--space-sm))`
+    : `calc(${navClearance} + var(--space-sm))`;
 }
 export function AppLayout() {
   const { loading, isAuthenticated, user } = useAuth();
@@ -328,13 +343,19 @@ export function AppLayout() {
             position: "fixed",
             left: 0,
             right: 0,
-            // Above the TabBar.
-            bottom:
-              "calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-sm))",
+            // Above the TabBar, and above the floating SOS button's footprint
+            // when it is shown so the z-41 container never covers the z-40
+            // button (which keeps its bottom-right corner and stays tappable).
+            bottom: alertContainerBottom(showSos),
             zIndex: 41,
             maxWidth: 600,
             margin: "0 auto",
             padding: "0 var(--gutter)",
+            // Own bar + up to 3 stacked rows can grow tall on a short screen;
+            // cap the surface at half the viewport and scroll within it so it
+            // never climbs over the map/content above.
+            maxHeight: "50vh",
+            overflowY: "auto",
           }}
         >
           {/* Raiser's own "help is coming" bar — shown above the incoming
