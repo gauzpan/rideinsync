@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Logo } from "./ui/Logo";
 import { Icon } from "./ui/Icon";
+import { FeedbackButton } from "./FeedbackButton";
 import { useVoiceListening } from "../lib/voiceActivity";
 
 /** Top app bar: the RideInSync logo on the left, and a single account icon on
@@ -68,6 +69,7 @@ export function AccountBar() {
             <Icon name="signal" size={16} />
           </span>
         )}
+        <FeedbackButton context="app" />
         <div ref={rootRef} style={{ position: "relative" }}>
         <button
           type="button"
