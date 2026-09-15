@@ -5,7 +5,6 @@ import { Card } from "../components/ui/Card";
 import { Carousel } from "../components/ui/Carousel";
 import { Icon } from "../components/ui/Icon";
 import { Mark } from "../components/ui/Logo";
-import { RideAnimation } from "../components/RideAnimation";
 import { useAuth } from "../hooks/useAuth";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
 import { formatScheduleDateTime, getMyRides, type MyRideSummary } from "../services/onboardingService";
@@ -338,11 +337,6 @@ export function LandingPage() {
             </strong>
             .
           </p>
-
-          {/* Hero flourish: two riders in sync along the shared route. */}
-          <div style={{ marginTop: "var(--space-lg)" }}>
-            <RideAnimation />
-          </div>
         </div>
       </section>
 
