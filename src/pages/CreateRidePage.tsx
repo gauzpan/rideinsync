@@ -13,6 +13,7 @@ import { PlaceAutocomplete, type PlacePoint } from "../components/PlaceAutocompl
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 import { Stepper } from "../components/ui/Stepper";
 import { useAuth } from "../hooks/useAuth";
+import { track } from "../lib/analytics";
 import {
   createRide,
     updateRide,
@@ -287,6 +288,11 @@ useEffect(() => {
     };
   }, [rideId, user]);
 
+  useEffect(() => {
+    if (isEdit) return; // edit mode reuses this page; don't count it
+    track("create_form_started");
+  }, [isEdit]);
+
   function addStop() {
     setStops((s) => [...s, { key: stopKeyRef.current++, kind: "fuel", point: null }]);   
   }
@@ -298,6 +304,7 @@ useEffect(() => {
   }
 
   async function handleGoogleUpgrade() {
+    track("sign_in_started", { method: "google", surface: "create_ride_upgrade" });
     setGooglePending(true);
     try {
       await signInWithGoogle();
@@ -312,6 +319,14 @@ useEffect(() => {
     // page load) so a signed-out visitor can still fill out and explore the
     // whole form — only the resulting sharing code needs an account.
     if (!isEdit && (!user || isGuest) && !guestLeaderOverride) {
+      let alreadyFired = false;
+      try {
+        alreadyFired = sessionStorage.getItem("rideinsync:account_gate_fired") === "1";
+        sessionStorage.setItem("rideinsync:account_gate_fired", "1");
+      } catch {
+        // sessionStorage unavailable (private mode): fire each time rather than not at all
+      }
+      if (!alreadyFired) track("account_gate_shown", { was_guest: isGuest });
       setShowAccountGate(true);
       return;
     }
@@ -327,17 +342,24 @@ useEffect(() => {
       return;
     }
     setError(null);
+    const logSubmit = (blocked: string | null) => {
+      if (!isEdit) track("ride_create_submit", { blocked });
+    };
+
     if (!name.trim() || !startPoint?.label.trim() || !destination?.label.trim()) {
       setError("Ride name, start point and destination are required.");
+      logSubmit(!name.trim() ? "name" : !startPoint?.label.trim() ? "start" : "destination");
       return;
     }
-        if (!departure) {
+    if (!departure) {
       setError("Departure date and time is required.");
+      logSubmit("departure");
       return;
     }
     const startDate = new Date(departure);
     if (isNaN(startDate.getTime())) {
       setError("Please enter a valid departure date and time.");
+      logSubmit("departure");
       return;
     }
     let startIso: string;
@@ -345,6 +367,7 @@ useEffect(() => {
       startIso = startDate.toISOString();
     } catch {
       setError("Please enter a valid departure date and time.");
+      logSubmit("departure");
       return;
     }
 
@@ -353,15 +376,18 @@ useEffect(() => {
       const endDate = new Date(expectedEnd);
       if (isNaN(endDate.getTime())) {
         setError("Please enter a valid expected end date and time.");
+        logSubmit("expected_end");
         return;
       }
       if (endDate.getTime() <= startDate.getTime()) {
         setError("Expected end time must be after departure time.");
+        logSubmit("expected_end");
         return;
       }
       endIso = endDate.toISOString();
     }
 
+    logSubmit(null);
     setSubmitting(true);
     try {
       const inputPayload = {
@@ -390,6 +416,12 @@ useEffect(() => {
         navigate(`/ride/${rideId}/invite`, { state: { ride: updated } });
       } else {
         const ride = await createRide(user.id, inputPayload);
+        track("ride_created", {
+          stop_count: inputPayload.stops.length,
+          has_capacity: inputPayload.memberCapacity != null,
+          has_guidelines: Boolean(inputPayload.guidelines),
+          has_end_time: Boolean(inputPayload.scheduledEnd),
+        });
         navigate(`/ride/${ride.id}/invite`, { state: { ride } });
       }
     } catch (e) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -14,6 +14,7 @@ import {
   useSosResponses,
 } from "../lib/sos";
 import { playSignalTone } from "../lib/earcon";
+import { track } from "../lib/analytics";
 
 type Phase = "no-ride" | "confirm" | "countdown" | "sending" | "sent" | "error";
 
@@ -56,6 +57,16 @@ export function SosPage() {
     if (!loading && !rideId && phase === "confirm") setPhase("no-ride");
   }, [loading, rideId, phase]);
 
+  const confirmShownRef = useRef(false);
+  useEffect(() => {
+    if (confirmShownRef.current) return;
+    if (loading || !rideId) return; // no active ride -> flips to no-ride, don't count
+    if (phase === "confirm" || phase === "countdown") {
+      confirmShownRef.current = true;
+      track("sos_confirm_shown", { mode: phase === "countdown" ? "auto" : "manual" });
+    }
+  }, [phase, loading, rideId]);
+
   // Once the countdown ends, clear the auto flag (same-path replace keeps phase
   // state) so a later cancel word no longer navigates home from the sent screen.
   useEffect(() => {
@@ -76,6 +87,7 @@ export function SosPage() {
       setPhase("no-ride");
       return;
     }
+    track("sos_confirmed", { ride_id: rideId, surface: "sos_page" });
     setPhase("sending");
     // Fired synchronously before the `await` below — see DemoControlsPage's
     // SignalModal.sendSignal for why: AudioContext.resume() only unlocks
@@ -88,6 +100,7 @@ export function SosPage() {
     playSignalTone("critical");
     try {
       const res = await sendSos(rideId, userId);
+      track("sos_delivered", { ride_id: rideId, surface: "sos_page", has_location: res.hasLocation });
       setAlertId(res.alertId);
       setHasLocation(res.hasLocation);
       setPhase("sent");

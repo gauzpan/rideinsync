@@ -12,6 +12,7 @@ import { RideSimulator } from "../../lib/simulator";
 import { SIM_RIDER_NAMES } from "../../lib/demoRide";
 import { approveJoinRequest } from "../../services/onboardingService";
 import { closeRide, startRide } from "../../lib/ending";
+import { track } from "../../lib/analytics";
 import { canResolveSos, markReached, resolveSosAlert, respondToSos, sendSos, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
@@ -134,9 +135,11 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     });
   }
   function handleSosReached(responseId: string) {
-    void markReached(responseId).catch(() => {
-      /* logged in markReached */
-    });
+    void markReached(responseId)
+      .then(() => track("sos_reached", { ride_id: ride.id }))
+      .catch(() => {
+        /* logged in markReached */
+      });
   }
   function handleSosResolve(alert: IncomingAlert): Promise<void> {
     if (!user) return Promise.reject(new Error("Not signed in."));
@@ -217,6 +220,26 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // Push the current user's own GPS so their heading arrow (lead=red / you=green)
   // appears and moves on the map. Foreground only; stops once the ride ends.
   const { fix, error: geoError, retry: retryGps } = useGeolocation(!ended && !!user);
+
+  const firstFixLoggedRef = useRef(false);
+  useEffect(() => {
+    if (firstFixLoggedRef.current) return;
+    if (notStarted || ended || !user) return; // only started rides, tracked user
+    const key = `rideinsync:first_fix:${ride.id}`;
+    let already = false;
+    try { already = sessionStorage.getItem(key) === "1"; } catch { /* ignore */ }
+    if (already) { firstFixLoggedRef.current = true; return; }
+
+    if (fix) {
+      firstFixLoggedRef.current = true;
+      try { sessionStorage.setItem(key, "1"); } catch { /* ignore */ }
+      track("rider_first_fix", { ride_id: ride.id, got_fix: true });
+    } else if (geoError) {
+      firstFixLoggedRef.current = true;
+      try { sessionStorage.setItem(key, "1"); } catch { /* ignore */ }
+      track("rider_first_fix", { ride_id: ride.id, got_fix: false });
+    }
+  }, [fix, geoError, notStarted, ended, user, ride.id]);
 
   // M5 hardening (docs/scale-readiness-roadmap.md): the raw .then/.catch ->
   // console.warn here used to silently drop a fix on any ingest failure
@@ -350,10 +373,12 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
 
   async function raiseSos() {
     if (!user) return;
+    track("sos_confirmed", { ride_id: ride.id, surface: "liveops" });
     setSosSending(true);
     setNote(null);
     try {
-      await sendSos(ride.id, user.id);
+      const res = await sendSos(ride.id, user.id);
+      track("sos_delivered", { ride_id: ride.id, surface: "liveops", has_location: res.hasLocation });
       setNote("SOS sent to the group.");
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Couldn't send SOS.");
@@ -367,6 +392,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     setNote(null);
     try {
       await startRide(ride.id); // leader-gated by RLS; draft → active
+      track("ride_started", { ride_id: ride.id });
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Couldn't start the ride.");
     } finally {
@@ -379,6 +405,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     setNote(null);
     try {
       await closeRide(ride.id); // leader-gated + idempotent server-side
+      track("ride_ended", { ride_id: ride.id });
       await simRef.current?.stop();
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Couldn't end the ride.");

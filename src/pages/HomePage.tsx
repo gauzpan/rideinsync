@@ -9,6 +9,7 @@ import { Icon } from "../components/ui/Icon";
 import { VoicePermissionSheet } from "../components/VoicePermissionSheet";
 import { usePersistedToggle } from "../lib/preference";
 import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
+import { track } from "../lib/analytics";
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -20,6 +21,7 @@ export function HomePage() {
   const [googleError, setGoogleError] = useState<string | null>(null);
 
   async function handleGoogleUpgrade() {
+    track("sign_in_started", { method: "google", surface: "home_upgrade" });
     setGoogleError(null);
     setGooglePending(true);
     try {

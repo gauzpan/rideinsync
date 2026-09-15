@@ -25,6 +25,7 @@ import {
 import { SIGNAL_LABEL, SIGNAL_TIER, sendRideSignal, useRideSignalListener, type SignalKind } from "./lib/signals";
 import { playSignalTone } from "./lib/earcon";
 import { vibrateForTier } from "./lib/haptics";
+import { track } from "./lib/analytics";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
 const GROUP_JOIN_PATH_RE = /^\/groups\/join\/([^/]+)$/;
@@ -127,9 +128,11 @@ export function AppLayout() {
   }
 
   function handleReached(responseId: string) {
-    void markReached(responseId).catch(() => {
-      /* logged in markReached */
-    });
+    void markReached(responseId)
+      .then(() => { if (rideId) track("sos_reached", { ride_id: rideId }); })
+      .catch(() => {
+        /* logged in markReached */
+      });
   }
 
   function handleResolve(alert: IncomingAlert) {

@@ -1,21 +1,32 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 type Props = {
   children: ReactNode[];
   /** Auto-advance interval in ms. 0 disables. */
   autoAdvanceMs?: number;
   "aria-label"?: string;
+  onUserEngage?: (via: "swipe" | "wheel" | "dot") => void;
 };
 
 /**
  * Scroll-snap carousel: swipeable track + clickable dots, auto-advance that
  * pauses on interaction. Token-driven per design/ (lime dot = active slide).
  */
-export function Carousel({ children, autoAdvanceMs = 5000, ...rest }: Props) {
+export function Carousel({ children, autoAdvanceMs = 5000, onUserEngage, ...rest }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
   const count = children.length;
+
+  const engagedRef = useRef(false);
+  const handleEngage = useCallback(
+    (via: "swipe" | "wheel" | "dot") => {
+      if (engagedRef.current) return;
+      engagedRef.current = true;
+      onUserEngage?.(via);
+    },
+    [onUserEngage]
+  );
 
   const goTo = (i: number) => {
     const track = trackRef.current;
@@ -35,6 +46,35 @@ export function Carousel({ children, autoAdvanceMs = 5000, ...rest }: Props) {
     track.addEventListener("scroll", onScroll, { passive: true });
     return () => track.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Listen for human input on the track only (auto-advance never fires these).
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track || !onUserEngage) return;
+    let start: { x: number; y: number } | null = null;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) handleEngage("wheel"); // horizontal intent only
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      start = t ? { x: t.clientX, y: t.clientY } : null;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!start || !t) return;
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) handleEngage("swipe"); // horizontal drag only
+    };
+    track.addEventListener("wheel", onWheel, { passive: true });
+    track.addEventListener("touchstart", onTouchStart, { passive: true });
+    track.addEventListener("touchmove", onTouchMove, { passive: true });
+    return () => {
+      track.removeEventListener("wheel", onWheel);
+      track.removeEventListener("touchstart", onTouchStart);
+      track.removeEventListener("touchmove", onTouchMove);
+    };
+  }, [onUserEngage, handleEngage]);
 
   // Auto-advance.
   useEffect(() => {
@@ -89,7 +129,10 @@ export function Carousel({ children, autoAdvanceMs = 5000, ...rest }: Props) {
             type="button"
             aria-label={`Go to slide ${i + 1}`}
             aria-current={active === i}
-            onClick={() => goTo(i)}
+            onClick={() => {
+              handleEngage("dot");
+              goTo(i);
+            }}
             style={{
               width: active === i ? 24 : 8,
               height: 8,
