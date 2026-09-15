@@ -9,6 +9,7 @@ import { BadgeGrid, type Vehicle } from "../components/ui/RideBadge";
 import { closeRide, loadSummaryView, markReachedHome, submitFeedback } from "../lib/ending";
 import { appOrigin } from "../lib/appUrl";
 import { ShareSheet } from "../components/ShareSheet";
+import { FeedbackButton } from "../components/FeedbackButton";
 
 const sentiments: { value: FeedbackSentiment; label: string }[] = [
   { value: "like", label: "Liked it" },
@@ -195,6 +196,12 @@ export function RideSummaryPage() {
       {status && (
         <p style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)" }}>{status}</p>
       )}
+
+      {/* General app feedback / grievances — separate from the ride survey
+          above (that's about this trip; this is about the app itself). */}
+      <div style={{ display: "flex", justifyContent: "center", paddingTop: "var(--space-xs)" }}>
+        <FeedbackButton context="ride_end" variant="link" label="Feedback about the app?" />
+      </div>
 
       {showShareSheet && (
         <ShareSheet
