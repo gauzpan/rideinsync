@@ -104,6 +104,46 @@ export function RidesPage() {
         </Button>
       </div>
 
+      {/* Demo strip — a low-key way to relaunch the simulated group ride on the
+          live map. The demo is never a persisted active ride, so it belongs
+          here as an on-demand trigger rather than as a ride card above. */}
+      <button
+        type="button"
+        onClick={() => navigate("/ride/demo")}
+        style={{ border: "none", background: "transparent", padding: 0, textAlign: "left", cursor: "pointer" }}
+      >
+        <Card padding="var(--space-md)">
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+            <div
+              style={{
+                flex: "none",
+                width: 40,
+                height: 40,
+                borderRadius: "var(--radius-full)",
+                background: "color-mix(in srgb, var(--color-accent) 16%, transparent)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--color-accent)",
+              }}
+            >
+              <Icon name="play" size={20} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: "var(--text-body-size)", lineHeight: "22px", fontWeight: "var(--weight-semibold)" as unknown as number, color: "var(--color-text-primary)" }}>
+                See a demo ride
+              </div>
+              <div style={{ marginTop: "var(--space-2xs)", fontSize: "var(--text-label)", fontWeight: "var(--weight-medium)" as unknown as number, color: "var(--color-text-secondary)" }}>
+                Watch a simulated group move on the live map.
+              </div>
+            </div>
+            <span style={{ flex: "none", color: "var(--color-text-tertiary)" }}>
+              <Icon name="chevron-right" size={18} />
+            </span>
+          </div>
+        </Card>
+      </button>
+
       {pastRides.length > 0 && (
         <section>
           <Eyebrow>Past rides</Eyebrow>

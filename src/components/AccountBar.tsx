@@ -179,6 +179,33 @@ export function AccountBar() {
               Profile
             </button>
 
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                navigate("/welcome");
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-xs)",
+                width: "100%",
+                minHeight: 44,
+                padding: "var(--space-xs) var(--space-sm)",
+                border: "none",
+                borderRadius: "var(--radius-sm)",
+                background: "transparent",
+                color: "var(--color-text-primary)",
+                fontSize: "var(--text-body-size)",
+                textAlign: "left",
+                cursor: "pointer",
+              }}
+            >
+              <Icon name="compass" size={18} />
+              App tour
+            </button>
+
             <div
               aria-hidden
               style={{

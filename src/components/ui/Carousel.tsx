@@ -4,18 +4,33 @@ type Props = {
   children: ReactNode[];
   /** Auto-advance interval in ms. 0 disables. */
   autoAdvanceMs?: number;
+  /** Controlled active slide. When set, the parent owns the index (e.g. a
+   *  Next button in a footer); the carousel scrolls to match it. */
+  activeIndex?: number;
+  /** Fired with the new index whenever the active slide changes (swipe, dot,
+   *  or controlled scroll) — lets a parent mirror the index in its own UI. */
+  onActiveChange?: (index: number) => void;
   "aria-label"?: string;
 };
 
 /**
  * Scroll-snap carousel: swipeable track + clickable dots, auto-advance that
  * pauses on interaction. Token-driven per design/ (lime dot = active slide).
+ * Runs uncontrolled by default; pass `activeIndex` + `onActiveChange` to drive
+ * it from a parent (the welcome tour footer does this).
  */
-export function Carousel({ children, autoAdvanceMs = 5000, ...rest }: Props) {
+export function Carousel({ children, autoAdvanceMs = 5000, activeIndex, onActiveChange, ...rest }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
-  const [active, setActive] = useState(0);
+  const [internalActive, setInternalActive] = useState(0);
   const [paused, setPaused] = useState(false);
   const count = children.length;
+  const controlled = activeIndex != null;
+  const active = controlled ? activeIndex : internalActive;
+
+  // Latest onActiveChange, read from the scroll listener (registered once) so
+  // an inline callback prop never goes stale.
+  const onChangeRef = useRef(onActiveChange);
+  onChangeRef.current = onActiveChange;
 
   const goTo = (i: number) => {
     const track = trackRef.current;
@@ -24,17 +39,34 @@ export function Carousel({ children, autoAdvanceMs = 5000, ...rest }: Props) {
     track.scrollTo({ left: next * track.clientWidth, behavior: "smooth" });
   };
 
-  // Keep the active dot in sync with manual scrolling.
+  // Keep the active dot in sync with scrolling. Debounced so it reports only
+  // the settled slide: a programmatic (controlled) smooth-scroll passes through
+  // intermediate offsets that round to the old index, and firing on those would
+  // reset a controlled parent's index mid-animation and fight the scroll.
   useEffect(() => {
     const track = trackRef.current;
     if (!track) return;
+    let settle: ReturnType<typeof setTimeout>;
     const onScroll = () => {
-      const i = Math.round(track.scrollLeft / track.clientWidth);
-      setActive(i);
+      clearTimeout(settle);
+      settle = setTimeout(() => {
+        const i = Math.round(track.scrollLeft / track.clientWidth);
+        setInternalActive(i);
+        onChangeRef.current?.(i);
+      }, 90);
     };
     track.addEventListener("scroll", onScroll, { passive: true });
-    return () => track.removeEventListener("scroll", onScroll);
+    return () => {
+      clearTimeout(settle);
+      track.removeEventListener("scroll", onScroll);
+    };
   }, []);
+
+  // Controlled mode: scroll the track when the parent moves the index.
+  useEffect(() => {
+    if (controlled) goTo(active);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controlled, active]);
 
   // Auto-advance.
   useEffect(() => {

@@ -17,7 +17,8 @@ import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import type { Fix } from "../../hooks/useGeolocation";
 import { supabase } from "../../lib/supabase";
-import type { Ride, RiderOnMap, GroupStatus } from "../../lib/models";
+import type { Ride, RiderOnMap, GroupStatus, RideEvent } from "../../lib/models";
+import { SIGNAL_LABEL, SIGNAL_TYPES } from "../../lib/signals";
 import { bearingDeg, haversineMeters, type LatLng } from "../../lib/geo";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -25,6 +26,14 @@ import { Icon } from "../ui/Icon";
 import { IconButton } from "../ui/IconButton";
 import { ROLE_COLOR, ROLE_LABEL } from "../../lib/roles";
 import { SosAlertStack } from "../SosAlertStack";
+import { createPortal } from "react-dom";
+import QRCode from "qrcode";
+import { usePersistedToggle } from "../../lib/preference";
+import { VOICE_COMMANDS_KEY } from "../../lib/voiceCommands";
+import { useVoiceListening, publishSignalModalOpen, useVoiceCommandFiredListener } from "../../lib/voiceActivity";
+import { usePushNotifications } from "../../lib/pushNotifications";
+import { RideDetailsModal, SignalModal } from "./RideActionModals";
+import { MAP_OVERLAY_BUTTON } from "./overlayStyles";
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const MAP_ID = import.meta.env.VITE_MAP_ID;
@@ -41,6 +50,28 @@ const STATUS_COLOR: Record<GroupStatus, string> = {
   stopped: "#FF453A",
   stale: "#8A8A8E",
 };
+
+// The non-SOS signal kinds that make up the collated signal log (SOS has its
+// own alert stack), plus their icon/color, keyed for quick lookup.
+const SIGNAL_KINDS = ["hazard", "regroup", "pitstop"];
+const SIGNAL_META = Object.fromEntries(SIGNAL_TYPES.map((t) => [t.kind, t])) as Record<
+  string,
+  (typeof SIGNAL_TYPES)[number]
+>;
+
+/** Short relative time for the signal log ("just now", "3m ago", "2h ago"). */
+function relativeTime(iso: string | null): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const secs = Math.floor((Date.now() - then) / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 function labelOf(pt: Ride["start_point"]): string | null {
   return pt && typeof pt === "object" && "label" in pt ? String((pt as { label?: unknown }).label ?? "") || null : null;
@@ -131,7 +162,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const simRef = useRef<RideSimulator | null>(null);
 
   const { user } = useAuth();
-  const { riders, rideStatus, joinToasts, dismissJoinToast } = useRideChannel(ride.id);
+  const { riders, events, rideStatus, joinToasts, dismissJoinToast } = useRideChannel(ride.id);
   const [ending, setEnding] = useState(false);
   const [sosSending, setSosSending] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -143,6 +174,20 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
   // Folded rider list under the lead/sweep pills — names are revealed on demand.
   const [ridersExpanded, setRidersExpanded] = useState(false);
+  // Live-map action controls, mirroring the /ride/demo view: roster + join QR,
+  // the signal picker, OS push notifications, and hands-free voice.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [signalOpen, setSignalOpen] = useState(false);
+  const [qr, setQr] = useState<string | null>(null);
+  const [voiceOn, setVoiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
+  const micListening = useVoiceListening();
+  const push = usePushNotifications(ride.id, user?.id ?? null);
+  // Collated signal log — so a rider who missed the transient toast (or has no
+  // push) can still open one place and read what's been signalled. `events`
+  // from the channel only carries signals received while open, so we also fetch
+  // recent history once on mount.
+  const [signalsExpanded, setSignalsExpanded] = useState(false);
+  const [signalHistory, setSignalHistory] = useState<RideEvent[]>([]);
   // Bumped on each navigate tap so the map pans+zooms to the rider even if
   // they're already selected (re-centering on demand).
   const [focusNonce, setFocusNonce] = useState(0);
@@ -152,7 +197,58 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     setSelectedRiderId(id);
     setFocusNonce((n) => n + 1);
   }
-  
+
+  // Join QR for the roster modal — the deep link a real rider scans to join.
+  useEffect(() => {
+    const url = `${location.origin}/r?code=${ride.code}`;
+    QRCode.toDataURL(url, { width: 220, margin: 1 }).then(setQr).catch(() => setQr(null));
+  }, [ride.code]);
+
+  // Seed the signal log with recent history (SOS lives in its own alert stack).
+  useEffect(() => {
+    let cancelled = false;
+    void supabase
+      .from("ride_events")
+      .select("*")
+      .eq("ride_id", ride.id)
+      .in("type", ["hazard", "regroup", "pitstop"])
+      .order("created_at", { ascending: false })
+      .limit(30)
+      .then(({ data }) => {
+        if (!cancelled && data) setSignalHistory(data as RideEvent[]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ride.id]);
+
+  // Bare signal names ("hazard", "regroup") are only matched by the global
+  // voice listener while the picker is open — keep it informed, and close the
+  // picker once a spoken choice fires (matching a tap+close).
+  useEffect(() => publishSignalModalOpen(signalOpen), [signalOpen]);
+  useEffect(() => () => publishSignalModalOpen(false), []);
+  useVoiceCommandFiredListener(() => setSignalOpen(false));
+
+  async function handleMicToggle() {
+    if (voiceOn) {
+      setVoiceOn(false);
+      return;
+    }
+    setNote(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      setVoiceOn(true);
+    } catch {
+      setNote("Microphone access was denied.");
+    }
+  }
+
+  async function handlePushToggle() {
+    if (push.subscribed) await push.disable();
+    else await push.enable();
+  }
+
   // Prefer the live status from Realtime, falling back to the prop the page
   // loaded with (Realtime may not have delivered the first row yet).
   const status = rideStatus ?? ride.status;
@@ -558,6 +654,20 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
 
   const visibleJoinToasts = joinToasts.filter((t) => t.userId !== user?.id);
 
+  // Collated signal log: live events (received while open) merged with the
+  // fetched history, deduped by id, newest first. This is the "one place" a
+  // rider can open and read what was signalled, with or without push.
+  // `Map` here is the Google Maps component (imported above), so use the JS Map
+  // via globalThis to dedupe/lookup.
+  const signalById = new globalThis.Map<string, RideEvent>();
+  for (const e of [...events, ...signalHistory]) {
+    if (SIGNAL_KINDS.includes(e.type)) signalById.set(e.id, e);
+  }
+  const signalLog = [...signalById.values()].sort((a, b) =>
+    (b.created_at ?? "").localeCompare(a.created_at ?? ""),
+  );
+  const nameByUserId = new globalThis.Map(riders.map((r) => [r.member.user_id, r.profile.display_name] as const));
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
       {/* New-rider toast — Realtime already keeps `riders` current with no
@@ -671,6 +781,73 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           )}
         </Map>
 
+        {/* Top overlay: the in-sync tray sits with notifications + voice (the
+            other two actions live at the bottom). Translucent dark pills so the
+            white content stays legible over the light map tiles. */}
+        <div style={{ position: "absolute", top: topInset, left: 12, zIndex: 999, display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            aria-label={`${inSync} of ${total} riders in sync`}
+            style={{ ...MAP_OVERLAY_BUTTON, height: 44, display: "inline-flex", alignItems: "center", padding: "0 14px", borderRadius: 999, color: "#fff", fontSize: 13, fontWeight: 600 }}
+          >
+            {inSync}/{total} in sync
+          </span>
+          <IconButton
+            name="bell"
+            size={44}
+            iconSize={20}
+            variant={push.subscribed ? "accent" : "surface"}
+            style={push.subscribed ? undefined : MAP_OVERLAY_BUTTON}
+            disabled={!push.supported || push.loading}
+            aria-label={
+              !push.supported
+                ? "Notifications aren't supported in this browser"
+                : push.subscribed
+                  ? "Turn off notifications for this ride"
+                  : "Turn on notifications for this ride"
+            }
+            aria-pressed={push.subscribed}
+            onClick={() => void handlePushToggle()}
+          />
+          <IconButton
+            name="mic"
+            size={44}
+            iconSize={20}
+            variant={voiceOn ? "accent" : "surface"}
+            style={voiceOn ? undefined : MAP_OVERLAY_BUTTON}
+            className={voiceOn && micListening ? "mic-listening" : undefined}
+            aria-label={voiceOn ? "Turn off RideInSync voice commands" : "Turn on RideInSync voice commands"}
+            aria-pressed={voiceOn}
+            onClick={() => void handleMicToggle()}
+          />
+        </div>
+
+        {/* Bottom overlay: signal picker + roster (rider details). Signalling
+            only makes sense once the ride is underway, so the signal action is
+            hidden until it's active (a draft has no pack to signal yet, and an
+            ended ride is over); rider details stays available throughout. */}
+        <div style={{ position: "absolute", left: 12, bottom: 12, zIndex: 999, display: "flex", gap: 8 }}>
+          {status === "active" && (
+            <IconButton
+              name="signal"
+              size={44}
+              iconSize={20}
+              style={MAP_OVERLAY_BUTTON}
+              aria-label="Send a signal"
+              title="Send a signal"
+              onClick={() => setSignalOpen(true)}
+            />
+          )}
+          <IconButton
+            name="users"
+            size={44}
+            iconSize={20}
+            style={MAP_OVERLAY_BUTTON}
+            aria-label="Ride details"
+            title="Ride details"
+            onClick={() => setDetailsOpen(true)}
+          />
+        </div>
+
         {/* Map controls: maximize/minimize + orientation (nav heading-up / overview).
             Explicit z-index (above the map's own internal panes/marker layer,
             which can otherwise paint over a plain-stacked sibling during pan/
@@ -689,24 +866,6 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           </MapControlButton>
         </div>
 
-        {/* Keep SOS reachable while riding fullscreen. */}
-        {fullscreen && !ended && (
-          <button
-            type="button"
-            onClick={() => void raiseSos()}
-            style={{
-              position: "absolute", top: topInset, left: 12, zIndex: 999, height: 44, padding: "0 18px",
-              borderRadius: 999, border: "none", background: "#FF453A", color: "#fff",
-              fontWeight: 700, fontSize: 15, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,.4)",
-            }}
-          >
-            SOS
-          </button>
-        )}
-
-        <span style={{ position: "absolute", left: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: "#fff", padding: "6px 12px", borderRadius: 999, fontSize: 13, fontWeight: 600 }}>
-          {inSync}/{total} in sync
-        </span>
         {/* GPS status: when the watch fails it never recovers on its own, so
             the pill becomes a retry button that restarts the watch. */}
         {geoError && (
@@ -873,6 +1032,65 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         );
       })()}
 
+      {/* Collated signals — one place to open and read every hazard/regroup/
+          pit-stop that's been raised, so a missed toast (or no push) isn't a
+          missed signal. Collapsed by default; the count shows there's activity. */}
+      {signalLog.length > 0 && (
+        <Card padding="var(--space-sm) var(--space-md)">
+          <button
+            type="button"
+            aria-expanded={signalsExpanded}
+            onClick={() => setSignalsExpanded((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "var(--space-sm)",
+              width: "100%",
+              minHeight: 44,
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              color: "var(--color-text-primary)",
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", fontSize: "var(--text-body-size)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
+              <Icon name="signal" size={18} />
+              Signals
+              <span style={{ color: "var(--color-text-secondary)", fontWeight: "var(--weight-regular)" as unknown as number }}>({signalLog.length})</span>
+            </span>
+            <span style={{ display: "inline-flex", transform: signalsExpanded ? "rotate(90deg)" : "none", transition: "transform .15s", color: "var(--color-text-tertiary)" }}>
+              <Icon name="chevron-right" size={16} />
+            </span>
+          </button>
+          {signalsExpanded && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", marginTop: "var(--space-sm)" }}>
+              {signalLog.map((e) => {
+                const meta = SIGNAL_META[e.type];
+                const who = e.user_id === user?.id ? "You" : nameByUserId.get(e.user_id) || "A rider";
+                return (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+                    <span
+                      aria-hidden
+                      style={{ flex: "none", width: 32, height: 32, borderRadius: "var(--radius-full)", display: "grid", placeItems: "center", background: meta?.color ?? "var(--color-surface-3)", color: "var(--color-text-on-accent)" }}
+                    >
+                      <Icon name={meta?.icon ?? "signal"} size={16} />
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: "var(--text-body-size)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <strong>{who}</strong> · {SIGNAL_LABEL[e.type as keyof typeof SIGNAL_LABEL] ?? e.type}
+                    </span>
+                    <span style={{ flex: "none", fontSize: "var(--text-caption)", color: "var(--color-text-tertiary)" }}>
+                      {relativeTime(e.created_at)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      )}
+
 
       {/* Lead-only tools: a rider viewing the same map doesn't seed dummy
           riders or own the invite QR. */}
@@ -920,6 +1138,30 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           End ride
         </Button>
       )}
+
+      {/* Roster + signal picker — portalled to <body> so the fixed scrim isn't
+          trapped under the map/TabBar stacking. Join QR is lead-only. */}
+      {detailsOpen &&
+        createPortal(
+          <RideDetailsModal
+            riders={riders}
+            code={isLeader ? ride.code : null}
+            qr={isLeader ? qr : null}
+            onFocusRider={focusRider}
+            onClose={() => setDetailsOpen(false)}
+          />,
+          document.body,
+        )}
+      {signalOpen && user &&
+        createPortal(
+          <SignalModal
+            rideId={ride.id}
+            senderId={user.id}
+            voiceOn={voiceOn}
+            onClose={() => setSignalOpen(false)}
+          />,
+          document.body,
+        )}
     </div>
   );
 }

@@ -960,7 +960,9 @@ export async function getMyRides(userId: string): Promise<MyRideSummary[]> {
   const roleByRideId = new Map(memberships.map((m) => [m.ride_id, m.role]));
 
   const [{ data: rides, error: ridesError }, { data: allMembers, error: countError }] = await Promise.all([
-    supabase.from("rides").select("*").in("id", rideIds).order("created_at", { ascending: false }),
+    // Demo rides (the /ride/demo simulation) aren't real rides the user is
+    // part of, so they never appear in "Your rides".
+    supabase.from("rides").select("*").in("id", rideIds).eq("is_demo", false).order("created_at", { ascending: false }),
     supabase.from("ride_members").select("ride_id").in("ride_id", rideIds),
   ]);
   if (ridesError) throw ridesError;

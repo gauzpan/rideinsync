@@ -10,15 +10,14 @@ import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { IconButton } from "../components/ui/IconButton";
 import { Icon } from "../components/ui/Icon";
-import { RoleBadge, toBadgeRole } from "../components/ui/RoleBadge";
 import { RideMap } from "../components/liveops/RideMap";
+import { MAP_OVERLAY_BUTTON } from "../components/liveops/overlayStyles";
+import { RideDetailsModal, SignalModal } from "../components/liveops/RideActionModals";
 import { useRideChannel } from "../hooks/useRideChannel";
 import { ensureGuestSession } from "../lib/session";
 import { createDemoRide, DEMO_ROUTE, SIM_RIDER_NAMES } from "../lib/demoRide";
 import { RideSimulator } from "../lib/simulator";
 import { supabase } from "../lib/supabase";
-import { SIGNAL_LABEL, SIGNAL_TIER, SIGNAL_TYPES, sendRideSignal, type SignalKind } from "../lib/signals";
-import { playSignalTone } from "../lib/earcon";
 import {
   useVoiceHeardPulse,
   useVoiceActivateListener,
@@ -33,36 +32,72 @@ import {
 import { usePersistedToggle } from "../lib/preference";
 import { VOICE_COMMANDS_KEY, isVoiceCommandSupported } from "../lib/voiceCommands";
 import { usePushNotifications } from "../lib/pushNotifications";
-import type { GroupStatus, RiderOnMap } from "../lib/models";
 import QRCode from "qrcode";
 
 // Session-level singleton so React StrictMode's double-mount (and navigation
 // back to the page) doesn't spawn a second ride or a second simulator.
-type DemoState = { rideId: string; code: string; leaderId: string; sim: RideSimulator };
+// `sim` is null when a cached ride is reused — no simulator is started, so the
+// pack shows its last-known positions rather than moving (see the guardrail).
+type DemoState = { rideId: string; code: string; leaderId: string; sim: RideSimulator | null };
 let demoPromise: Promise<DemoState> | null = null;
+
+// Guardrail against burning Supabase's anonymous sign-in rate limit: seeding a
+// fresh demo mints ~8 anonymous sessions (one per simulated rider), so a reload
+// per test run adds up fast. We cache the created ride and, on the next load,
+// reuse it (its riders are already in the DB) instead of re-seeding — but only
+// briefly, and only when it's still an active demo owned by this same session.
+const DEMO_CACHE_KEY = "demo.ride";
+const DEMO_CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2h — long enough for a test session, short enough to stay fresh
+
+type CachedDemo = { rideId: string; code: string; leaderId: string; ts: number };
+
+function readCachedDemo(): CachedDemo | null {
+  try {
+    const raw = localStorage.getItem(DEMO_CACHE_KEY);
+    if (!raw) return null;
+    const c = JSON.parse(raw) as CachedDemo;
+    if (!c?.rideId || Date.now() - c.ts > DEMO_CACHE_TTL_MS) return null;
+    return c;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedDemo(d: Omit<CachedDemo, "ts">): void {
+  try {
+    localStorage.setItem(DEMO_CACHE_KEY, JSON.stringify({ ...d, ts: Date.now() }));
+  } catch {
+    /* private mode / storage disabled — just skip the reuse optimization */
+  }
+}
+
 function getDemo(): Promise<DemoState> {
   demoPromise ??= (async () => {
     const leaderId = await ensureGuestSession("Ride Captain");
+
+    // Reuse a recent demo ride we already seeded, rather than spawning a new
+    // pack of anonymous sim riders. Gated on it still being an active demo
+    // owned by this session (a different/expired user falls through to fresh).
+    const cached = readCachedDemo();
+    if (cached && cached.leaderId === leaderId) {
+      const { data: ride } = await supabase
+        .from("rides")
+        .select("id, code, status, is_demo")
+        .eq("id", cached.rideId)
+        .eq("is_demo", true)
+        .eq("status", "active")
+        .maybeSingle();
+      if (ride) return { rideId: ride.id, code: ride.code, leaderId, sim: null };
+    }
+
     const { rideId, code } = await createDemoRide(supabase, leaderId);
     const sim = new RideSimulator(rideId, code, DEMO_ROUTE);
     await sim.start(SIM_RIDER_NAMES);
+    writeCachedDemo({ rideId, code, leaderId });
     return { rideId, code, leaderId, sim };
   })();
   return demoPromise;
 }
-
-const STATUS_LABEL: Record<GroupStatus, string> = {
-  intact: "In sync",
-  behind: "Behind",
-  stopped: "Stopped",
-  stale: "No signal",
-};
-const STATUS_COLOR: Record<GroupStatus, string> = {
-  intact: "var(--color-role-lead)",
-  behind: "var(--color-role-sweep)",
-  stopped: "var(--color-danger)",
-  stale: "var(--color-text-tertiary)",
-};
 
 /** Web Speech API error codes, translated for someone who just said "sync"
  *  and nothing happened. Null means "not worth showing" (expected/benign). */
@@ -86,6 +121,7 @@ function describeVoiceError(code: string): string | null {
 }
 
 export function DemoControlsPage() {
+  const navigate = useNavigate();
   const [demo, setDemo] = useState<DemoState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
@@ -231,18 +267,29 @@ export function DemoControlsPage() {
           gap: "var(--space-sm)",
         }}
       >
-        <span
-          style={{
-            background: "rgba(20,20,22,.85)",
-            color: "var(--color-text-primary)",
-            padding: "8px 14px",
-            borderRadius: "var(--radius-full)",
-            fontWeight: 600,
-            fontSize: 14,
-          }}
-        >
-          {counts.inSync}/{counts.total} in sync
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+          {/* Explicit exit from the demo (the tab bar is the other way out) —
+              lands on home, which reopens the tour if it's still unseen. */}
+          <IconButton
+            name="chevron-left"
+            size={44}
+            variant="surface"
+            onClick={() => navigate("/home")}
+            aria-label="Close demo ride"
+          />
+          <span
+            style={{
+              background: "rgba(20,20,22,.85)",
+              color: "var(--color-text-primary)",
+              padding: "8px 14px",
+              borderRadius: "var(--radius-full)",
+              fontWeight: 600,
+              fontSize: 14,
+            }}
+          >
+            {counts.inSync}/{counts.total} in sync
+          </span>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
           {voiceHeard && (
             <span
@@ -347,11 +394,11 @@ export function DemoControlsPage() {
           gap: "var(--space-sm)",
         }}
       >
-        <Button fullWidth={false} variant="secondary" onClick={() => setDetailsOpen(true)}>
+        <Button fullWidth={false} variant="secondary" style={MAP_OVERLAY_BUTTON} onClick={() => setDetailsOpen(true)}>
           <Icon name="users" size={20} />
           Details
         </Button>
-        <Button fullWidth={false} variant="secondary" onClick={() => setSignalOpen(true)}>
+        <Button fullWidth={false} variant="secondary" style={MAP_OVERLAY_BUTTON} onClick={() => setSignalOpen(true)}>
           <Icon name="signal" size={20} />
           Signal
         </Button>
@@ -369,229 +416,13 @@ export function DemoControlsPage() {
         createPortal(
           <SignalModal
             rideId={demo.rideId}
-            leaderId={demo.leaderId}
+            senderId={demo.leaderId}
             voiceOn={voiceOn}
             onClose={() => setSignalOpen(false)}
           />,
           document.body,
         )}
     </div>
-  );
-}
-
-// FLAGGED ADDITION: the design system ships no dialog primitive, only
-// full-screen sheets (see QrScannerSheet/SignInSheet) — a real gap for a
-// quick-glance action like this that shouldn't take over the whole screen.
-// Centered card over a dim scrim; a tap on the scrim itself closes it.
-function CenterModal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 200,
-        background: "rgba(0,0,0,0.6)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "var(--gutter)",
-      }}
-    >
-      <Card
-        elevated
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "100%",
-          maxWidth: 360,
-          maxHeight: "80vh",
-          display: "flex",
-          flexDirection: "column",
-          padding: 0,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "var(--space-md) var(--space-md) 0",
-          }}
-        >
-          <span style={{ fontSize: "var(--text-h2)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
-            {title}
-          </span>
-          <IconButton name="x" size={40} onClick={onClose} aria-label={`Close ${title.toLowerCase()}`} />
-        </div>
-        <div style={{ overflowY: "auto", padding: "var(--space-md)" }}>{children}</div>
-      </Card>
-    </div>
-  );
-}
-
-function RideDetailsModal({
-  riders,
-  code,
-  qr,
-  onClose,
-}: {
-  riders: RiderOnMap[];
-  code: string;
-  qr: string | null;
-  onClose: () => void;
-}) {
-  return (
-    <CenterModal title="Ride details" onClose={onClose}>
-      <p style={{ fontSize: "var(--text-label)", color: "var(--color-text-secondary)", margin: "0 0 var(--space-sm)" }}>
-        Riders
-      </p>
-      {riders.length === 0 ? (
-        <p style={{ color: "var(--color-text-tertiary)" }}>No riders yet…</p>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-          {riders.map((r) => (
-            <div
-              key={r.member.user_id}
-              style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}
-            >
-              <span
-                aria-hidden
-                style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS_COLOR[r.status], flex: "none" }}
-              />
-              <span style={{ flex: 1, fontSize: "var(--text-body-size)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {r.profile.display_name}
-              </span>
-              <span style={{ fontSize: "var(--text-caption)", color: STATUS_COLOR[r.status] }}>
-                {STATUS_LABEL[r.status]}
-              </span>
-              <RoleBadge role={toBadgeRole(r.member.role)} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      <Card glow style={{ textAlign: "center", marginTop: "var(--space-lg)" }}>
-        <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Scan to join as a real rider</div>
-        {qr && <img src={qr} alt="Join QR" style={{ width: 160, height: 160, marginTop: 8, borderRadius: 12 }} />}
-        <div style={{ fontFamily: "var(--font-brand)", letterSpacing: 2, fontSize: 20, marginTop: 4 }}>{code}</div>
-      </Card>
-    </CenterModal>
-  );
-}
-
-function SignalModal({
-  rideId,
-  leaderId,
-  voiceOn,
-  onClose,
-}: {
-  rideId: string;
-  leaderId: string;
-  voiceOn: boolean;
-  onClose: () => void;
-}) {
-  const navigate = useNavigate();
-  const [sending, setSending] = useState<SignalKind | null>(null);
-  const [sentKind, setSentKind] = useState<SignalKind | null>(null);
-
-  async function sendSignal(kind: SignalKind) {
-    // SOS is the one signal that isn't a fire-and-forget event: it opens the
-    // real confirm + location-tracking flow, so it's the only way to raise
-    // one anywhere in the app.
-    if (kind === "sos") {
-      onClose();
-      navigate("/sos");
-      return;
-    }
-    setSending(kind);
-    setSentKind(null);
-    // Send-confirmation tone — fired synchronously inside the click handler,
-    // before the `await` below. AudioContext.resume() only unlocks within a
-    // user gesture's call stack; once we cross a real network round-trip
-    // (the insert below), the browser's activation window has expired and
-    // the tone silently no-ops. Distinct from useRideSignalListener's
-    // receive-side tone in AppLayout (which every *other* rider hears,
-    // tier-matched the same way).
-    playSignalTone(SIGNAL_TIER[kind]);
-    try {
-      await sendRideSignal(rideId, leaderId, kind, `Lead signalled ${kind}`);
-      setSentKind(kind);
-    } finally {
-      setSending(null);
-    }
-  }
-
-  return (
-    <CenterModal title="Signal" onClose={onClose}>
-      {voiceOn && (
-        <p
-          style={{
-            fontSize: "var(--text-caption)",
-            color: "var(--color-text-tertiary)",
-            margin: "0 0 var(--space-md)",
-          }}
-        >
-          Say a name below to send it hands-free.
-        </p>
-      )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--space-md)" }}>
-        {SIGNAL_TYPES.map(({ kind, icon, color }) => (
-          <button
-            key={kind}
-            type="button"
-            onClick={() => void sendSignal(kind)}
-            disabled={sending !== null}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "var(--space-xs)",
-              background: "var(--color-surface-3)",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-md) var(--space-xs)",
-              cursor: sending !== null ? "not-allowed" : "pointer",
-              fontFamily: "var(--font-ui)",
-              opacity: sending !== null && sending !== kind ? 0.5 : 1,
-            }}
-          >
-            <span
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: "var(--radius-full)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: color,
-                color: "var(--color-text-on-accent)",
-              }}
-            >
-              <Icon name={icon} size={24} />
-            </span>
-            <span style={{ fontSize: "var(--text-label)", color: "var(--color-text-primary)", fontWeight: 600 }}>
-              {sending === kind ? "Sending…" : SIGNAL_LABEL[kind]}
-            </span>
-          </button>
-        ))}
-      </div>
-      {sentKind && (
-        <p style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-label)", textAlign: "center", margin: "var(--space-md) 0 0" }}>
-          {SIGNAL_LABEL[sentKind]} sent
-        </p>
-      )}
-    </CenterModal>
   );
 }
 
