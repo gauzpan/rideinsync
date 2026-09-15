@@ -6,17 +6,29 @@ import { HOME } from "../routes";
 import { useSession } from "../lib/auth";
 import { useActiveRide } from "../lib/activeRide";
 import {
+  cancelSosAlert,
   closeSos,
+  diffResponders,
   sendSos,
+  skipPendingLocationRead,
   startSosTracking,
   staySos,
   stopSosTracking,
   useSosResponses,
+  type Responder,
 } from "../lib/sos";
 import { playSignalTone } from "../lib/earcon";
 import { track } from "../lib/analytics";
+import { vibrateForTier } from "../lib/haptics";
+import type { SignalTier } from "../lib/signals";
 
-type Phase = "no-ride" | "confirm" | "countdown" | "sending" | "sent" | "error";
+// A responder arriving is reassuring, not an emergency, so it uses the High
+// "attention" tier (a descending two-note chime) rather than the Critical
+// siren the raiser already heard on send. One tier drives both the earcon and
+// the haptic pulse, per signals_haptics_plan.md §7e.
+const RESPONSE_TIER: SignalTier = "high";
+
+type Phase = "no-ride" | "confirm" | "countdown" | "sending" | "sent" | "cancelled" | "error";
 
 const headingStyle = {
   margin: "0 0 var(--space-sm)",
@@ -38,7 +50,7 @@ export function SosPage() {
   const location = useLocation();
   const auto = Boolean((location.state as { auto?: boolean } | null)?.auto);
   const { userId } = useSession();
-  const { rideId, loading } = useActiveRide(userId);
+  const { rideId, loading } = useActiveRide(userId, location.pathname);
 
   const [phase, setPhase] = useState<Phase>(auto ? "countdown" : "confirm");
   const [count, setCount] = useState(COUNTDOWN_FROM);
@@ -46,11 +58,45 @@ export function SosPage() {
   const [hasLocation, setHasLocation] = useState(true);
   // Responders the rider has acknowledged with "Stay"; a later reach re-prompts.
   const [stayedIds, setStayedIds] = useState<Set<string>>(new Set());
+  // Inline "Cancel your SOS request?" confirm, shown over the sent screen.
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  // After 1.5 s in the "sending" phase, offer "Send now without location" so a
+  // rider with GPS off is never stuck waiting on the location read.
+  const [showSendNow, setShowSendNow] = useState(false);
 
   const responsesByAlert = useSosResponses(phase === "sent" ? rideId : null);
   const responders = alertId ? responsesByAlert[alertId] ?? [] : [];
   const reachedPending = responders.filter((r) => r.reachedAt && !stayedIds.has(r.id));
   const prompt = reachedPending[0] ?? null;
+
+  // Alert the raiser (earcon + haptic) when a responder newly appears or newly
+  // reaches them. Seed from a ref so an already-populated first render (e.g.
+  // returning to the page) produces no diff and no sound — it only fires on a
+  // real transition.
+  const seenResponders = useRef<Responder[] | null>(null);
+  useEffect(() => {
+    const prev = seenResponders.current;
+    seenResponders.current = responders;
+    if (prev === null) return; // baseline capture — never fire on initial load
+    const { newOnTheWay, newReached } = diffResponders(prev, responders);
+    if (newOnTheWay.length === 0 && newReached.length === 0) return;
+    console.info("[sos] responder transition", {
+      newOnTheWay: newOnTheWay.length,
+      newReached: newReached.length,
+    });
+    playSignalTone(RESPONSE_TIER);
+    vibrateForTier(RESPONSE_TIER);
+  }, [responders]);
+
+  // Reveal the "Send now without location" button 1.5 s into the sending phase.
+  useEffect(() => {
+    if (phase !== "sending") {
+      setShowSendNow(false);
+      return;
+    }
+    const id = window.setTimeout(() => setShowSendNow(true), 1500);
+    return () => window.clearTimeout(id);
+  }, [phase]);
 
   // Fall into no-ride only before any action has been taken.
   useEffect(() => {
@@ -135,6 +181,22 @@ export function SosPage() {
     navigate(HOME); // unmount clears tracking interval + realtime channel
   }
 
+  async function onConfirmCancel() {
+    setConfirmCancel(false);
+    if (!alertId || !rideId || !userId) {
+      // Nothing to cancel server-side; just leave the SOS screen.
+      setPhase("cancelled");
+      return;
+    }
+    try {
+      await cancelSosAlert(alertId, rideId, userId);
+      setPhase("cancelled");
+    } catch {
+      // RPC failed → the SOS is NOT cancelled. Stay on the sent screen so the
+      // rider can retry; the failure is logged in cancelSosAlert.
+    }
+  }
+
   if (phase === "no-ride") {
     return (
       <Card>
@@ -167,10 +229,18 @@ export function SosPage() {
   if (phase === "sending") {
     return (
       <Card>
-        <h1 style={headingStyle}>Sending your location…</h1>
-        <Button variant="danger" loading>
-          Send SOS
-        </Button>
+        <h1 style={headingStyle}>Sending SOS…</h1>
+        <p style={bodyStyle}>Getting your location (a few seconds)…</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+          <Button variant="danger" loading>
+            Send SOS
+          </Button>
+          {showSendNow && (
+            <Button variant="secondary" onClick={() => skipPendingLocationRead()}>
+              Send now without location
+            </Button>
+          )}
+        </div>
       </Card>
     );
   }
@@ -222,8 +292,49 @@ export function SosPage() {
           </Card>
         )}
 
+        {confirmCancel ? (
+          <Card
+            elevated
+            role="alertdialog"
+            aria-label="Cancel your SOS request?"
+            style={{
+              margin: "var(--space-md) 0 0",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-sm)",
+            }}
+          >
+            <p style={{ ...bodyStyle, margin: 0 }}>Cancel your SOS request?</p>
+            <Button variant="danger" onClick={() => void onConfirmCancel()}>
+              Yes, cancel
+            </Button>
+            <Button variant="secondary" onClick={() => setConfirmCancel(false)}>
+              Keep SOS
+            </Button>
+          </Card>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+            <Button variant="secondary" onClick={() => setConfirmCancel(true)}>
+              Cancel SOS
+            </Button>
+            <Button variant="secondary" onClick={goHome}>
+              Back to home
+            </Button>
+          </div>
+        )}
+      </Card>
+    );
+  }
+
+  if (phase === "cancelled") {
+    return (
+      <Card>
+        <h1 style={headingStyle}>SOS cancelled</h1>
+        <p style={bodyStyle}>
+          The group and your emergency contact have been told.
+        </p>
         <Button variant="secondary" onClick={goHome}>
-          Back to home
+          Back to ride
         </Button>
       </Card>
     );

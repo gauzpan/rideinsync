@@ -10,12 +10,15 @@ import { VoicePermissionSheet } from "../components/VoicePermissionSheet";
 import { usePersistedToggle } from "../lib/preference";
 import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
 import { track } from "../lib/analytics";
+import { TOUR_WELCOME_KEY, TOUR_HOME_NUDGE_KEY } from "../lib/tour";
 
 export function HomePage() {
   const navigate = useNavigate();
   const { user, profile, isGuest, signInWithGoogle } = useAuth();
   const { activeRide, completeness, stats } = useHomeData();
   const [voiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
+  const [tourSeen] = usePersistedToggle(TOUR_WELCOME_KEY, false);
+  const [homeNudgeSeen, setHomeNudgeSeen] = usePersistedToggle(TOUR_HOME_NUDGE_KEY, false);
   const [showVoiceSheet, setShowVoiceSheet] = useState(false);
   const [googlePending, setGooglePending] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
@@ -146,6 +149,50 @@ export function HomePage() {
         </button>
       )}
 
+      {/* 3c. Post-tour replay nudge — one-time, only once the welcome tour is
+          done and there's no active ride to focus on. Dismiss persists via
+          TOUR_HOME_NUDGE_KEY so it never nags. */}
+      {tourSeen && !activeRide && !homeNudgeSeen && (
+        <Card padding="var(--space-md)">
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+            <div
+              style={{
+                flex: "none",
+                width: 40,
+                height: 40,
+                borderRadius: "var(--radius-full)",
+                background: "color-mix(in srgb, var(--color-accent) 16%, transparent)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--color-accent)",
+              }}
+            >
+              <Icon name="compass" size={20} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: "var(--text-body-size)", lineHeight: "22px", fontWeight: "var(--weight-semibold)" as unknown as number, color: "var(--color-text-primary)" }}>
+                New here?
+              </div>
+              <div style={{ marginTop: "var(--space-2xs)", fontSize: "var(--text-label)", fontWeight: "var(--weight-medium)" as unknown as number, color: "var(--color-text-secondary)" }}>
+                Replay the app tour anytime.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setHomeNudgeSeen(true)}
+              aria-label="Dismiss"
+              style={{ flex: "none", border: "none", background: "transparent", color: "var(--color-text-tertiary)", cursor: "pointer", padding: 4, minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+            >
+              <Icon name="x" size={18} />
+            </button>
+          </div>
+          <Button variant="secondary" onClick={() => navigate("/welcome")} style={{ marginTop: "var(--space-sm)" }}>
+            Replay tour
+          </Button>
+        </Card>
+      )}
+
       {/* 4. Stats strip — live from ride_members + ride_summaries for a real
           account. A guest session has no durable identity to aggregate
           against (it can vanish on sign-out), so the numbers are masked and
@@ -209,6 +256,7 @@ export function HomePage() {
       <p style={{ margin: 0, fontSize: "var(--text-label)", color: "var(--color-text-tertiary)" }}>
         Live location only shares while a ride is active.
       </p>
+
     </div>
   );
 }

@@ -205,6 +205,10 @@ export function CreateRidePage() {
   const [error, setError] = useState<string | null>(null);
   const [googlePending, setGooglePending] = useState(false);
   const [locating, setLocating] = useState(false);
+  // Feedback for the "use my current location" button, shown right below it
+  // (the shared `error` renders far down near submit, so a failure there was
+  // invisible next to the button).
+  const [locationError, setLocationError] = useState<string | null>(null);
   // Monotonic id for stop rows. A ref (not a module-level counter) so a
   // module reload with preserved component state (Vite HMR) can never reuse
   // a key — duplicate keys made updateStop/removeStop hit every matching row
@@ -213,13 +217,48 @@ export function CreateRidePage() {
 
   async function useCurrentLocation() {
     setLocating(true);
-    setError(null);
+    setLocationError(null);
     try {
-      await Geolocation.requestPermissions();
-      const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+      // requestPermissions can reject in some web contexts; getCurrentPosition
+      // prompts anyway, so a rejection here must not abort the whole flow
+      // (mirrors useGeolocation).
+      try {
+        await Geolocation.requestPermissions();
+      } catch {
+        /* ignore — fall through to getCurrentPosition, which prompts on web */
+      }
+      // High-accuracy first, with a longer budget + a cached fix allowed (cold
+      // GPS locks routinely take >10s indoors / on first use). If that times
+      // out or the provider is unavailable, retry with a coarse network fix —
+      // a rough start point beats none.
+      let pos;
+      try {
+        pos = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 20000,
+          maximumAge: 30000,
+        });
+      } catch {
+        pos = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: false,
+          timeout: 15000,
+          maximumAge: 60000,
+        });
+      }
       setStartPoint({ label: "Current location", lat: pos.coords.latitude, lng: pos.coords.longitude });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't get your current location.");
+      const code = typeof e === "object" && e !== null ? (e as { code?: unknown }).code : undefined;
+      setLocationError(
+        code === 1
+          ? "Location permission denied. Enable location access for the app, then try again."
+          : code === 2
+            ? "No GPS fix right now (weak signal or indoors). Move outdoors and try again."
+            : code === 3
+              ? "GPS timed out. Check location is on, then try again."
+              : e instanceof Error && e.message
+                ? e.message
+                : "Couldn't get your current location.",
+      );
     } finally {
       setLocating(false);
     }
@@ -510,6 +549,18 @@ useEffect(() => {
       >
         {locating ? "Getting your location…" : "◎ Use my current location"}
       </button>
+      {locationError && (
+        <p
+          role="alert"
+          style={{
+            margin: "calc(-1 * var(--space-sm)) 0 var(--space-md)",
+            color: "var(--color-role-sweep)",
+            fontSize: "var(--text-label)",
+          }}
+        >
+          {locationError}
+        </p>
+      )}
       <PlaceAutocomplete
         label="Destination"
         required

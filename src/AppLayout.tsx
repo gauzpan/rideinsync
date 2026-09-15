@@ -5,14 +5,15 @@ import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
 import { Loader } from "./components/ui/Loader";
-import { SosAlertStack } from "./components/SosAlertStack";
-import { SosButton, shouldShowSos } from "./components/SosButton";
+import { SosStrip } from "./components/SosStrip";
+import { SosButton, shouldShowSos, SOS_BUTTON_SIZE, SOS_BUTTON_FOOTPRINT } from "./components/SosButton";
 import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
 import { consumePendingJoinCode, consumePendingGroupJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
-import { canResolveSos, markReached, resolveSosAlert, respondToSos, useMyRideRole, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
+import { buildOwnSosStatusShort, canResolveSos, markReached, resolveSosAlert, respondToSos, useMyRideRole, useOwnSosAlert, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
 import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
 import { usePersistedToggle } from "./lib/preference";
+import { TOUR_WELCOME_KEY } from "./lib/tour";
 import { useVoiceCommand, VOICE_COMMANDS_KEY } from "./lib/voiceCommands";
 import {
   publishVoiceHeard,
@@ -37,19 +38,47 @@ const VOICE_ONBOARDING_KEY = "voice.onboarding.seen";
 // stays behind the sign-in gate below.
 const PUBLIC_PATHS = new Set(["/", "/ride/create", "/create"]);
 
-// Floating-SOS footprint above the tab bar, read (read-only) from SosButton.tsx:
-// the button sits `var(--space-md)` above the nav+safe-area and is
-// SOS_BUTTON_SIZE px tall. When it is shown, the scrolling content wrapper must
-// clear that whole footprint (plus a normal `var(--space-lg)` gap) so a control
-// at the very bottom of a page can always scroll clear of the button instead of
-// sitting under it. When SOS is hidden the padding is unchanged — just the nav
-// clearance. Pure seam so the arithmetic is unit-tested.
-export const SOS_BUTTON_SIZE = 60;
+// Floating-SOS footprint above the tab bar — SOS_BUTTON_SIZE and the derived
+// SOS_BUTTON_FOOTPRINT are owned by SosButton.tsx (single source of truth) and
+// re-exported here for the existing footprint tests. When the button is shown,
+// the scrolling content wrapper must clear that whole footprint (plus a normal
+// `var(--space-lg)` gap) so a control at the very bottom of a page can always
+// scroll clear of the button instead of sitting under it. When SOS is hidden the
+// padding is unchanged — just the nav clearance. Pure seam so the arithmetic is
+// unit-tested.
+export { SOS_BUTTON_SIZE, SOS_BUTTON_FOOTPRINT };
 export function contentBottomPadding(showSos: boolean): string {
   const navClearance = "var(--tabbar-height) + env(safe-area-inset-bottom)";
   return showSos
-    ? `calc(${navClearance} + var(--space-md) + ${SOS_BUTTON_SIZE}px + var(--space-lg))`
+    ? `calc(${navClearance} + ${SOS_BUTTON_FOOTPRINT} + var(--space-lg))`
     : `calc(${navClearance} + var(--space-lg))`;
+}
+
+// The fixed alert container (own-SOS bar + incoming SosAlertStack) is anchored
+// just above the tab bar and paints at z-index 41 — one above the z-40 floating
+// SOS button. Full-width, it would otherwise be drawn ACROSS the bottom-right
+// button and swallow its taps. When the button is shown we lift the container's
+// bottom edge ABOVE the button's footprint (+ a small gap) so the button keeps
+// its corner and the alerts stack upward from above it, never intersecting.
+// When the button is hidden the container keeps its plain nav clearance.
+export function alertContainerBottom(showSos: boolean): string {
+  const navClearance = "var(--tabbar-height) + env(safe-area-inset-bottom)";
+  return showSos
+    ? `calc(${navClearance} + ${SOS_BUTTON_FOOTPRINT} + var(--space-sm))`
+    : `calc(${navClearance} + var(--space-sm))`;
+}
+
+// Pure decision for a "sync SOS" voice command: where to navigate. Opening /sos
+// with { auto: true } makes SosPage start its 5s countdown + auto-send instead
+// of sitting in the "confirm" phase waiting for a tap. When the rider is already
+// on the /sos screen (any /sos* path), there's nothing to do — SosPage owns the
+// flow from there — so this returns null and the caller does nothing extra.
+// Unit-tested seam (voiceSosNavigation) so the decision is checked without a DOM.
+export function voiceSosNavigation(
+  pathname: string,
+): { to: string; state: { auto: true } } | null {
+  if (pathname.startsWith("/sos")) return null;
+  return { to: "/sos", state: { auto: true } };
 }
 export function AppLayout() {
   const { loading, isAuthenticated, user } = useAuth();
@@ -88,10 +117,15 @@ export function AppLayout() {
   const userId = isAuthenticated ? user?.id ?? null : null;
 
   const inApp = isAuthenticated && pathname !== "/";
-  const { rideId } = useActiveRide(inApp ? userId : null);
+  const { rideId } = useActiveRide(inApp ? userId : null, pathname);
 
   const alerts = useSosAlerts(inApp ? rideId : null, userId);
   const responsesByAlert = useSosResponses(inApp ? rideId : null);
+  // The raiser's OWN unresolved alert (useSosAlerts filters it out). Drives a
+  // "help is coming" bar shown to the raiser on every in-app screen but /sos,
+  // which has its own responder list. Hidden on /sos to avoid doubling up.
+  const ownAlert = useOwnSosAlert(inApp ? rideId : null, userId);
+  const showOwnSosBar = Boolean(ownAlert) && pathname !== "/sos";
   const myRole = useMyRideRole(inApp ? rideId : null, userId);
   const canResolve = canResolveSos(myRole);
 
@@ -118,6 +152,24 @@ export function AppLayout() {
         vibrateForTier("critical");
       }
     }
+  }, [alerts]);
+
+  // A brief toast when someone else's SOS this device was showing flips to
+  // cancelled — the card vanishes on its own (sosCardState hides a resolved
+  // alert), so this is just a courtesy stand-down note. Fired once per alert.
+  // An alert only enters `alerts` unresolved (useSosAlerts' initial fetch
+  // filters resolved out), so `cancelled` here is always a real transition.
+  const cancelToastedIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const a of alerts) {
+      if (a.cancelled && !cancelToastedIds.current.has(a.id)) {
+        cancelToastedIds.current.add(a.id);
+        console.info("[sos] cancel toast", { alertId: a.id });
+        showVoiceFeedback(`${a.name} cancelled their SOS`);
+      }
+    }
+    // showVoiceFeedback is a stable hoisted declaration; alerts drives this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alerts]);
 
   function handleRespond(alertId: string) {
@@ -153,6 +205,7 @@ export function AppLayout() {
   // the app by bringing the live ride view to front.
   const [voiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
   const [voiceOnboardingSeen, setVoiceOnboardingSeen] = usePersistedToggle(VOICE_ONBOARDING_KEY, false);
+  const [tourSeen] = usePersistedToggle(TOUR_WELCOME_KEY, false);
   const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
   const voiceFeedbackTimer = useRef<number | null>(null);
 
@@ -172,7 +225,13 @@ export function AppLayout() {
     showVoiceFeedback("Sync heard");
     if (!rideId || !userId) return;
     if (kind === "sos") {
-      navigate("/sos");
+      const nav = voiceSosNavigation(pathname);
+      if (nav) {
+        console.info("[voice] sos command → /sos auto-send");
+        navigate(nav.to, { state: nav.state });
+      } else {
+        console.info("[voice] sos command ignored — already on /sos");
+      }
       return;
     }
     // Fired immediately rather than after the send resolves — a voice
@@ -262,7 +321,17 @@ export function AppLayout() {
   if (isAuthenticated && pathname === "/home" && !voiceOnboardingSeen) {
     return <VoicePermissionSheet onDone={() => setVoiceOnboardingSeen(true)} />;
   }
+  // First-run tour: once the voice sheet is dealt with, a rider who hasn't
+  // seen the tour is sent to /welcome. Gated to /home so it never interrupts a
+  // ride, a join deep-link, or /sos — /welcome clears the flag on exit.
+  if (isAuthenticated && pathname === "/home" && !tourSeen) {
+    return <Navigate to="/welcome" replace />;
+  }
   const showSos = shouldShowSos(inApp, rideId, location.pathname);
+  // The welcome tour is a full-screen immersive route (like VoicePermissionSheet
+  // above): suppress the app chrome so the TabBar/SOS overlays — which render at
+  // the root, above this layout's content wrapper — don't paint over it.
+  const onWelcome = pathname === "/welcome";
 
   return (
     <>
@@ -289,29 +358,49 @@ export function AppLayout() {
         <Outlet />
       </div>
 
-      {inApp && !onRideView && (
+      {inApp && !onWelcome && (showOwnSosBar || !onRideView) && (
         <div
           style={{
             position: "fixed",
             left: 0,
             right: 0,
-            // Above the TabBar.
-            bottom:
-              "calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-sm))",
+            // Above the TabBar, and above the floating SOS button's footprint
+            // when it is shown so the z-41 container never covers the z-40
+            // button (which keeps its bottom-right corner and stays tappable).
+            bottom: alertContainerBottom(showSos),
             zIndex: 41,
             maxWidth: 600,
             margin: "0 auto",
             padding: "0 var(--gutter)",
+            // Own bar + up to 3 stacked rows can grow tall on a short screen;
+            // cap the surface at half the viewport and scroll within it so it
+            // never climbs over the map/content above.
+            maxHeight: "50vh",
+            overflowY: "auto",
           }}
         >
-          <SosAlertStack
-            alerts={alerts}
+          {/* One compact SOS strip replaces the old stack (own-SOS bar +
+              counter row + full cards). Incoming alerts are suppressed on the
+              ride view — LiveOps renders its own embedded SosAlertStack there —
+              so the strip only carries the raiser's own status ("Help is
+              coming · …", tap → /sos) on that screen. Off the ride view it
+              carries incoming ("SOS · … needs help (N)", tap → expand cards)
+              plus the own status as the expanded list's first line. */}
+          <SosStrip
+            alerts={onRideView ? [] : alerts}
             responsesByAlert={responsesByAlert}
             selfUserId={userId}
             canResolve={canResolve}
             onRespond={handleRespond}
             onReached={handleReached}
             onResolve={handleResolve}
+            ownStatus={
+              showOwnSosBar && ownAlert
+                ? buildOwnSosStatusShort(responsesByAlert[ownAlert.id] ?? [])
+                : null
+            }
+            ownResponders={ownAlert ? responsesByAlert[ownAlert.id] ?? [] : []}
+            onViewOwn={() => navigate("/sos")}
           />
         </div>
       )}
@@ -343,8 +432,8 @@ export function AppLayout() {
           </span>
         </div>
       )}
-      {isAuthenticated && <TabBar activeRideId={rideId} />}
-      {showSos && (
+      {isAuthenticated && !onWelcome && <TabBar activeRideId={rideId} />}
+      {showSos && !onWelcome && (
         // Floating corner SOS: shown ONLY to a member of a started ride, and
         // never on the /sos screen itself (that screen has its own Send SOS
         // button). Taps open the /sos confirm screen. z-index 40 keeps it above

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Logo } from "./ui/Logo";
 import { Icon } from "./ui/Icon";
+import { FeedbackButton } from "./FeedbackButton";
 import { useVoiceListening } from "../lib/voiceActivity";
 
 /** Top app bar: the RideInSync logo on the left, and a single account icon on
@@ -68,6 +69,7 @@ export function AccountBar() {
             <Icon name="signal" size={16} />
           </span>
         )}
+        <FeedbackButton context="app" />
         <div ref={rootRef} style={{ position: "relative" }}>
         <button
           type="button"
@@ -175,6 +177,33 @@ export function AccountBar() {
             >
               <Icon name="user" size={18} />
               Profile
+            </button>
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                navigate("/welcome");
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-xs)",
+                width: "100%",
+                minHeight: 44,
+                padding: "var(--space-xs) var(--space-sm)",
+                border: "none",
+                borderRadius: "var(--radius-sm)",
+                background: "transparent",
+                color: "var(--color-text-primary)",
+                fontSize: "var(--text-body-size)",
+                textAlign: "left",
+                cursor: "pointer",
+              }}
+            >
+              <Icon name="compass" size={18} />
+              App tour
             </button>
 
             <div

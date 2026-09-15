@@ -9,22 +9,30 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { APIProvider, AdvancedMarker, Map, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
-import { SIM_RIDER_NAMES } from "../../lib/demoRide";
-import { approveJoinRequest } from "../../services/onboardingService";
 import { closeRide, startRide } from "../../lib/ending";
 import { track } from "../../lib/analytics";
-import { canResolveSos, markReached, resolveSosAlert, respondToSos, sendSos, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
+import { canResolveSos, markReached, resolveSosAlert, respondToSos, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import type { Fix } from "../../hooks/useGeolocation";
 import { supabase } from "../../lib/supabase";
-import type { Ride, RiderOnMap, GroupStatus } from "../../lib/models";
-import type { LatLng } from "../../lib/geo";
+import type { Ride, RiderOnMap, GroupStatus, RideEvent } from "../../lib/models";
+import { SIGNAL_LABEL, SIGNAL_TYPES } from "../../lib/signals";
+import { bearingDeg, haversineMeters, type LatLng } from "../../lib/geo";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Icon } from "../ui/Icon";
 import { IconButton } from "../ui/IconButton";
+import { ROLE_COLOR, ROLE_LABEL } from "../../lib/roles";
 import { SosAlertStack } from "../SosAlertStack";
+import { createPortal } from "react-dom";
+import QRCode from "qrcode";
+import { usePersistedToggle } from "../../lib/preference";
+import { VOICE_COMMANDS_KEY } from "../../lib/voiceCommands";
+import { useVoiceListening, publishSignalModalOpen, useVoiceCommandFiredListener } from "../../lib/voiceActivity";
+import { usePushNotifications } from "../../lib/pushNotifications";
+import { RideDetailsModal, SignalModal } from "./RideActionModals";
+import { MAP_OVERLAY_BUTTON } from "./overlayStyles";
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const MAP_ID = import.meta.env.VITE_MAP_ID;
@@ -42,6 +50,28 @@ const STATUS_COLOR: Record<GroupStatus, string> = {
   stale: "#8A8A8E",
 };
 
+// The non-SOS signal kinds that make up the collated signal log (SOS has its
+// own alert stack), plus their icon/color, keyed for quick lookup.
+const SIGNAL_KINDS = ["hazard", "regroup", "pitstop"];
+const SIGNAL_META = Object.fromEntries(SIGNAL_TYPES.map((t) => [t.kind, t])) as Record<
+  string,
+  (typeof SIGNAL_TYPES)[number]
+>;
+
+/** Short relative time for the signal log ("just now", "3m ago", "2h ago"). */
+function relativeTime(iso: string | null): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const secs = Math.floor((Date.now() - then) / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 function labelOf(pt: Ride["start_point"]): string | null {
   return pt && typeof pt === "object" && "label" in pt ? String((pt as { label?: unknown }).label ?? "") || null : null;
 }
@@ -53,6 +83,44 @@ function pointOf(pt: Ride["start_point"]): LatLng | null {
     if (typeof o.lat === "number" && typeof o.lng === "number") return { lat: o.lat, lng: o.lng };
   }
   return null;
+}
+
+// Google's `overview_path` is decimated for whole-route display: its points are
+// spread thin across the full route, so at nav-mode zoom the line between them
+// visibly cuts across roads. Stitching the per-step paths keeps every road-curve
+// vertex, so the route hugs the road at any zoom level.
+function detailedPath(route: google.maps.DirectionsRoute): LatLng[] {
+  const pts: LatLng[] = [];
+  for (const leg of route.legs ?? []) {
+    for (const step of leg.steps ?? []) {
+      for (const p of step.path ?? []) pts.push({ lat: p.lat(), lng: p.lng() });
+    }
+  }
+  return pts;
+}
+
+// Speed → nav zoom, mirroring how driving apps zoom in when you slow toward a
+// turn and out at highway speed. Control points are (km/h, zoom); we linearly
+// interpolate and clamp. ~z18 stopped (100-200m radius) → ~z14 at 130km/h
+// (a few km radius). `speed` is metres/second (null when the GPS reports none).
+function zoomForSpeed(speedMps: number | null): number {
+  const kmh = Math.max(0, (speedMps ?? 0) * 3.6);
+  const pts: Array<[number, number]> = [
+    [0, 18],
+    [20, 17],
+    [50, 16],
+    [90, 15],
+    [130, 14],
+  ];
+  if (kmh <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (kmh <= pts[i][0]) {
+      const [x0, y0] = pts[i - 1];
+      const [x1, y1] = pts[i];
+      return y0 + ((y1 - y0) * (kmh - x0)) / (x1 - x0);
+    }
+  }
+  return pts[pts.length - 1][1];
 }
 
 export function LiveOps({ ride }: { ride: Ride }) {
@@ -87,15 +155,12 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const routesLib = useMapsLibrary("routes");
   const [route, setRoute] = useState<LatLng[]>([]);
   const [stopPoints, setStopPoints] = useState<LatLng[]>([]);
-  const [populating, setPopulating] = useState(false);
-  const [populated, setPopulated] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const simRef = useRef<RideSimulator | null>(null);
 
   const { user } = useAuth();
-  const { riders, rideStatus, joinToasts, dismissJoinToast } = useRideChannel(ride.id);
+  const { riders, events, rideStatus, joinToasts, dismissJoinToast } = useRideChannel(ride.id);
   const [ending, setEnding] = useState(false);
-  const [sosSending, setSosSending] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [navMode, setNavMode] = useState(false); // heading-up follow-me (rider nav)
   // Any member can tap a rider in the strip below the map to focus them: the
@@ -103,6 +168,22 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // coordinates are shown. Tapping again (or the focused rider going away)
   // clears it.
   const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
+  // Folded rider list under the lead/sweep pills — names are revealed on demand.
+  const [ridersExpanded, setRidersExpanded] = useState(false);
+  // Live-map action controls, mirroring the /ride/demo view: roster + join QR,
+  // the signal picker, OS push notifications, and hands-free voice.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [signalOpen, setSignalOpen] = useState(false);
+  const [qr, setQr] = useState<string | null>(null);
+  const [voiceOn, setVoiceOn] = usePersistedToggle(VOICE_COMMANDS_KEY, false);
+  const micListening = useVoiceListening();
+  const push = usePushNotifications(ride.id, user?.id ?? null);
+  // Collated signal log — so a rider who missed the transient toast (or has no
+  // push) can still open one place and read what's been signalled. `events`
+  // from the channel only carries signals received while open, so we also fetch
+  // recent history once on mount.
+  const [signalsExpanded, setSignalsExpanded] = useState(false);
+  const [signalHistory, setSignalHistory] = useState<RideEvent[]>([]);
   // Bumped on each navigate tap so the map pans+zooms to the rider even if
   // they're already selected (re-centering on demand).
   const [focusNonce, setFocusNonce] = useState(0);
@@ -112,7 +193,58 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     setSelectedRiderId(id);
     setFocusNonce((n) => n + 1);
   }
-  
+
+  // Join QR for the roster modal — the deep link a real rider scans to join.
+  useEffect(() => {
+    const url = `${location.origin}/r?code=${ride.code}`;
+    QRCode.toDataURL(url, { width: 220, margin: 1 }).then(setQr).catch(() => setQr(null));
+  }, [ride.code]);
+
+  // Seed the signal log with recent history (SOS lives in its own alert stack).
+  useEffect(() => {
+    let cancelled = false;
+    void supabase
+      .from("ride_events")
+      .select("*")
+      .eq("ride_id", ride.id)
+      .in("type", ["hazard", "regroup", "pitstop"])
+      .order("created_at", { ascending: false })
+      .limit(30)
+      .then(({ data }) => {
+        if (!cancelled && data) setSignalHistory(data as RideEvent[]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ride.id]);
+
+  // Bare signal names ("hazard", "regroup") are only matched by the global
+  // voice listener while the picker is open — keep it informed, and close the
+  // picker once a spoken choice fires (matching a tap+close).
+  useEffect(() => publishSignalModalOpen(signalOpen), [signalOpen]);
+  useEffect(() => () => publishSignalModalOpen(false), []);
+  useVoiceCommandFiredListener(() => setSignalOpen(false));
+
+  async function handleMicToggle() {
+    if (voiceOn) {
+      setVoiceOn(false);
+      return;
+    }
+    setNote(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      setVoiceOn(true);
+    } catch {
+      setNote("Microphone access was denied.");
+    }
+  }
+
+  async function handlePushToggle() {
+    if (push.subscribed) await push.disable();
+    else await push.enable();
+  }
+
   // Prefer the live status from Realtime, falling back to the prop the page
   // loaded with (Realtime may not have delivered the first row yet).
   const status = rideStatus ?? ride.status;
@@ -202,9 +334,13 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         },
         (result, status) => {
           if (cancelled) return;
-          if (status === "OK" && result?.routes?.[0]) {
-            setRoute(result.routes[0].overview_path.map((p) => ({ lat: p.lat(), lng: p.lng() })));
+          const road = status === "OK" && result?.routes?.[0] ? detailedPath(result.routes[0]) : [];
+          if (road.length > 1) {
+            setRoute(road);
           } else {
+            if (status !== "OK") {
+              console.warn(`[LiveOps] Directions failed (${status}); drawing straight-line fallback.`);
+            }
             setRoute([a, ...waypointCoords, b]); // fall back to a straight polyline
           }
         },
@@ -240,6 +376,76 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
       track("rider_first_fix", { ride_id: ride.id, got_fix: false });
     }
   }, [fix, geoError, notStarted, ended, user, ride.id]);
+  // Stable travel heading for the nav camera + self arrow. Course over ground —
+  // the bearing between consecutive positions — is the reliable signal and is
+  // used first: `coords.heading` is unreliable (null when slow, and on many
+  // Android GPS layers a spurious 0 whenever there's no real bearing, which
+  // pinned navHeading to 0 and left the arrow stuck facing north). We only fall
+  // back to device course when we haven't moved enough to derive a bearing, and
+  // only when it looks real (non-null, non-zero, actually moving). Otherwise we
+  // hold the last good heading, so it never snaps back to north at a stop.
+  const prevFixRef = useRef<LatLng | null>(null);
+  const [navHeading, setNavHeading] = useState(0);
+  useEffect(() => {
+    if (!fix) return;
+    const prev = prevFixRef.current;
+    let next: number | null = null;
+    const moved = prev ? haversineMeters(prev, fix) : 0;
+    if (prev && moved > 5) {
+      next = bearingDeg(prev, fix); // course over ground: our primary signal
+    } else if (fix.heading != null && fix.heading !== 0 && (fix.speed ?? 0) > 1) {
+      next = fix.heading; // device course, only when it looks genuine
+    }
+    if (next != null) setNavHeading(((next % 360) + 360) % 360);
+    // Advance the baseline only once we've actually moved (or on the first fix),
+    // so slow drift accumulates into a real bearing instead of resetting to
+    // near-identical points that never clear the 5m threshold.
+    if (!prev || moved > 5) prevFixRef.current = { lat: fix.lat, lng: fix.lng };
+  }, [fix]);
+
+  // Rendezvous route: before the pack is together, a rider who is elsewhere gets
+  // a blue "go to the lead" route (their position -> the lead's live position) on
+  // top of the green actual route. It disappears once they're within 500m of the
+  // lead (regrouped). Lead never sees it (they are the target).
+  const RENDEZVOUS_HIDE_M = 500;
+  const leadRider = riders.find((r) => r.member.user_id === ride.leader_id);
+  const leadPos: LatLng | null = leadRider?.latest
+    ? { lat: leadRider.latest.lat, lng: leadRider.latest.lng }
+    : null;
+  const gapToLead = fix && leadPos ? haversineMeters({ lat: fix.lat, lng: fix.lng }, leadPos) : null;
+  const showRendezvous =
+    !isLeader && !ended && !!fix && !!leadPos && gapToLead != null && gapToLead > RENDEZVOUS_HIDE_M;
+
+  const [rendezvousRoute, setRendezvousRoute] = useState<LatLng[]>([]);
+  // Last endpoints we routed for; used to throttle Directions calls to ~75m of
+  // movement (either endpoint) instead of one per accepted GPS fix.
+  const lastRvRef = useRef<{ from: LatLng; to: LatLng } | null>(null);
+  useEffect(() => {
+    if (!routesLib || !showRendezvous || !fix || !leadPos) {
+      setRendezvousRoute([]);
+      lastRvRef.current = null;
+      return;
+    }
+    const from = { lat: fix.lat, lng: fix.lng };
+    const to = { lat: leadPos.lat, lng: leadPos.lng };
+    const last = lastRvRef.current;
+    if (last && haversineMeters(last.from, from) < 75 && haversineMeters(last.to, to) < 75) return;
+    lastRvRef.current = { from, to };
+    let cancelled = false;
+    const ds = new routesLib.DirectionsService();
+    ds.route(
+      { origin: from, destination: to, travelMode: google.maps.TravelMode.DRIVING },
+      (result, status) => {
+        if (cancelled) return;
+        const road = status === "OK" && result?.routes?.[0] ? detailedPath(result.routes[0]) : [];
+        setRendezvousRoute(road.length > 1 ? road : [from, to]); // straight-line fallback
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routesLib, showRendezvous, fix?.lat, fix?.lng, leadPos?.lat, leadPos?.lng]);
 
   // M5 hardening (docs/scale-readiness-roadmap.md): the raw .then/.catch ->
   // console.warn here used to silently drop a fix on any ingest failure
@@ -351,41 +557,6 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     }, delay);
   }
 
-  async function simulatePack() {
-    if (route.length < 2) {
-      setNote("Waiting for the route to resolve…");
-      return;
-    }
-    setPopulating(true);
-    setNote(null);
-    try {
-      const sim = new RideSimulator(ride.id, ride.code, route);
-      simRef.current = sim;
-      // Real ride: the leader (current session) approves each sim's join request.
-      await sim.start(SIM_RIDER_NAMES, { approve: (reqId) => approveJoinRequest(reqId) });
-      setPopulated(true);
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : "Couldn't add demo riders.");
-    } finally {
-      setPopulating(false);
-    }
-  }
-
-  async function raiseSos() {
-    if (!user) return;
-    track("sos_confirmed", { ride_id: ride.id, surface: "liveops" });
-    setSosSending(true);
-    setNote(null);
-    try {
-      const res = await sendSos(ride.id, user.id);
-      track("sos_delivered", { ride_id: ride.id, surface: "liveops", has_location: res.hasLocation });
-      setNote("SOS sent to the group.");
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : "Couldn't send SOS.");
-    } finally {
-      setSosSending(false);
-    }
-  }
 
   async function beginRide() {
     setStarting(true);
@@ -435,6 +606,18 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
       ? { lat: selectedRider.latest.lat, lng: selectedRider.latest.lng }
       : null;
 
+  // Your own marker: prefer the live GPS fix, but fall back to your last known
+  // DB position so you never vanish from the map while a fix is pending (GPS
+  // still resolving, weak signal, or a momentary gap). Heading likewise: live
+  // when we have it, otherwise your last broadcast heading.
+  const selfRider = riders.find((r) => r.member.user_id === user?.id) ?? null;
+  const selfPos: LatLng | null = fix
+    ? { lat: fix.lat, lng: fix.lng }
+    : selfRider?.latest
+      ? { lat: selfRider.latest.lat, lng: selfRider.latest.lng }
+      : null;
+  const selfHeading = fix ? navHeading : selfRider?.latest?.heading ?? navHeading;
+
   // Maximizing the map = ride/nav mode (heading-up follow); minimizing = overview.
   function toggleFullscreen() {
     setFullscreen((f) => {
@@ -445,12 +628,31 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   }
   // In nav mode the map rotates to the rider's heading, so markers rotate relative
   // to that (self points "up"); in overview the map is north-up.
-  const mapHeading = navMode ? fix?.heading ?? 0 : 0;
-  const NAV_ZOOM = 17;
+  const mapHeading = navMode ? navHeading : 0;
+  // Speed-adaptive zoom, like a real nav app: tight when slow / stopped (see the
+  // next turn or intersection), widening on the highway for situational awareness.
+  const navZoom = zoomForSpeed(fix?.speed ?? null);
+  // In overview, frame the rendezvous path (rider -> lead) while it's active so
+  // a distant rider can see their way in; otherwise frame the actual route.
+  const fitPath = showRendezvous && rendezvousRoute.length > 1 ? rendezvousRoute : route;
   // In fullscreen the overlay sits under the status bar/notch — clear it.
   const topInset = fullscreen ? "calc(env(safe-area-inset-top, 0px) + 52px)" : 12;
 
   const visibleJoinToasts = joinToasts.filter((t) => t.userId !== user?.id);
+
+  // Collated signal log: live events (received while open) merged with the
+  // fetched history, deduped by id, newest first. This is the "one place" a
+  // rider can open and read what was signalled, with or without push.
+  // `Map` here is the Google Maps component (imported above), so use the JS Map
+  // via globalThis to dedupe/lookup.
+  const signalById = new globalThis.Map<string, RideEvent>();
+  for (const e of [...events, ...signalHistory]) {
+    if (SIGNAL_KINDS.includes(e.type)) signalById.set(e.id, e);
+  }
+  const signalLog = [...signalById.values()].sort((a, b) =>
+    (b.created_at ?? "").localeCompare(a.created_at ?? ""),
+  );
+  const nameByUserId = new globalThis.Map(riders.map((r) => [r.member.user_id, r.profile.display_name] as const));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
@@ -518,9 +720,14 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           style={{ width: "100%", height: "100%" }}
         >
           {route.length > 1 && <RoutePolyline path={route} />}
-          {route.length > 1 && !(navMode && fix) && !selectedPos && <FitToRoute path={route} />}
+          {/* Blue "go to the lead" route, drawn above the green route so the
+              immediate rendezvous path reads first. Hidden within 500m. */}
+          {showRendezvous && rendezvousRoute.length > 1 && (
+            <RoutePolyline path={rendezvousRoute} color="#2E7DFF" weight={6} zIndex={2} />
+          )}
+          {!(navMode && fix) && !selectedPos && fitPath.length > 1 && <FitToRoute path={fitPath} />}
           {navMode && fix && (
-            <FollowCamera target={{ lat: fix.lat, lng: fix.lng }} zoom={NAV_ZOOM} heading={fix.heading ?? 0} tilt={45} />
+            <FollowCamera target={{ lat: fix.lat, lng: fix.lng }} zoom={navZoom} heading={navHeading} tilt={45} />
           )}
           {!navMode && selectedPos && <PanToRider target={selectedPos} nonce={focusNonce} zoom={17} />}
           {stopPoints.map((p, i) => (
@@ -545,12 +752,13 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
               </AdvancedMarker>
             );
           })}
-          {/* Your own arrow, straight from live GPS — no DB round-trip. */}
-          {fix && (
-            <AdvancedMarker position={{ lat: fix.lat, lng: fix.lng }} zIndex={selectedIsSelf ? 1000 : undefined}>
+          {/* Your own arrow: live GPS when available, else your last known
+              position, so you always see yourself (not just the lead). */}
+          {selfPos && (
+            <AdvancedMarker position={selfPos} zIndex={selectedIsSelf ? 1000 : undefined}>
               <ArrowPin
                 color={isLeader ? "#FF453A" : "#34C759"}
-                heading={(fix.heading ?? 0) - mapHeading}
+                heading={selfHeading - mapHeading}
                 name="You"
                 kind={isLeader ? "Lead" : "You"}
                 selected={selectedIsSelf}
@@ -558,6 +766,73 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             </AdvancedMarker>
           )}
         </Map>
+
+        {/* Top overlay: the in-sync tray sits with notifications + voice (the
+            other two actions live at the bottom). Translucent dark pills so the
+            white content stays legible over the light map tiles. */}
+        <div style={{ position: "absolute", top: topInset, left: 12, zIndex: 999, display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            aria-label={`${inSync} of ${total} riders in sync`}
+            style={{ ...MAP_OVERLAY_BUTTON, height: 44, display: "inline-flex", alignItems: "center", padding: "0 14px", borderRadius: 999, color: "#fff", fontSize: 13, fontWeight: 600 }}
+          >
+            {inSync}/{total} in sync
+          </span>
+          <IconButton
+            name="bell"
+            size={44}
+            iconSize={20}
+            variant={push.subscribed ? "accent" : "surface"}
+            style={push.subscribed ? undefined : MAP_OVERLAY_BUTTON}
+            disabled={!push.supported || push.loading}
+            aria-label={
+              !push.supported
+                ? "Notifications aren't supported in this browser"
+                : push.subscribed
+                  ? "Turn off notifications for this ride"
+                  : "Turn on notifications for this ride"
+            }
+            aria-pressed={push.subscribed}
+            onClick={() => void handlePushToggle()}
+          />
+          <IconButton
+            name="mic"
+            size={44}
+            iconSize={20}
+            variant={voiceOn ? "accent" : "surface"}
+            style={voiceOn ? undefined : MAP_OVERLAY_BUTTON}
+            className={voiceOn && micListening ? "mic-listening" : undefined}
+            aria-label={voiceOn ? "Turn off RideInSync voice commands" : "Turn on RideInSync voice commands"}
+            aria-pressed={voiceOn}
+            onClick={() => void handleMicToggle()}
+          />
+        </div>
+
+        {/* Bottom overlay: signal picker + roster (rider details). Signalling
+            only makes sense once the ride is underway, so the signal action is
+            hidden until it's active (a draft has no pack to signal yet, and an
+            ended ride is over); rider details stays available throughout. */}
+        <div style={{ position: "absolute", left: 12, bottom: 12, zIndex: 999, display: "flex", gap: 8 }}>
+          {status === "active" && (
+            <IconButton
+              name="signal"
+              size={44}
+              iconSize={20}
+              style={MAP_OVERLAY_BUTTON}
+              aria-label="Send a signal"
+              title="Send a signal"
+              onClick={() => setSignalOpen(true)}
+            />
+          )}
+          <IconButton
+            name="users"
+            size={44}
+            iconSize={20}
+            style={MAP_OVERLAY_BUTTON}
+            aria-label="Ride details"
+            title="Ride details"
+            onClick={() => setDetailsOpen(true)}
+          />
+        </div>
 
         {/* Map controls: maximize/minimize + orientation (nav heading-up / overview).
             Explicit z-index (above the map's own internal panes/marker layer,
@@ -577,27 +852,9 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           </MapControlButton>
         </div>
 
-        {/* Keep SOS reachable while riding fullscreen. */}
-        {fullscreen && !ended && (
-          <button
-            type="button"
-            onClick={() => void raiseSos()}
-            style={{
-              position: "absolute", top: topInset, left: 12, zIndex: 999, height: 44, padding: "0 18px",
-              borderRadius: 999, border: "none", background: "#FF453A", color: "#fff",
-              fontWeight: 700, fontSize: 15, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,.4)",
-            }}
-          >
-            SOS
-          </button>
-        )}
-
-        <span style={{ position: "absolute", left: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: "#fff", padding: "6px 12px", borderRadius: 999, fontSize: 13, fontWeight: 600 }}>
-          {inSync}/{total} in sync
-        </span>
         {/* GPS status: when the watch fails it never recovers on its own, so
             the pill becomes a retry button that restarts the watch. */}
-        {geoError ? (
+        {geoError && (
           <button
             type="button"
             onClick={retryGps}
@@ -607,67 +864,134 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           >
             GPS unavailable — tap to retry
           </button>
-        ) : (
-          <span style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: fix ? "#34C759" : "#FF9F0A", padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {fix ? `GPS ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}` : "Locating…"}
-          </span>
-        )}
+        ) 
+        // : (
+        //   <span style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(20,20,22,.85)", color: fix ? "#34C759" : "#FF9F0A", padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        //     {fix ? `GPS ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}` : "Locating…"}
+        //   </span>
+        // )
+        }
       </div>
 
       {/* Tappable rider strip — every member can focus any rider to pan the
           map to them, highlight their pin, and read their live coordinates. */}
-      {riders.length > 0 && (
-        <div>
-          <div style={{ display: "flex", gap: "var(--space-xs)", overflowX: "auto", paddingBottom: 4 }}>
-            {riders.map((r) => {
-              const isSelf = r.member.user_id === user?.id;
-              const selected = r.member.user_id === selectedRiderId;
-              const name = isSelf ? "You" : r.profile.display_name || "Rider";
-              return (
-                <button
-                  key={r.member.user_id}
-                  type="button"
-                  title={`Focus ${name} on the map`}
-                  aria-label={`Focus ${name} on the map`}
-                  onClick={() => focusRider(r.member.user_id)}
+      {riders.length > 0 && (() => {
+        const isLeadRole = (r: RiderOnMap) => r.member.role === "leader" || r.member.role === "co_leader";
+        // Lead(s) and sweep(s) always sit first, tagged with their role. The
+        // rest fold into a collapsible strip whose names appear on demand.
+        const priority = riders
+          .filter((r) => isLeadRole(r) || r.member.role === "sweep")
+          .sort((a, b) => (isLeadRole(a) ? 0 : 1) - (isLeadRole(b) ? 0 : 1));
+        const others = riders.filter((r) => !isLeadRole(r) && r.member.role !== "sweep");
+
+        const riderPill = (r: RiderOnMap, opts?: { showName?: boolean }) => {
+          const isSelf = r.member.user_id === user?.id;
+          const selected = r.member.user_id === selectedRiderId;
+          const name = isSelf ? "You" : r.profile.display_name || "Rider";
+          const showName = opts?.showName ?? true;
+          const roleLabel = isLeadRole(r) ? ROLE_LABEL.leader : r.member.role === "sweep" ? ROLE_LABEL.sweep : null;
+          return (
+            <button
+              key={r.member.user_id}
+              type="button"
+              title={`Focus ${name} on the map`}
+              aria-label={roleLabel ? `Focus ${name} (${roleLabel}) on the map` : `Focus ${name} on the map`}
+              onClick={() => focusRider(r.member.user_id)}
+              style={{
+                flex: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "var(--space-2xs)",
+                height: 36,
+                padding: showName ? "0 var(--space-xs) 0 var(--space-sm)" : "0 var(--space-2xs)",
+                minWidth: showName ? undefined : 36,
+                justifyContent: "center",
+                borderRadius: "var(--radius-full)",
+                border: selected ? "1px solid var(--color-accent)" : "1px solid rgba(255,255,255,.14)",
+                background: selected ? "color-mix(in srgb, var(--color-accent) 18%, transparent)" : "var(--color-surface-3)",
+                color: "var(--color-text-primary)",
+                fontSize: "var(--text-label)",
+                fontWeight: "var(--weight-medium)" as unknown as number,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS_COLOR[r.status], flex: "none" }} />
+              {showName && name}
+              {showName && roleLabel && (
+                <span
                   style={{
-                    flex: "none",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "var(--space-2xs)",
-                    height: 36,
-                    padding: "0 var(--space-xs) 0 var(--space-sm)",
+                    padding: "1px 6px",
                     borderRadius: "var(--radius-full)",
-                    border: selected ? "1px solid var(--color-accent)" : "1px solid rgba(255,255,255,.14)",
-                    background: selected ? "color-mix(in srgb, var(--color-accent) 18%, transparent)" : "var(--color-surface-3)",
-                    color: "var(--color-text-primary)",
-                    fontSize: "var(--text-label)",
-                    fontWeight: "var(--weight-medium)" as unknown as number,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
+                    background: ROLE_COLOR[r.member.role],
+                    color: "var(--color-text-on-accent)",
+                    fontSize: 10,
+                    fontWeight: "var(--weight-semibold)" as unknown as number,
+                    lineHeight: 1.4,
                   }}
                 >
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS_COLOR[r.status], flex: "none" }} />
-                  {name}
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 24,
-                      height: 24,
-                      borderRadius: "50%",
-                      background: selected ? "var(--color-accent)" : "var(--color-surface-4)",
-                      color: selected ? "var(--color-text-on-accent)" : "var(--color-text-secondary)",
-                      flex: "none",
-                    }}
-                  >
-                    <Icon name="navigation" size={13} />
-                  </span>
-                </button>
-              );
-            })}
+                  {roleLabel}
+                </span>
+              )}
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  background: selected ? "var(--color-accent)" : "var(--color-surface-4)",
+                  color: selected ? "var(--color-text-on-accent)" : "var(--color-text-secondary)",
+                  flex: "none",
+                }}
+              >
+                <Icon name="navigation" size={13} />
+              </span>
+            </button>
+          );
+        };
+
+        return (
+        <div>
+          {/* Lead/sweep pills and the collapsed "N riders" toggle share one
+              line; the folded riders drop to a second line only when opened. */}
+          <div style={{ display: "flex", gap: "var(--space-xs)", overflowX: "auto", paddingBottom: 4 }}>
+            {priority.map((r) => riderPill(r))}
+            {others.length > 0 && (
+              <button
+                type="button"
+                aria-expanded={ridersExpanded}
+                onClick={() => setRidersExpanded((v) => !v)}
+                style={{
+                  flex: "none",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "var(--space-2xs)",
+                  height: 36,
+                  padding: "0 var(--space-sm)",
+                  borderRadius: "var(--radius-full)",
+                  border: "1px solid rgba(255,255,255,.14)",
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-secondary)",
+                  fontSize: "var(--text-label)",
+                  fontWeight: "var(--weight-medium)" as unknown as number,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span style={{ display: "inline-flex", transform: ridersExpanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}>
+                  <Icon name="chevron-right" size={14} />
+                </span>
+                {others.length} {others.length === 1 ? "rider" : "riders"}
+              </button>
+            )}
           </div>
+          {others.length > 0 && ridersExpanded && (
+            <div style={{ display: "flex", gap: "var(--space-xs)", overflowX: "auto", paddingBottom: 4, marginTop: "var(--space-2xs)" }}>
+              {others.map((r) => riderPill(r, { showName: true }))}
+            </div>
+          )}
           {selectedRider && (
             <div style={{ marginTop: "var(--space-xs)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-sm)", fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>
               <span>
@@ -693,34 +1017,73 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
             </div>
           )}
         </div>
+        );
+      })()}
+
+      {/* Collated signals — one place to open and read every hazard/regroup/
+          pit-stop that's been raised, so a missed toast (or no push) isn't a
+          missed signal. Collapsed by default; the count shows there's activity. */}
+      {signalLog.length > 0 && (
+        <Card padding="var(--space-sm) var(--space-md)">
+          <button
+            type="button"
+            aria-expanded={signalsExpanded}
+            onClick={() => setSignalsExpanded((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "var(--space-sm)",
+              width: "100%",
+              minHeight: 44,
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              color: "var(--color-text-primary)",
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", fontSize: "var(--text-body-size)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
+              <Icon name="signal" size={18} />
+              Signals
+              <span style={{ color: "var(--color-text-secondary)", fontWeight: "var(--weight-regular)" as unknown as number }}>({signalLog.length})</span>
+            </span>
+            <span style={{ display: "inline-flex", transform: signalsExpanded ? "rotate(90deg)" : "none", transition: "transform .15s", color: "var(--color-text-tertiary)" }}>
+              <Icon name="chevron-right" size={16} />
+            </span>
+          </button>
+          {signalsExpanded && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", marginTop: "var(--space-sm)" }}>
+              {signalLog.map((e) => {
+                const meta = SIGNAL_META[e.type];
+                const who = e.user_id === user?.id ? "You" : nameByUserId.get(e.user_id) || "A rider";
+                return (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+                    <span
+                      aria-hidden
+                      style={{ flex: "none", width: 32, height: 32, borderRadius: "var(--radius-full)", display: "grid", placeItems: "center", background: meta?.color ?? "var(--color-surface-3)", color: "var(--color-text-on-accent)" }}
+                    >
+                      <Icon name={meta?.icon ?? "signal"} size={16} />
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: "var(--text-body-size)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <strong>{who}</strong> · {SIGNAL_LABEL[e.type as keyof typeof SIGNAL_LABEL] ?? e.type}
+                    </span>
+                    <span style={{ flex: "none", fontSize: "var(--text-caption)", color: "var(--color-text-tertiary)" }}>
+                      {relativeTime(e.created_at)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
       )}
 
 
       {/* Lead-only tools: a rider viewing the same map doesn't seed dummy
           riders or own the invite QR. */}
-      {isLeader && (
-        <Button
-          variant="secondary"
-          fullWidth={false}
-          loading={populating}
-          disabled={populated}
-          onClick={() => void simulatePack()}
-        >
-          {populated ? "Pack riding" : populating ? "Riders joining…" : "Simulate pack (demo)"}
-        </Button>
-      )}
+    
       {note && <p style={{ color: "var(--color-role-sweep)", fontSize: 13, margin: 0 }}>{note}</p>}
-
-      {!ended && (
-        <Button
-          fullWidth={false}
-          loading={sosSending}
-          onClick={() => void raiseSos()}
-          style={{ background: "#FF453A", color: "#fff", marginTop: "var(--space-xs)" }}
-        >
-          SOS
-        </Button>
-      )}
 
       {isLeader && notStarted && (
         <Button
@@ -742,24 +1105,61 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           End ride
         </Button>
       )}
+
+      {/* Roster + signal picker — portalled to <body> so the fixed scrim isn't
+          trapped under the map/TabBar stacking. Join QR is lead-only. */}
+      {detailsOpen &&
+        createPortal(
+          <RideDetailsModal
+            riders={riders}
+            code={isLeader ? ride.code : null}
+            qr={isLeader ? qr : null}
+            onFocusRider={focusRider}
+            onClose={() => setDetailsOpen(false)}
+          />,
+          document.body,
+        )}
+      {signalOpen && user &&
+        createPortal(
+          <SignalModal
+            rideId={ride.id}
+            senderId={user.id}
+            voiceOn={voiceOn}
+            onClose={() => setSignalOpen(false)}
+          />,
+          document.body,
+        )}
     </div>
   );
 }
 
-function RoutePolyline({ path }: { path: LatLng[] }) {
+function RoutePolyline({
+  path,
+  color = "#C4F82A",
+  weight = 5,
+  opacity = 0.95,
+  zIndex,
+}: {
+  path: LatLng[];
+  color?: string;
+  weight?: number;
+  opacity?: number;
+  zIndex?: number;
+}) {
   const map = useMap();
   const mapsLib = useMapsLibrary("maps");
   useEffect(() => {
     if (!map || !mapsLib) return;
     const line = new mapsLib.Polyline({
       path,
-      strokeColor: "#C4F82A",
-      strokeOpacity: 0.95,
-      strokeWeight: 5,
+      strokeColor: color,
+      strokeOpacity: opacity,
+      strokeWeight: weight,
+      zIndex,
       map,
     });
     return () => line.setMap(null);
-  }, [map, mapsLib, path]);
+  }, [map, mapsLib, path, color, weight, opacity, zIndex]);
   return null;
 }
 

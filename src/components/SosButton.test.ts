@@ -36,7 +36,8 @@ test("other in-app routes during a ride still show it", () => {
 // (button height + its bottom offset above the nav) so a bottom-edge control
 // (e.g. "Share this ride") can scroll clear of it instead of overlapping. When
 // SOS is hidden, the padding stays at the plain nav clearance — no extra space.
-import { contentBottomPadding, SOS_BUTTON_SIZE } from "../AppLayout";
+import { contentBottomPadding, alertContainerBottom, SOS_BUTTON_SIZE } from "../AppLayout";
+import { SOS_BUTTON_FOOTPRINT } from "./SosButton";
 
 test("SOS hidden → padding is only the nav clearance, no SOS footprint", () => {
   const p = contentBottomPadding(false);
@@ -54,4 +55,30 @@ test("SOS shown → padding also clears the button height and its offset", () =>
 test("showing SOS never shrinks the clearance vs. hiding it", () => {
   // Same nav+safe-area base in both; shown adds strictly more (space-md + size).
   assert.notEqual(contentBottomPadding(true), contentBottomPadding(false));
+});
+
+// The fixed alert container (own-SOS bar + incoming stack) paints at z-41, one
+// above the z-40 floating SOS button. To keep the button tappable it must lift
+// its bottom edge above the button's footprint whenever the button is shown.
+// These lock that the lift derives from SosButton's exported footprint (guard
+// against a future refactor re-introducing a bare magic number and the overlap).
+
+test("SOS shown → alert container clears the exported button footprint", () => {
+  const b = alertContainerBottom(true);
+  assert.ok(
+    b.includes(SOS_BUTTON_FOOTPRINT),
+    "shown container bottom must include the SosButton footprint so it sits above the button",
+  );
+  assert.ok(b.includes(`${SOS_BUTTON_SIZE}px`), "footprint must reserve the button height");
+  assert.ok(b.includes("var(--tabbar-height)"), "container must still clear the nav");
+});
+
+test("SOS hidden → alert container sits at plain nav clearance, no footprint", () => {
+  const b = alertContainerBottom(false);
+  assert.equal(b, "calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-sm))");
+  assert.ok(!b.includes(`${SOS_BUTTON_SIZE}px`), "hidden container must not reserve button height");
+});
+
+test("showing SOS lifts the alert container strictly higher than hiding it", () => {
+  assert.notEqual(alertContainerBottom(true), alertContainerBottom(false));
 });

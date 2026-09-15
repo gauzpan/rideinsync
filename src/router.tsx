@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AppLayout } from "./AppLayout";
 import { LandingPage } from "./pages/LandingPage";
 import { HomePage } from "./pages/HomePage";
+import { WelcomePage } from "./pages/WelcomePage";
 import { RidesPage } from "./pages/RidesPage";
 import { CreateRidePage } from "./pages/CreateRidePage";
 import { RideInvitePage } from "./pages/RideInvitePage";
@@ -30,6 +31,9 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <LandingPage /> },
       { path: "home", element: <HomePage /> },
+      // First-run tour — authenticated only (not in PUBLIC_PATHS), reached via
+      // AppLayout's redirect from /home and the account menu's replay row.
+      { path: "welcome", element: <WelcomePage /> },
       // Legacy alias — earlier links pointed at /menu.
       { path: "menu", element: <Navigate to="/home" replace /> },
       // Base page for the Ride tab: active + past rides, empty state when
