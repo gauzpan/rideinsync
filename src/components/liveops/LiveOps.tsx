@@ -12,7 +12,7 @@ import { RideSimulator } from "../../lib/simulator";
 import { SIM_RIDER_NAMES } from "../../lib/demoRide";
 import { approveJoinRequest } from "../../services/onboardingService";
 import { closeRide, startRide } from "../../lib/ending";
-import { canResolveSos, markReached, resolveSosAlert, respondToSos, sendSos, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
+import { canResolveSos, markReached, resolveSosAlert, respondToSos, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import type { Fix } from "../../hooks/useGeolocation";
@@ -164,7 +164,6 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const { user } = useAuth();
   const { riders, events, rideStatus, joinToasts, dismissJoinToast } = useRideChannel(ride.id);
   const [ending, setEnding] = useState(false);
-  const [sosSending, setSosSending] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [navMode, setNavMode] = useState(false); // heading-up follow-me (rider nav)
   // Any member can tap a rider in the strip below the map to focus them: the
@@ -557,20 +556,6 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
       setNote(e instanceof Error ? e.message : "Couldn't add demo riders.");
     } finally {
       setPopulating(false);
-    }
-  }
-
-  async function raiseSos() {
-    if (!user) return;
-    setSosSending(true);
-    setNote(null);
-    try {
-      await sendSos(ride.id, user.id);
-      setNote("SOS sent to the group.");
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : "Couldn't send SOS.");
-    } finally {
-      setSosSending(false);
     }
   }
 
@@ -1106,17 +1091,6 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         </Button>
       )}
       {note && <p style={{ color: "var(--color-role-sweep)", fontSize: 13, margin: 0 }}>{note}</p>}
-
-      {!ended && (
-        <Button
-          fullWidth={false}
-          loading={sosSending}
-          onClick={() => void raiseSos()}
-          style={{ background: "#FF453A", color: "#fff", marginTop: "var(--space-xs)" }}
-        >
-          SOS
-        </Button>
-      )}
 
       {isLeader && notStarted && (
         <Button
