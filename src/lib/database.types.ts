@@ -229,6 +229,11 @@ export interface Database {
         { id: string; group_id: string; user_id: string; role: GroupMemberRole; joined_at: string },
         { group_id: string; user_id: string; role?: GroupMemberRole }
       >;
+      // migration 0035_app_feedback.sql — hand-authored mirror; regenerate later.
+      app_feedback: Table<
+        { id: string; user_id: string | null; user_name: string | null; message: string; context: string | null; created_at: string },
+        { user_id: string; user_name?: string | null; message: string; context?: string | null }
+      >;
     };
     Views: Record<string, never>;
     Functions: {
