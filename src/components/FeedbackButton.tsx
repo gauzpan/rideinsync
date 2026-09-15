@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./ui/Button";
 import { Icon } from "./ui/Icon";
@@ -52,10 +52,10 @@ export function FeedbackButton({ context, variant = "icon", label = "Send feedba
         aria-label={label}
         title={label}
         style={{
-          width: 48,
-          height: 48,
+          width: 44,
+          height: 44,
           borderRadius: "var(--radius-full)",
-          border: "none",
+          border: "1px solid var(--color-divider)",
           background: "var(--color-surface-3)",
           color: "var(--color-text-primary)",
           display: "inline-flex",
@@ -64,7 +64,7 @@ export function FeedbackButton({ context, variant = "icon", label = "Send feedba
           cursor: "pointer",
         }}
       >
-        <Icon name="message-square" size={22} />
+        <Icon name="message-square" size={20} />
       </button>
     );
 
@@ -79,7 +79,8 @@ export function FeedbackButton({ context, variant = "icon", label = "Send feedba
 function FeedbackSheet({ context, onClose }: { context: string; onClose: () => void }) {
   const { user, profile } = useAuth();
   const name = profile?.display_name?.trim() || "Rider";
-  const [message, setMessage] = useState("");
+  const [bug, setBug] = useState("");
+  const [improvement, setImprovement] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -106,7 +107,14 @@ function FeedbackSheet({ context, onClose }: { context: string; onClose: () => v
     setError(null);
     setSubmitting(true);
     try {
-      await submitAppFeedback({ userId: user.id, userName: name, message, context });
+      // Bugs and requests are filed as separate rows, tagged via context, so
+      // the dashboard can tell an issue apart from a feature request.
+      if (bug.trim()) {
+        await submitAppFeedback({ userId: user.id, userName: name, message: bug, context: `${context}:bug` });
+      }
+      if (improvement.trim()) {
+        await submitAppFeedback({ userId: user.id, userName: name, message: improvement, context: `${context}:improvement` });
+      }
       setDone(true);
       window.setTimeout(onClose, 1400);
     } catch (e) {
@@ -164,7 +172,9 @@ function FeedbackSheet({ context, onClose }: { context: string; onClose: () => v
               <div>
                 <h2 style={{ margin: 0, fontSize: "var(--text-h2)", fontWeight: "var(--weight-semibold)" }}>Share feedback</h2>
                 <p style={{ margin: "var(--space-2xs) 0 0", fontSize: "var(--text-label)", color: "var(--color-text-secondary)" }}>
-                  Sending as {name}. Tell us what's working or what's not.
+                  We're in early days, still learning what riders need, so things may
+                  break. Sending as {name}. Flag anything that's not working, or
+                  request something you'd like the app to do.
                 </p>
               </div>
               <button
@@ -177,27 +187,19 @@ function FeedbackSheet({ context, onClose }: { context: string; onClose: () => v
               </button>
             </div>
 
-            <textarea
-              ref={textareaRef}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              maxLength={FEEDBACK_MAX}
-              rows={5}
-              placeholder="Your feedback, a bug, or a grievance…"
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                resize: "vertical",
-                minHeight: 120,
-                padding: "var(--space-md)",
-                background: "var(--color-surface-2)",
-                border: "1px solid transparent",
-                borderRadius: "var(--radius-md)",
-                color: "var(--color-text-primary)",
-                fontFamily: "var(--font-ui)",
-                fontSize: "var(--text-body-size)",
-                outline: "none",
-              }}
+            <FeedbackField
+              inputRef={textareaRef}
+              label="Something's not working"
+              value={bug}
+              onChange={setBug}
+              placeholder="Describe the bug or issue you hit…"
+            />
+
+            <FeedbackField
+              label="A feature you'd like"
+              value={improvement}
+              onChange={setImprovement}
+              placeholder="Tell us what the app should do…"
             />
 
             {error && (
@@ -206,7 +208,7 @@ function FeedbackSheet({ context, onClose }: { context: string; onClose: () => v
               </p>
             )}
 
-            <Button onClick={() => void handleSubmit()} loading={submitting} disabled={!message.trim()}>
+            <Button onClick={() => void handleSubmit()} loading={submitting} disabled={!bug.trim() && !improvement.trim()}>
               Send feedback
             </Button>
           </>
@@ -214,5 +216,49 @@ function FeedbackSheet({ context, onClose }: { context: string; onClose: () => v
       </div>
     </div>,
     document.body,
+  );
+}
+
+function FeedbackField({
+  inputRef,
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  inputRef?: Ref<HTMLTextAreaElement>;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: "var(--space-2xs)" }}>
+      <span style={{ fontSize: "var(--text-label)", fontWeight: "var(--weight-semibold)" as unknown as number, color: "var(--color-text-primary)" }}>
+        {label}
+      </span>
+      <textarea
+        ref={inputRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        maxLength={FEEDBACK_MAX}
+        rows={3}
+        placeholder={placeholder}
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          resize: "vertical",
+          minHeight: 80,
+          padding: "var(--space-md)",
+          background: "var(--color-surface-2)",
+          border: "1px solid transparent",
+          borderRadius: "var(--radius-md)",
+          color: "var(--color-text-primary)",
+          fontFamily: "var(--font-ui)",
+          fontSize: "var(--text-body-size)",
+          outline: "none",
+        }}
+      />
+    </label>
   );
 }

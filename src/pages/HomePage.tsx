@@ -7,7 +7,6 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Icon } from "../components/ui/Icon";
 import { VoicePermissionSheet } from "../components/VoicePermissionSheet";
-import { FeedbackButton } from "../components/FeedbackButton";
 import { usePersistedToggle } from "../lib/preference";
 import { VOICE_COMMANDS_KEY } from "../lib/voiceCommands";
 
@@ -209,10 +208,6 @@ export function HomePage() {
         Live location only shares while a ride is active.
       </p>
 
-      {/* 6. Feedback entry — low-key, always reachable from the home screen. */}
-      <div style={{ display: "flex", justifyContent: "center", paddingTop: "var(--space-xs)" }}>
-        <FeedbackButton context="home" variant="link" />
-      </div>
     </div>
   );
 }
