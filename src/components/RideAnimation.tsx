@@ -119,8 +119,8 @@ export function RideAnimation() {
         />
 
         {/* the pack, back-to-front so the leader overlaps on top */}
-        <Bike accent="#FF453A" tx={95} scale={0.5} bob="-0.4s" />
-        <Bike accent="#5AC8FA" tx={190} scale={0.56} bob="-0.2s" />
+        <Bike accent="#8A9199" tx={95} scale={0.5} bob="-0.4s" />
+        <Bike accent="#D7DCE2" tx={190} scale={0.56} bob="-0.2s" />
         <Bike accent="var(--color-accent)" tx={300} scale={0.62} bob="0s" />
       </svg>
     </div>
