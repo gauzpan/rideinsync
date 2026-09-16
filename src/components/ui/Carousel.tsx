@@ -20,7 +20,7 @@ type Props = {
  * Runs uncontrolled by default; pass `activeIndex` + `onActiveChange` to drive
  * it from a parent (the welcome tour footer does this).
  */
-export function Carousel({ children, autoAdvanceMs = 5000, activeIndex, onActiveChange, ...rest }: Props) {
+export function Carousel({ children, autoAdvanceMs = 5000, activeIndex, onActiveChange, onUserEngage, ...rest }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [internalActive, setInternalActive] = useState(0);
   const [paused, setPaused] = useState(false);
