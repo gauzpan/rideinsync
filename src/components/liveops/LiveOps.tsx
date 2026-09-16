@@ -737,6 +737,14 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
       )}
       {/* Incoming SOS alert cards now live inside the combined Signals card
           below (§3), not as a standalone stack above the map. */}
+      {(() => {
+      // Fullscreen = ride/nav mode. AppLayout wraps this view in a
+      // `position: relative; z-index: 1` container, which is its own stacking
+      // context — a nested `z-index: 1000` can't escape it, so the fixed
+      // TabBar (root context, z-index 50) would paint over the "fullscreen"
+      // map. Portal the panel to <body> so its z-index applies at the root and
+      // the map truly fills the screen, TabBar included.
+      const mapPanel = (
       <div
         style={
           fullscreen
@@ -911,6 +919,9 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         // )
         }
       </div>
+      );
+      return fullscreen ? createPortal(mapPanel, document.body) : mapPanel;
+      })()}
 
       {/* Tappable rider strip — every member can focus any rider to pan the
           map to them, highlight their pin, and read their live coordinates. */}
