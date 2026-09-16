@@ -26,3 +26,15 @@ export function initialSosPhase(auto: boolean): Phase {
 export function shouldConsumeAutoFlag(state: { auto?: boolean } | null | undefined): boolean {
   return Boolean(state?.auto);
 }
+
+/**
+ * Whether to re-enter the "sent" screen for an SOS still active on the backend
+ * (Item 6 — reload / PWA relaunch). Resume only from an idle screen ("confirm"
+ * or "no-ride"): a fresh reload lands on "confirm" but the rider's alert is
+ * still unresolved server-side, so surface the Cancel-SOS controls and restart
+ * tracking instead of showing a dead confirm. Never resume mid-countdown,
+ * mid-send, or once already on "sent"/"cancelled"/"error".
+ */
+export function shouldResumeSentPhase(phase: Phase, hasOwnAlert: boolean): boolean {
+  return hasOwnAlert && (phase === "confirm" || phase === "no-ride");
+}

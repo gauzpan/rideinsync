@@ -14,6 +14,7 @@ import {
   startSosTracking,
   staySos,
   stopSosTracking,
+  useOwnSosAlert,
   useSosResponses,
   type Responder,
 } from "../lib/sos";
@@ -21,7 +22,7 @@ import { playSignalTone } from "../lib/earcon";
 import { track } from "../lib/analytics";
 import { vibrateForTier } from "../lib/haptics";
 import type { SignalTier } from "../lib/signals";
-import { initialSosPhase, shouldConsumeAutoFlag, type Phase } from "./sosPhase";
+import { initialSosPhase, shouldConsumeAutoFlag, shouldResumeSentPhase, type Phase } from "./sosPhase";
 
 // A responder arriving is reassuring, not an emergency, so it uses the High
 // "attention" tier (a descending two-note chime) rather than the Critical
@@ -50,6 +51,9 @@ export function SosPage() {
   const auto = Boolean((location.state as { auto?: boolean } | null)?.auto);
   const { userId } = useSession();
   const { rideId, loading } = useActiveRide(userId, location.pathname);
+  // Item 6: the rider's own unresolved alert, if any — lets a reload / PWA
+  // relaunch land back on the sent screen instead of a dead confirm.
+  const ownAlert = useOwnSosAlert(rideId, userId);
 
   // Captured once from the initial history entry: the countdown is armed only
   // on the mount that carried { auto: true }. The auto flag is consumed below
@@ -130,6 +134,20 @@ export function SosPage() {
     // Mount-once: intentionally not re-run when location changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Item 6: resume the sent screen for an SOS still unresolved on the backend
+  // after a reload / PWA relaunch. Only from an idle screen (confirm/no-ride);
+  // never mid-countdown or once already sent/cancelled. hasLocation stays true
+  // (the alert row does not carry it) — the "location sent" copy is correct for
+  // a resumed active alert. Restores alertId so Cancel SOS works and the
+  // tracking effect below restarts.
+  useEffect(() => {
+    if (!ownAlert) return;
+    if (!shouldResumeSentPhase(phase, true)) return;
+    console.info("[sos] resumed active alert", ownAlert.id);
+    setAlertId(ownAlert.id);
+    setPhase("sent");
+  }, [ownAlert, phase]);
 
   // Location tracking runs only while the SOS is active; cleared on unmount.
   useEffect(() => {
