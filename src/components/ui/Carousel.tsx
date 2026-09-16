@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 type Props = {
   children: ReactNode[];
@@ -11,6 +11,7 @@ type Props = {
    *  or controlled scroll) — lets a parent mirror the index in its own UI. */
   onActiveChange?: (index: number) => void;
   "aria-label"?: string;
+  onUserEngage?: (via: "swipe" | "wheel" | "dot") => void;
 };
 
 /**
@@ -31,6 +32,16 @@ export function Carousel({ children, autoAdvanceMs = 5000, activeIndex, onActive
   // an inline callback prop never goes stale.
   const onChangeRef = useRef(onActiveChange);
   onChangeRef.current = onActiveChange;
+
+  const engagedRef = useRef(false);
+  const handleEngage = useCallback(
+    (via: "swipe" | "wheel" | "dot") => {
+      if (engagedRef.current) return;
+      engagedRef.current = true;
+      onUserEngage?.(via);
+    },
+    [onUserEngage]
+  );
 
   const goTo = (i: number) => {
     const track = trackRef.current;
@@ -62,6 +73,34 @@ export function Carousel({ children, autoAdvanceMs = 5000, activeIndex, onActive
     };
   }, []);
 
+  // Listen for human input on the track only (auto-advance never fires these).
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track || !onUserEngage) return;
+    let start: { x: number; y: number } | null = null;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) handleEngage("wheel"); // horizontal intent only
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      start = t ? { x: t.clientX, y: t.clientY } : null;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!start || !t) return;
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) handleEngage("swipe"); // horizontal drag only
+    };
+    track.addEventListener("wheel", onWheel, { passive: true });
+    track.addEventListener("touchstart", onTouchStart, { passive: true });
+    track.addEventListener("touchmove", onTouchMove, { passive: true });
+    return () => {
+      track.removeEventListener("wheel", onWheel);
+      track.removeEventListener("touchstart", onTouchStart);
+      track.removeEventListener("touchmove", onTouchMove);
+    };
+  }, [onUserEngage, handleEngage]);
   // Controlled mode: scroll the track when the parent moves the index.
   useEffect(() => {
     if (controlled) goTo(active);
@@ -121,7 +160,10 @@ export function Carousel({ children, autoAdvanceMs = 5000, activeIndex, onActive
             type="button"
             aria-label={`Go to slide ${i + 1}`}
             aria-current={active === i}
-            onClick={() => goTo(i)}
+            onClick={() => {
+              handleEngage("dot");
+              goTo(i);
+            }}
             style={{
               width: active === i ? 24 : 8,
               height: 8,
