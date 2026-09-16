@@ -21,6 +21,7 @@ import {
   type RideDetail,
   type StopKind,
 } from "../services/onboardingService";
+import { track } from "../lib/analytics";
 
 function SectionTitle({ children }: { children: ReactNode }) {
   return (
@@ -102,6 +103,7 @@ export function RiderViewPage() {
     setLinkError(null);
     try {
       await linkPillionToRider(rideId, user.id, selectedRiderId);
+      track("pillion_linked", { ride_id: rideId });
       const refreshed = await getRideDetail(rideId);
       if (refreshed) setDetail(refreshed);
       setPillionPickerOpen(false);
