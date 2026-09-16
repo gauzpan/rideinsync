@@ -1,0 +1,165 @@
+# Handoff — Signals card + notification bell (2026-09-16)
+
+Branch: `shubham/signals-bell-fox` (rebased onto the owner's integration branch
+`upstream/fox-architecture` head `592492f`, which already contains PR #52 —
+`SosStrip.tsx`, `buildOwnSosStatusShort`, the `useActiveRide` re-resolve, and the
+fixed-container `AppLayout`). Spec at
+`docs/superpowers/specs/2026-09-16-signals-bell-design.md`. Do NOT push / open a
+PR / touch main without the founder's go-ahead.
+
+The original `shubham/signals-bell` was built on `upstream/main 26468a0`, which
+lacked all of the above; this branch is the fox-architecture-based re-do
+(6 commits cherry-picked + 1 tsc fix).
+
+## Summary
+
+Implemented the four-commit plan in spec §11: a module-level notification-bell
+pub/sub store; the ride view's Signals row merged into one combined card (own
+SOS + incoming SOS stack + signal log, with a loader and bell-driven
+auto-expand); the AccountBar bell + popover; and removal of the fixed SOS strip.
+On the fox base the "fixed SOS strip" is the real `src/components/SosStrip.tsx`
+component rendered by `AppLayout`, so this time it (and its test) were deleted.
+
+## Commits (in order)
+
+Base: `upstream/fox-architecture` `592492f`.
+
+1. `1a2a1fc` docs: design spec for combined Signals card + notification bell
+   - `docs/superpowers/specs/2026-09-16-signals-bell-design.md` (new).
+
+2. `f644d60` feat(bell): notification bell pub/sub store with pure helpers + tests
+   - `src/lib/notificationBell.ts` (new): `publishBellEvent`, `publishBellRide`,
+     `markBellSeen`, `useBellState`, pure `bellColorFor`, pure `popoverReducer`;
+     dedupe by id; never throws on publish; unseen cleared on seen and on ride
+     end (rideId→null). Test seams `_getBellState`/`_resetBell`.
+   - `src/lib/notificationBell.test.ts` (new): 8 tests.
+
+3. `95a5556` feat(signals): merge own SOS + incoming SOS + log into one ride-view card
+   - `src/lib/signals.ts`: added pure `signalsCount(sosAlerts, signalLog)`.
+   - `src/lib/signals.test.ts` (new): 1 test for `signalsCount`.
+   - `src/components/liveops/LiveOps.tsx`: combined Signals card (own SOS via
+     `OwnSosBar`→/sos, incoming `SosAlertStack`, then the log); `LoadingState`
+     while the initial `ride_events` fetch is pending; `[signals]` logging;
+     auto-expand + `scrollIntoView` on navigation state `{ openSignals: true }`.
+   - Conflict resolved here (import line): kept the incoming superset import from
+     `../../lib/sos` — all symbols it names exist on the fox base — plus the
+     `react-router-dom` `useLocation`/`useNavigate` import.
+
+4. `7e6d5cc` feat(bell): AccountBar bell + popover; AppLayout publishes bell events
+   - `src/components/AccountBar.tsx`: bell left of the account icon, colour by
+     highest-urgency unseen + filled dot; tap → markBellSeen + navigate to the
+     active ride with `{openSignals:true}` else `/rides`; 5 s auto-closing popover.
+   - `src/AppLayout.tsx`: `publishBellEvent` on each new incoming SOS alert id and
+     in `useRideSignalListener`; `publishBellRide(rideId)` effect. (Auto-merged.)
+
+5. `fe1b8a8` refactor(sos): remove the fixed SOS strip and its now-dead wiring
+   - `git rm src/components/SosStrip.tsx src/components/SosStrip.test.ts` — the
+     real fixed strip on the fox base. Verified nothing else imports them or their
+     helpers (`buildSosStripLabel`/`hasUnseenAlerts`/`truncateName` had no other
+     consumer).
+   - `src/AppLayout.tsx`: removed the fixed `<SosStrip>` container, its import, and
+     the strip-only `sos` imports (`SosStrip`, `buildOwnSosStatusShort`,
+     `canResolveSos`, `markReached`, `resolveSosAlert`, `respondToSos`,
+     `useMyRideRole`, `useOwnSosAlert`, `useSosResponses`, `IncomingAlert`).
+     Kept: `useSosAlerts` (drives the critical earcon/haptic and the bell),
+     `SosButton`/`shouldShowSos`/`SOS_BUTTON_SIZE`/`SOS_BUTTON_FOOTPRINT`, and the
+     floating-button footprint helper `contentBottomPadding(showSos)`.
+   - `src/components/SosAlertStack.tsx`, `src/lib/sos.ts`: reworded stale
+     doc-comments that named `SosStrip` (now the Signals card / AccountBar bell),
+     so `grep -rn SosStrip src` is empty.
+
+6. `8205fb3` docs: handoff (this file).
+
+7. `1c5f870` fix(signals): drop unused `sendSos` import in `LiveOps.tsx` — the
+   merged import carried it but the body never calls it; tripped tsc
+   `noUnusedLocals`. Removed.
+
+## Verification (this branch, fox base)
+
+- `npm test`: tests 134, pass 134, fail 0, skipped 0.
+- `npx tsc --noEmit`: 0 errors (exit 0).
+- `npm run build` (`tsc -b && vite build`): success, exit 0 (PWA precache, 12
+  entries / 905.01 KiB).
+- `grep -rn SosStrip src`: empty.
+
+## Deviations from the spec (adapted + reported)
+
+- `alertContainerBottom(showSos)` in `AppLayout.tsx` — the pure helper that
+  positioned the removed strip container — was KEPT (with its export), because
+  `src/components/SosButton.test.ts` on the fox base still imports and tests it.
+  Removing it would break a passing test; it is a harmless exported pure function.
+  This is the one piece of "now-dead wiring" not deleted, and it is deliberate.
+- Signals card own-SOS line (spec §3.1): `buildOwnSosStatusShort` exists on the
+  fox base, but the card was left reusing the `OwnSosBar` component (→ /sos) as
+  the signals commit built it. Switching to `buildOwnSosStatusShort` would rework
+  a working, styled surface for no functional gain, so it was left as is.
+- Loader scope: own SOS bar + incoming SOS stack always render; only the
+  signal-log section shows the loader while the `ride_events` history fetch is
+  pending, so an active SOS is never hidden behind a spinner.
+
+## Open items
+
+- Browser proof: see below (being run by the orchestrator).
+- Two-rider realtime cannot be exercised in single-instance demo mode
+  (`VITE_DEMO_SESSION=1` = in-memory backend, one rider); incoming-from-other-rider
+  events may need `publishBellEvent(...)` from the console to simulate.
+- Dev server left running on port 5174 (`.env.local` demo mode) for the proof.
+- Not pushed; no PR opened (per instructions).
+
+## Browser proof
+
+Run by the orchestrator (Fable 5.1) on 2026-09-16 against the Vite dev server on
+port 5174 (`.env.local`, demo mode), Chrome extension, DOM assertions via JS.
+Screenshots timed out on this page, so every observation below is a DOM/computed
+style read-out. Incoming events were simulated with `publishBellEvent(...)` from
+the same module instance (a fresh dev server was required first: after HMR the
+console `import()` returned a different module instance and the bell did not
+react — a known lesson, no code change needed).
+
+| Step | Observed |
+|---|---|
+| /home, idle | bell present left of account icon, 44x44, `aria-label="Notifications"`, colour `rgb(183,183,188)` (text-secondary), no fixed z-41 strip container |
+| hazard event | bell `rgb(255,122,90)` (role-sweep), label "Notifications: new signal", popover "Hazard" with Dismiss X, right edge aligned to bell (980.4 = bell right), 4 px below bell |
+| wait 5.3 s | popover gone, bell still coloured (unseen persists) |
+| sos event | bell `rgb(255,59,48)` (danger), label "Notifications: new SOS", popover "SOS" |
+| click X | popover closed, bell stays red |
+| regroup while SOS unseen | popover "Regroup", bell stays red (priority) |
+| bell tap | `[bell] seen`, bell grey, navigated with `state.openSignals=true` |
+| pitstop after seen | bell `rgb(196,248,42)` (accent), popover "Pit stop" |
+| /sos | renders normally ("Send an SOS? ... Send SOS / Cancel") |
+
+Defect found and fixed (commit 602b823): bell tap went to `/ride/:id` for every
+viewer; ops riders need `/ride/:id/lead`. Store now carries a role-correct path.
+
+NOT provable locally: the ride-view Signals card (expanded order, loader,
+auto-expand + scroll on bell tap). Demo mode has an empty `VITE_SUPABASE_URL`, so
+`/ride/:id` and `/ride/:id/lead` never load ("Couldn't load the ride." /
+"Loading roster…" forever) on this branch AND on the base — pre-existing, not
+caused by this work. `useMyRideRole` also has no demo branch, so the role
+upgrade to `/lead` only happens against real Supabase. The card logic was
+reviewed statically (diff of LiveOps.tsx) and its pure helpers are unit-tested.
+Founder to verify on the production PWA after merge (see Open items).
+
+## Fixes after browser proof
+
+- **Bell deep-linked ops riders to a view that fails to load.** Tapping the bell
+  navigated to the plain member view `/ride/:id` for everyone. A ride
+  leader / co-leader / sweep cannot load `RiderViewPage` ("Couldn't load the
+  ride."); ops crew must open `/ride/:id/lead` (`LeadViewPage`). Fix mirrors
+  `resumePath` (ActiveRideHero.tsx): the bell store now holds a role-correct
+  `ridePath` instead of a bare `rideId`.
+  - `src/lib/notificationBell.ts` — `BellState.rideId` → `ridePath`;
+    `publishBellRide()` → `publishBellRidePath()`; path → null still clears unseen.
+  - `src/AppLayout.tsx` — resolve the viewer's role with `useMyRideRole` and
+    publish `/ride/:id/lead` for `OPS_ROLES`, else `/ride/:id`. While the role
+    is still loading (null) the plain path is published first and upgraded to
+    `/lead` once it resolves — an ops rider may briefly point at the member view,
+    never the reverse.
+  - `src/components/AccountBar.tsx` — bell tap navigates to `bell.ridePath`.
+  - `src/lib/notificationBell.test.ts` — renamed-field test + a new test that a
+    member→`/lead` upgrade does not clear unseen events.
+- **LeadViewPage needed no change.** `LiveOps` reads `location.state.openSignals`
+  via react-router's own `useLocation()`, and both `RiderViewPage` and
+  `LeadViewPage` render `<LiveOps ride={ride} />`, so `{ openSignals: true }`
+  auto-expands + scrolls the Signals card on the lead view already.
+- Verified: `npm test` 135 pass / 0 fail; `npx tsc --noEmit` exit 0.

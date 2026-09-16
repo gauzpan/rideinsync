@@ -21,6 +21,7 @@ import {
   startAutoRefresh,
   stopAutoRefresh,
 } from "../services/authService";
+import { identifyUser, resetAnalytics, track } from "../lib/analytics";
 
 
 type AuthState = {
@@ -87,6 +88,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       unsubscribe();
     };
   }, []);
+
+  const prevAuthedRef = useRef(false);
+  const bootHandledRef = useRef(false);
+  useEffect(() => {
+    if (loading) return;
+    const authed = !!session;
+
+    if (!bootHandledRef.current) {
+      // First evaluation after the initial session check.
+      bootHandledRef.current = true;
+      let oauthReturn = false;
+      try {
+        oauthReturn = localStorage.getItem("rideinsync:oauth_pending") === "1";
+        localStorage.removeItem("rideinsync:oauth_pending"); // always read-and-clear at boot
+      } catch {
+        // ignore
+      }
+      if (authed && oauthReturn) {
+        const method = session!.user.is_anonymous ? "guest" : "google";
+        identifyUser(session!.user.id, { method });
+        track("sign_in_completed", { method });
+      }
+      // authed && !oauthReturn => returning already-signed-in user: do NOT fire.
+      prevAuthedRef.current = authed;
+      return;
+    }
+
+    if (authed && !prevAuthedRef.current) {
+      // In-session sign-in (guest in-page, or native OAuth via onAuthStateChange).
+      const method = session!.user.is_anonymous ? "guest" : "google";
+      try {
+        localStorage.removeItem("rideinsync:oauth_pending");
+      } catch {
+        // ignore
+      }
+      identifyUser(session!.user.id, { method });
+      track("sign_in_completed", { method });
+    } else if (!authed && prevAuthedRef.current) {
+      resetAnalytics();
+      try {
+        localStorage.removeItem("rideinsync:oauth_pending");
+      } catch {
+        // ignore
+      }
+    }
+    prevAuthedRef.current = authed;
+  }, [session, loading]);
 
   // Revive token auto-refresh on foreground. A backgrounded native WebView (or
   // a hidden browser tab) suspends supabase-js's refresh timer, so the stored

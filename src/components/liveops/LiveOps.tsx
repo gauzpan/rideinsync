@@ -10,13 +10,15 @@ import { APIProvider, AdvancedMarker, Map, useMap, useMapsLibrary } from "@vis.g
 import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
 import { closeRide, startRide } from "../../lib/ending";
-import { canResolveSos, markReached, resolveSosAlert, respondToSos, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
+import { canResolveSos, markReached, resolveSosAlert, respondToSos, useOwnSosAlert, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
+import { useLocation, useNavigate } from "react-router-dom";
+import { track } from "../../lib/analytics";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import type { Fix } from "../../hooks/useGeolocation";
 import { supabase } from "../../lib/supabase";
 import type { Ride, RiderOnMap, GroupStatus, RideEvent } from "../../lib/models";
-import { SIGNAL_LABEL, SIGNAL_TYPES } from "../../lib/signals";
+import { SIGNAL_LABEL, SIGNAL_TYPES, signalsCount } from "../../lib/signals";
 import { bearingDeg, haversineMeters, type LatLng } from "../../lib/geo";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -24,6 +26,8 @@ import { Icon } from "../ui/Icon";
 import { IconButton } from "../ui/IconButton";
 import { ROLE_COLOR, ROLE_LABEL } from "../../lib/roles";
 import { SosAlertStack } from "../SosAlertStack";
+import { OwnSosBar } from "../OwnSosBar";
+import { LoadingState } from "../ui/Loader";
 import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import { usePersistedToggle } from "../../lib/preference";
@@ -183,6 +187,14 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // recent history once on mount.
   const [signalsExpanded, setSignalsExpanded] = useState(false);
   const [signalHistory, setSignalHistory] = useState<RideEvent[]>([]);
+  // True while the initial ride_events history fetch is in flight, so the
+  // expanded card can show a loader instead of an empty log (§3 Loading).
+  const [signalHistoryLoading, setSignalHistoryLoading] = useState(true);
+  // The combined Signals card auto-expands + scrolls into view when reached via
+  // the notification bell (navigation state { openSignals: true }, §3/§4).
+  const location = useLocation();
+  const navigate = useNavigate();
+  const signalsCardRef = useRef<HTMLDivElement>(null);
   // Bumped on each navigate tap so the map pans+zooms to the rider even if
   // they're already selected (re-centering on demand).
   const [focusNonce, setFocusNonce] = useState(0);
@@ -195,13 +207,15 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
 
   // Join QR for the roster modal — the deep link a real rider scans to join.
   useEffect(() => {
-    const url = `${location.origin}/r?code=${ride.code}`;
+    // window.location, not react-router's useLocation() (shadowed as `location`).
+    const url = `${window.location.origin}/r?code=${ride.code}`;
     QRCode.toDataURL(url, { width: 220, margin: 1 }).then(setQr).catch(() => setQr(null));
   }, [ride.code]);
 
   // Seed the signal log with recent history (SOS lives in its own alert stack).
   useEffect(() => {
     let cancelled = false;
+    setSignalHistoryLoading(true);
     void supabase
       .from("ride_events")
       .select("*")
@@ -209,8 +223,19 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
       .in("type", ["hazard", "regroup", "pitstop"])
       .order("created_at", { ascending: false })
       .limit(30)
-      .then(({ data }) => {
-        if (!cancelled && data) setSignalHistory(data as RideEvent[]);
+      .then(({ data, error }) => {
+        // supabase's builder is a PromiseLike that resolves (never rejects)
+        // with { data, error }, so this single callback is the finally too.
+        if (cancelled) return;
+        if (error) {
+          // Show the live-only log (no error UI) — a failed history fetch must
+          // not hide signals received while the app is open (§8).
+          console.warn("[signals] history fetch failed", error.message);
+        } else if (data) {
+          setSignalHistory(data as RideEvent[]);
+          console.info(`[signals] history loaded ${data.length}`);
+        }
+        setSignalHistoryLoading(false);
       });
     return () => {
       cancelled = true;
@@ -223,6 +248,15 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   useEffect(() => publishSignalModalOpen(signalOpen), [signalOpen]);
   useEffect(() => () => publishSignalModalOpen(false), []);
   useVoiceCommandFiredListener(() => setSignalOpen(false));
+
+  // Reached via the notification bell: expand the Signals card and scroll it
+  // into view, then clear the flag so a reload doesn't re-trigger it (§3/§4).
+  useEffect(() => {
+    if (!(location.state as { openSignals?: boolean } | null)?.openSignals) return;
+    setSignalsExpanded(true);
+    signalsCardRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
 
   async function handleMicToggle() {
     if (voiceOn) {
@@ -256,6 +290,10 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // global fixed overlay on the ride view so there's no fixed duplicate here.
   const sosAlerts = useSosAlerts(ride.id, user?.id ?? null);
   const sosResponsesByAlert = useSosResponses(ride.id);
+  // The viewer's OWN unresolved SOS (useSosAlerts filters it out) — shown as a
+  // one-line status at the top of the combined Signals card, tapping through to
+  // /sos (§3.1). Reuses OwnSosBar so the styling matches the /sos surfaces.
+  const ownAlert = useOwnSosAlert(ride.id, user?.id ?? null);
   const selfRole = riders.find((r) => r.member.user_id === user?.id)?.member.role ?? null;
   const canResolve = canResolveSos(selfRole);
 
@@ -266,9 +304,11 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     });
   }
   function handleSosReached(responseId: string) {
-    void markReached(responseId).catch(() => {
-      /* logged in markReached */
-    });
+    void markReached(responseId)
+      .then(() => track("sos_reached", { ride_id: ride.id }))
+      .catch(() => {
+        /* logged in markReached */
+      });
   }
   function handleSosResolve(alert: IncomingAlert): Promise<void> {
     if (!user) return Promise.reject(new Error("Not signed in."));
@@ -354,6 +394,25 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   // appears and moves on the map. Foreground only; stops once the ride ends.
   const { fix, error: geoError, retry: retryGps } = useGeolocation(!ended && !!user);
 
+  const firstFixLoggedRef = useRef(false);
+  useEffect(() => {
+    if (firstFixLoggedRef.current) return;
+    if (notStarted || ended || !user) return; // only started rides, tracked user
+    const key = `rideinsync:first_fix:${ride.id}`;
+    let already = false;
+    try { already = sessionStorage.getItem(key) === "1"; } catch { /* ignore */ }
+    if (already) { firstFixLoggedRef.current = true; return; }
+
+    if (fix) {
+      firstFixLoggedRef.current = true;
+      try { sessionStorage.setItem(key, "1"); } catch { /* ignore */ }
+      track("rider_first_fix", { ride_id: ride.id, got_fix: true });
+    } else if (geoError) {
+      firstFixLoggedRef.current = true;
+      try { sessionStorage.setItem(key, "1"); } catch { /* ignore */ }
+      track("rider_first_fix", { ride_id: ride.id, got_fix: false });
+    }
+  }, [fix, geoError, notStarted, ended, user, ride.id]);
   // Stable travel heading for the nav camera + self arrow. Course over ground —
   // the bearing between consecutive positions — is the reliable signal and is
   // used first: `coords.heading` is unreliable (null when slow, and on many
@@ -541,6 +600,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     setNote(null);
     try {
       await startRide(ride.id); // leader-gated by RLS; draft → active
+      track("ride_started", { ride_id: ride.id });
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Couldn't start the ride.");
     } finally {
@@ -553,6 +613,7 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
     setNote(null);
     try {
       await closeRide(ride.id); // leader-gated + idempotent server-side
+      track("ride_ended", { ride_id: ride.id });
       await simRef.current?.stop();
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Couldn't end the ride.");
@@ -630,6 +691,15 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   );
   const nameByUserId = new globalThis.Map(riders.map((r) => [r.member.user_id, r.profile.display_name] as const));
 
+  // Combined Signals card (§3): header count = open incoming SOS + signal-log
+  // length. The card renders whenever the ride is active OR there's anything to
+  // show (an incoming SOS, the viewer's own SOS, or any logged signal); it's
+  // hidden only when there's nothing and the ride isn't active.
+  const signalsHeaderCount = signalsCount(sosAlerts, signalLog);
+  const hasSignalsContent =
+    sosAlerts.some((a) => !a.resolved) || Boolean(ownAlert) || signalLog.length > 0;
+  const showSignalsCard = status === "active" || hasSignalsContent;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
       {/* New-rider toast — Realtime already keeps `riders` current with no
@@ -665,15 +735,8 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
           </span>
         </Card>
       )}
-      <SosAlertStack
-        alerts={sosAlerts}
-        responsesByAlert={sosResponsesByAlert}
-        selfUserId={user?.id ?? null}
-        canResolve={canResolve}
-        onRespond={handleSosRespond}
-        onReached={handleSosReached}
-        onResolve={handleSosResolve}
-      />
+      {/* Incoming SOS alert cards now live inside the combined Signals card
+          below (§3), not as a standalone stack above the map. */}
       <div
         style={
           fullscreen
@@ -996,63 +1059,91 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
         );
       })()}
 
-      {/* Collated signals — one place to open and read every hazard/regroup/
-          pit-stop that's been raised, so a missed toast (or no push) isn't a
-          missed signal. Collapsed by default; the count shows there's activity. */}
-      {signalLog.length > 0 && (
-        <Card padding="var(--space-sm) var(--space-md)">
-          <button
-            type="button"
-            aria-expanded={signalsExpanded}
-            onClick={() => setSignalsExpanded((v) => !v)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "var(--space-sm)",
-              width: "100%",
-              minHeight: 44,
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              color: "var(--color-text-primary)",
-            }}
-          >
-            <span style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", fontSize: "var(--text-body-size)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
-              <Icon name="signal" size={18} />
-              Signals
-              <span style={{ color: "var(--color-text-secondary)", fontWeight: "var(--weight-regular)" as unknown as number }}>({signalLog.length})</span>
-            </span>
-            <span style={{ display: "inline-flex", transform: signalsExpanded ? "rotate(90deg)" : "none", transition: "transform .15s", color: "var(--color-text-tertiary)" }}>
-              <Icon name="chevron-right" size={16} />
-            </span>
-          </button>
-          {signalsExpanded && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", marginTop: "var(--space-sm)" }}>
-              {signalLog.map((e) => {
-                const meta = SIGNAL_META[e.type];
-                const who = e.user_id === user?.id ? "You" : nameByUserId.get(e.user_id) || "A rider";
-                return (
-                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
-                    <span
-                      aria-hidden
-                      style={{ flex: "none", width: 32, height: 32, borderRadius: "var(--radius-full)", display: "grid", placeItems: "center", background: meta?.color ?? "var(--color-surface-3)", color: "var(--color-text-on-accent)" }}
-                    >
-                      <Icon name={meta?.icon ?? "signal"} size={16} />
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: "var(--text-body-size)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      <strong>{who}</strong> · {SIGNAL_LABEL[e.type as keyof typeof SIGNAL_LABEL] ?? e.type}
-                    </span>
-                    <span style={{ flex: "none", fontSize: "var(--text-caption)", color: "var(--color-text-tertiary)" }}>
-                      {relativeTime(e.created_at)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
+      {/* Combined Signals card (§3): the viewer's own SOS status, incoming SOS
+          alert cards, and the collated hazard/regroup/pit-stop log — one place
+          so a missed toast (or no push) isn't a missed signal. Auto-expands and
+          scrolls into view when reached via the notification bell. */}
+      {showSignalsCard && (
+        <div ref={signalsCardRef}>
+          <Card padding="var(--space-sm) var(--space-md)">
+            <button
+              type="button"
+              aria-expanded={signalsExpanded}
+              onClick={() => setSignalsExpanded((v) => !v)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "var(--space-sm)",
+                width: "100%",
+                minHeight: 44,
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                color: "var(--color-text-primary)",
+              }}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", fontSize: "var(--text-body-size)", fontWeight: "var(--weight-semibold)" as unknown as number }}>
+                <Icon name="signal" size={18} />
+                Signals
+                <span style={{ color: "var(--color-text-secondary)", fontWeight: "var(--weight-regular)" as unknown as number }}>({signalsHeaderCount})</span>
+              </span>
+              <span style={{ display: "inline-flex", transform: signalsExpanded ? "rotate(90deg)" : "none", transition: "transform .15s", color: "var(--color-text-tertiary)" }}>
+                <Icon name="chevron-right" size={16} />
+              </span>
+            </button>
+            {signalsExpanded && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", marginTop: "var(--space-sm)" }}>
+                {/* 1. Own open SOS status — safety-critical, so it (and the
+                    incoming stack below) always render, even while history
+                    loads; only the log waits on the loader. */}
+                {ownAlert && (
+                  <OwnSosBar
+                    responders={sosResponsesByAlert[ownAlert.id] ?? []}
+                    onView={() => navigate("/sos")}
+                  />
+                )}
+                {/* 2. Incoming SOS alert cards (Respond / Reached / Resolve). */}
+                <SosAlertStack
+                  alerts={sosAlerts}
+                  responsesByAlert={sosResponsesByAlert}
+                  selfUserId={user?.id ?? null}
+                  canResolve={canResolve}
+                  onRespond={handleSosRespond}
+                  onReached={handleSosReached}
+                  onResolve={handleSosResolve}
+                />
+                {/* 3. Signal log — LoadingState while the initial history fetch
+                    is pending (§3 Loading), then the collated rows. */}
+                {signalHistoryLoading ? (
+                  <LoadingState label="Loading signals" size={40} />
+                ) : (
+                  signalLog.map((e) => {
+                    const meta = SIGNAL_META[e.type];
+                    const who = e.user_id === user?.id ? "You" : nameByUserId.get(e.user_id) || "A rider";
+                    return (
+                      <div key={e.id} style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+                        <span
+                          aria-hidden
+                          style={{ flex: "none", width: 32, height: 32, borderRadius: "var(--radius-full)", display: "grid", placeItems: "center", background: meta?.color ?? "var(--color-surface-3)", color: "var(--color-text-on-accent)" }}
+                        >
+                          <Icon name={meta?.icon ?? "signal"} size={16} />
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: "var(--text-body-size)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <strong>{who}</strong> · {SIGNAL_LABEL[e.type as keyof typeof SIGNAL_LABEL] ?? e.type}
+                        </span>
+                        <span style={{ flex: "none", fontSize: "var(--text-caption)", color: "var(--color-text-tertiary)" }}>
+                          {relativeTime(e.created_at)}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </Card>
+        </div>
       )}
 
 
