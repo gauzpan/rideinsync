@@ -152,3 +152,14 @@ so no live `[voice]` log capture — unit-tested only.
    `npm install` with the cache redirected to `D:\Downloads\npm-cache` (nothing on
    C:); 11 packages added, `package-lock.json` unchanged. Other clones of this
    branch need the same `npm install`.
+
+## Orchestrator re-proof (Fable, 2026-09-16, demo dev server, DOM reads via JS)
+| Step | Observed |
+|---|---|
+| Auto entry from /home | "Sending SOS in 5 · Tap Cancel to stop." ; history state already `{auto:false}` (consumed on mount) |
+| Cancel during countdown → Back → wait 6 s | /home, then "Send an SOS?" on Back; still "Send an SOS?" 6 s later, no send |
+| Reload on /sos after cancel | "Send an SOS?" |
+| Auto entry → countdown completes | sent screen "Location sent to the group. Help is arriving." with Cancel SOS |
+| Reload with active SOS | showed confirm — INCONCLUSIVE in demo: `sosDemo.ts` keeps alerts in an in-memory `store`, so a reload wipes the alert itself. The resume path was proven by the lane with a fresh mount against a live alert (same code path). Real-reload proof needs production (Supabase-persisted alert). |
+| "Yes, cancel" → Back to ride → browser Back → wait 6 s | /home, no countdown, no send |
+Also verified: npm test 145/145; `tsc` 5 errors, all pre-existing on upstream/fox-architecture (Carousel.tsx `onUserEngage` ×4, AppLayout unused `track`), identical on the base with this branch stashed.
