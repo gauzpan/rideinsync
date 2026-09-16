@@ -52,6 +52,7 @@ export function useGeolocation(active: boolean) {
   const [lowAccuracy, setLowAccuracy] = useState(false);
   const watchId = useRef<string | null>(null);
   const gotFix = useRef(false);
+  const webPermissionLogged = useRef(false);
   // Last *accepted* fix (not every raw fix) — compared against on each new
   // native fix to decide whether to accept it. Null until the first fix.
   const lastAccepted = useRef<{ lat: number; lng: number; t: number } | null>(null);
@@ -61,35 +62,37 @@ export function useGeolocation(active: boolean) {
     let cancelled = false;
 
     (async () => {
+      // Detect whether a prompt will actually show, so we log only genuine prompt
+      // decisions (not returning granted/denied devices that resolve instantly).
+      let willPrompt = false;
       try {
-        // Detect whether a prompt will actually show, so we log only genuine prompt
-        // decisions (not returning granted/denied devices that resolve instantly).
-        let willPrompt = false;
-        try {
-          const before = await Geolocation.checkPermissions();
-          willPrompt =
-            before.location === "prompt" || before.location === "prompt-with-rationale" ||
-            before.coarseLocation === "prompt" || before.coarseLocation === "prompt-with-rationale";
-        } catch {
-          // checkPermissions unsupported in this context: leave willPrompt false.
-        }
-
-        const perm = await Geolocation.requestPermissions();
-
-        if (willPrompt) {
-          const granted = perm.location === "granted" || perm.coarseLocation === "granted";
-          track("location_permission", {
-            result: granted ? "granted" : "denied",
-            platform: Capacitor.isNativePlatform() ? "native" : "web",
-          });
-        }
-
-        if (perm.location === "denied" && perm.coarseLocation === "denied") {
-          setError("Location permission denied. Enable it to share your position.");
-          return;
-        }
+        const before = await Geolocation.checkPermissions();
+        willPrompt =
+          before.location === "prompt" || before.location === "prompt-with-rationale" ||
+          before.coarseLocation === "prompt" || before.coarseLocation === "prompt-with-rationale";
       } catch {
-        // Some web contexts reject requestPermissions; watchPosition still prompts.
+        // checkPermissions unsupported in this context: leave willPrompt false.
+      }
+
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const perm = await Geolocation.requestPermissions();
+
+          if (willPrompt) {
+            const granted = perm.location === "granted" || perm.coarseLocation === "granted";
+            track("location_permission", {
+              result: granted ? "granted" : "denied",
+              platform: "native",
+            });
+          }
+
+          if (perm.location === "denied" && perm.coarseLocation === "denied") {
+            setError("Location permission denied. Enable it to share your position.");
+            return;
+          }
+        } catch {
+          // Native requestPermissions failed unexpectedly.
+        }
       }
       try {
         const id = await Geolocation.watchPosition(
@@ -102,6 +105,14 @@ export function useGeolocation(active: boolean) {
           },
           (pos, err) => {
             if (cancelled) return;
+            if (!Capacitor.isNativePlatform() && willPrompt && !webPermissionLogged.current) {
+              webPermissionLogged.current = true;
+              const code = err && typeof err === "object" ? (err as { code?: unknown }).code : undefined;
+              track("location_permission", {
+                result: code === 1 ? "denied" : "granted",
+                platform: "web",
+              });
+            }
             if (err) {
               console.warn("[gps] watch error", err);
               const code =
@@ -163,6 +174,7 @@ export function useGeolocation(active: boolean) {
     setError(null);
     setLowAccuracy(false);
     gotFix.current = false;
+    webPermissionLogged.current = false;
     setAttempt((n) => n + 1);
   }, []);
 
