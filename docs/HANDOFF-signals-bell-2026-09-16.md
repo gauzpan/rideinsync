@@ -109,3 +109,27 @@ Base: `upstream/fox-architecture` `592492f`.
 ## Browser proof
 
 filled by orchestrator
+
+## Fixes after browser proof
+
+- **Bell deep-linked ops riders to a view that fails to load.** Tapping the bell
+  navigated to the plain member view `/ride/:id` for everyone. A ride
+  leader / co-leader / sweep cannot load `RiderViewPage` ("Couldn't load the
+  ride."); ops crew must open `/ride/:id/lead` (`LeadViewPage`). Fix mirrors
+  `resumePath` (ActiveRideHero.tsx): the bell store now holds a role-correct
+  `ridePath` instead of a bare `rideId`.
+  - `src/lib/notificationBell.ts` — `BellState.rideId` → `ridePath`;
+    `publishBellRide()` → `publishBellRidePath()`; path → null still clears unseen.
+  - `src/AppLayout.tsx` — resolve the viewer's role with `useMyRideRole` and
+    publish `/ride/:id/lead` for `OPS_ROLES`, else `/ride/:id`. While the role
+    is still loading (null) the plain path is published first and upgraded to
+    `/lead` once it resolves — an ops rider may briefly point at the member view,
+    never the reverse.
+  - `src/components/AccountBar.tsx` — bell tap navigates to `bell.ridePath`.
+  - `src/lib/notificationBell.test.ts` — renamed-field test + a new test that a
+    member→`/lead` upgrade does not clear unseen events.
+- **LeadViewPage needed no change.** `LiveOps` reads `location.state.openSignals`
+  via react-router's own `useLocation()`, and both `RiderViewPage` and
+  `LeadViewPage` render `<LiveOps ride={ride} />`, so `{ openSignals: true }`
+  auto-expands + scrolls the Signals card on the lead view already.
+- Verified: `npm test` 135 pass / 0 fail; `npx tsc --noEmit` exit 0.

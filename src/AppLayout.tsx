@@ -9,7 +9,7 @@ import { SosButton, shouldShowSos, SOS_BUTTON_SIZE, SOS_BUTTON_FOOTPRINT } from 
 import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
 import { consumePendingJoinCode, consumePendingGroupJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
-import { useSosAlerts } from "./lib/sos";
+import { useSosAlerts, useMyRideRole, OPS_ROLES } from "./lib/sos";
 import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
 import { usePersistedToggle } from "./lib/preference";
 import { TOUR_WELCOME_KEY } from "./lib/tour";
@@ -25,7 +25,7 @@ import {
 import { SIGNAL_LABEL, SIGNAL_TIER, sendRideSignal, useRideSignalListener, type SignalKind } from "./lib/signals";
 import { playSignalTone } from "./lib/earcon";
 import { vibrateForTier } from "./lib/haptics";
-import { publishBellEvent, publishBellRide } from "./lib/notificationBell";
+import { publishBellEvent, publishBellRidePath } from "./lib/notificationBell";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
 const GROUP_JOIN_PATH_RE = /^\/groups\/join\/([^/]+)$/;
@@ -229,11 +229,23 @@ export function AppLayout() {
     publishBellEvent({ id: crypto.randomUUID(), kind, at: Date.now() });
   });
 
-  // Keep the bell store's ride id current so the bell can deep-link to the
-  // active ride; null (ride ended / left the app) also clears unseen events.
+  // Keep the bell store's deep-link path current so the bell opens the ride view
+  // the viewer can actually load: ops crew (leader/co-leader/sweep) must land on
+  // /ride/:id/lead (LeadViewPage) — the member view fails for them — everyone
+  // else on the plain /ride/:id (mirrors resumePath's rule). null (ride ended /
+  // left the app) also clears unseen events. While the role is still resolving
+  // it is null, so we publish the plain path first and upgrade to /lead once it
+  // arrives — an ops rider might briefly deep-link to the member view, but never
+  // the reverse (which is the failure mode), and the role settles in one fetch.
+  const myRole = useMyRideRole(inApp ? rideId : null, userId);
   useEffect(() => {
-    publishBellRide(inApp ? rideId : null);
-  }, [inApp, rideId]);
+    const ridePath = rideId
+      ? (OPS_ROLES as readonly string[]).includes(myRole ?? "")
+        ? `/ride/${rideId}/lead`
+        : `/ride/${rideId}`
+      : null;
+    publishBellRidePath(inApp ? ridePath : null);
+  }, [inApp, rideId, myRole]);
 
   const voice = useVoiceCommand({
     enabled: inApp && Boolean(rideId) && voiceOn,

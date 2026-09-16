@@ -19,11 +19,12 @@ export type BellState = {
   unseen: BellEvent[];
   /** Most recent event (drives the popover); retained after markBellSeen. */
   latest: BellEvent | null;
-  /** Active ride id, so the bell can deep-link to /ride/:id (published by AppLayout). */
-  rideId: string | null;
+  /** Where the bell deep-links: the role-correct ride path (plain `/ride/:id` for
+   *  members, `/ride/:id/lead` for ops crew), published by AppLayout. */
+  ridePath: string | null;
 };
 
-let state: BellState = { unseen: [], latest: null, rideId: null };
+let state: BellState = { unseen: [], latest: null, ridePath: null };
 // Every id ever published, so a re-fetch that replays an alert/signal can't
 // relight the bell (dedupe by id, §6). Ids persist across markBellSeen — once
 // acknowledged, the same event must stay acknowledged.
@@ -49,13 +50,13 @@ export function publishBellEvent(e: BellEvent): void {
   }
 }
 
-/** AppLayout → store, whenever the active ride id changes. */
-export function publishBellRide(rideId: string | null): void {
-  if (state.rideId === rideId) return;
-  // Ride ended (id → null): clear unacknowledged events too — they belong to a
-  // ride that's over (§6).
-  const unseen = rideId === null ? [] : state.unseen;
-  state = { ...state, rideId, unseen };
+/** AppLayout → store, whenever the active ride's deep-link path changes. */
+export function publishBellRidePath(ridePath: string | null): void {
+  if (state.ridePath === ridePath) return;
+  // Ride ended (path → null): clear unacknowledged events too — they belong to
+  // a ride that's over (§6).
+  const unseen = ridePath === null ? [] : state.unseen;
+  state = { ...state, ridePath, unseen };
   emit();
 }
 
@@ -112,7 +113,7 @@ export function _getBellState(): BellState {
   return state;
 }
 export function _resetBell(): void {
-  state = { unseen: [], latest: null, rideId: null };
+  state = { unseen: [], latest: null, ridePath: null };
   publishedIds.clear();
   subs.clear();
 }

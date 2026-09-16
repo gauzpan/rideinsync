@@ -76,9 +76,10 @@ export function AccountBar() {
   function handleBellTap() {
     markBellSeen(); // colour resets
     closePopover();
-    // Active ride -> ride view with the Signals card auto-expanded; otherwise
-    // the rides list. Ride id comes from the store (published by AppLayout).
-    if (bell.rideId) navigate(`/ride/${bell.rideId}`, { state: { openSignals: true } });
+    // Active ride -> role-correct ride view with the Signals card auto-expanded;
+    // otherwise the rides list. The path (plain member view vs /lead for ops
+    // crew) comes from the store, resolved by AppLayout.
+    if (bell.ridePath) navigate(bell.ridePath, { state: { openSignals: true } });
     else navigate("/rides");
   }
 

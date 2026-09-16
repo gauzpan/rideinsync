@@ -4,7 +4,7 @@ import {
   bellColorFor,
   popoverReducer,
   publishBellEvent,
-  publishBellRide,
+  publishBellRidePath,
   markBellSeen,
   _getBellState,
   _resetBell,
@@ -54,15 +54,26 @@ test("markBellSeen clears unseen, and a seen id never relights", () => {
   assert.equal(_getBellState().unseen.length, 0);
 });
 
-test("publishBellRide(null) clears unseen (ride ended); a real id keeps them", () => {
+test("publishBellRidePath(null) clears unseen (ride ended); a real path keeps them", () => {
   _resetBell();
   publishBellEvent(ev("a", "hazard"));
-  publishBellRide("ride-1");
-  assert.equal(_getBellState().rideId, "ride-1");
+  publishBellRidePath("/ride/ride-1");
+  assert.equal(_getBellState().ridePath, "/ride/ride-1");
   assert.equal(_getBellState().unseen.length, 1);
-  publishBellRide(null);
-  assert.equal(_getBellState().rideId, null);
+  publishBellRidePath(null);
+  assert.equal(_getBellState().ridePath, null);
   assert.equal(_getBellState().unseen.length, 0);
+});
+
+test("publishBellRidePath upgrades member path to the ops /lead path without clearing unseen", () => {
+  _resetBell();
+  publishBellEvent(ev("a", "sos"));
+  // Role resolves after the first publish: plain path first, then /lead.
+  publishBellRidePath("/ride/ride-1");
+  publishBellRidePath("/ride/ride-1/lead");
+  assert.equal(_getBellState().ridePath, "/ride/ride-1/lead");
+  // A non-null → non-null change must NOT clear unseen (only path → null does).
+  assert.equal(_getBellState().unseen.length, 1);
 });
 
 test("publishBellEvent never throws before a subscriber mounts", () => {
