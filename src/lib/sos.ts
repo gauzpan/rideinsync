@@ -720,8 +720,8 @@ export function buildOwnSosStatus(responders: Responder[]): string {
 }
 
 /**
- * Short status for the collapsed SOS strip's "Help is coming · <status>" label
- * (SosStrip). Same precedence as buildOwnSosStatus — reached beats on-the-way
+ * Short status for the Signals card's collapsed "Help is coming · <status>"
+ * own-SOS line. Same precedence as buildOwnSosStatus — reached beats on-the-way
  * beats waiting — but terse enough for a one-line strip: several on the way
  * collapse to a bare count ("2 on the way") rather than naming one and counting
  * the rest. buildOwnSosStatus stays the fuller form used in the expanded bar.

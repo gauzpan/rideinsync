@@ -1,10 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Logo } from "./ui/Logo";
 import { Icon } from "./ui/Icon";
+import { IconButton } from "./ui/IconButton";
 import { FeedbackButton } from "./FeedbackButton";
 import { useVoiceListening } from "../lib/voiceActivity";
+import { SIGNAL_LABEL, type SignalKind } from "../lib/signals";
+import { bellColorFor, markBellSeen, popoverReducer, useBellState } from "../lib/notificationBell";
+
+// Colour bucket -> CSS var, shared by the bell tint and the popover word (§4/§5).
+const BELL_COLOR_VAR: Record<ReturnType<typeof bellColorFor>, string> = {
+  danger: "var(--color-danger)",
+  warn: "var(--color-role-sweep)",
+  ok: "var(--color-accent)",
+  none: "var(--color-text-secondary)",
+};
+function colorVarForKind(kind: SignalKind): string {
+  return BELL_COLOR_VAR[bellColorFor([{ kind }])];
+}
 
 /** Top app bar: the RideInSync logo on the left, and a single account icon on
  *  the right. The icon's menu shows the rider's identity, a "Profile" item
@@ -20,6 +34,54 @@ export function AccountBar() {
   // App-wide: voice commands run globally (not just on the Ride screen), so
   // "is it actually listening right now" needs to be visible from anywhere.
   const voiceListening = useVoiceListening();
+
+  // Notification bell: unseen-signal colour + a transient popover on each
+  // incoming event from another rider (§4/§5). State lives in the global bell
+  // store (published by AppLayout) so the indicator persists across screens.
+  const bell = useBellState();
+  const [popover, dispatchPopover] = useReducer(popoverReducer, { open: false, event: null });
+  const lastPopoverId = useRef<string | null>(null);
+  const popoverTimer = useRef<number | null>(null);
+  const bellColorVar = BELL_COLOR_VAR[bellColorFor(bell.unseen)];
+  const hasUnseen = bell.unseen.length > 0;
+  const bellLabel = bell.unseen.some((e) => e.kind === "sos")
+    ? "Notifications: new SOS"
+    : hasUnseen
+      ? "Notifications: new signal"
+      : "Notifications";
+
+  // A new latest event opens the popover and (re)starts its 5 s auto-close.
+  useEffect(() => {
+    const latest = bell.latest;
+    if (!latest || latest.id === lastPopoverId.current) return;
+    lastPopoverId.current = latest.id;
+    dispatchPopover({ type: "event", e: latest });
+    if (popoverTimer.current != null) window.clearTimeout(popoverTimer.current);
+    popoverTimer.current = window.setTimeout(() => dispatchPopover({ type: "timeout" }), 5_000);
+  }, [bell.latest]);
+
+  // Guard the timer against unmount (§8).
+  useEffect(
+    () => () => {
+      if (popoverTimer.current != null) window.clearTimeout(popoverTimer.current);
+    },
+    [],
+  );
+
+  function closePopover() {
+    if (popoverTimer.current != null) window.clearTimeout(popoverTimer.current);
+    dispatchPopover({ type: "dismiss" });
+  }
+
+  function handleBellTap() {
+    markBellSeen(); // colour resets
+    closePopover();
+    // Active ride -> role-correct ride view with the Signals card auto-expanded;
+    // otherwise the rides list. The path (plain member view vs /lead for ops
+    // crew) comes from the store, resolved by AppLayout.
+    if (bell.ridePath) navigate(bell.ridePath, { state: { openSignals: true } });
+    else navigate("/rides");
+  }
 
   // Close the menu on an outside click or Escape.
   useEffect(() => {
@@ -70,6 +132,84 @@ export function AccountBar() {
           </span>
         )}
         <FeedbackButton context="app" />
+
+        {/* Notification bell — global entry point to the Signals card. */}
+        <div style={{ position: "relative", display: "flex" }}>
+          <button
+            type="button"
+            aria-label={bellLabel}
+            title="Notifications"
+            onClick={handleBellTap}
+            style={{
+              position: "relative",
+              width: 44,
+              height: 44,
+              flex: "none",
+              borderRadius: "var(--radius-full)",
+              border: "none",
+              background: "transparent",
+              color: bellColorVar,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Icon name="bell" size={22} />
+            {/* Filled dot for colour-blind users: presence, not just hue (§4). */}
+            {hasUnseen && (
+              <span
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  top: 8,
+                  right: 8,
+                  width: 9,
+                  height: 9,
+                  borderRadius: "var(--radius-full)",
+                  background: bellColorVar,
+                  border: "1.5px solid var(--color-surface-1)",
+                }}
+              />
+            )}
+          </button>
+
+          {popover.open && popover.event && (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                position: "absolute",
+                top: "calc(100% + var(--space-2xs))",
+                right: 0,
+                zIndex: 70,
+                maxWidth: 200,
+                width: "max-content",
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-xs)",
+                padding: "var(--space-xs) var(--space-sm)",
+                background: "var(--color-surface-1)",
+                border: "1px solid var(--color-divider)",
+                borderRadius: "var(--radius-md)",
+                boxShadow: "var(--shadow-card)",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "var(--text-body-size)",
+                  fontWeight: "var(--weight-semibold)" as unknown as number,
+                  color: colorVarForKind(popover.event.kind),
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {SIGNAL_LABEL[popover.event.kind]}
+              </span>
+              <IconButton name="x" size={28} iconSize={16} aria-label="Dismiss" onClick={closePopover} />
+            </div>
+          )}
+        </div>
+
         <div ref={rootRef} style={{ position: "relative" }}>
         <button
           type="button"

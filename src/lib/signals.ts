@@ -37,6 +37,16 @@ export const SIGNAL_TYPES: { kind: SignalKind; icon: IconName; color: string }[]
   { kind: "pitstop", icon: "flag", color: "var(--color-role-member)" },
 ];
 
+/** Header count for the ride view's combined Signals card (§3): open
+ *  (unresolved) incoming SOS alerts + the collated signal-log length. Pure so
+ *  it stays unit-tested and independent of the LiveOps component graph. */
+export function signalsCount(
+  sosAlerts: { resolved: boolean }[],
+  signalLog: unknown[],
+): number {
+  return sosAlerts.filter((a) => !a.resolved).length + signalLog.length;
+}
+
 /**
  * Inserts a non-SOS ride signal event. SOS never goes through here — it routes
  * through the full /sos confirm + location-tracking flow (see SosPage), the
