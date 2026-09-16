@@ -10,7 +10,7 @@ import { APIProvider, AdvancedMarker, Map, useMap, useMapsLibrary } from "@vis.g
 import { useRideChannel } from "../../hooks/useRideChannel";
 import { RideSimulator } from "../../lib/simulator";
 import { closeRide, startRide } from "../../lib/ending";
-import { canResolveSos, markReached, resolveSosAlert, respondToSos, sendSos, useOwnSosAlert, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
+import { canResolveSos, markReached, resolveSosAlert, respondToSos, useOwnSosAlert, useSosAlerts, useSosResponses, type IncomingAlert } from "../../lib/sos";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
