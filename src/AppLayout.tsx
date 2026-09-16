@@ -26,7 +26,6 @@ import { SIGNAL_LABEL, SIGNAL_TIER, sendRideSignal, useRideSignalListener, type 
 import { playSignalTone } from "./lib/earcon";
 import { vibrateForTier } from "./lib/haptics";
 import { publishBellEvent, publishBellRidePath } from "./lib/notificationBell";
-import { track } from "./lib/analytics";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
 const GROUP_JOIN_PATH_RE = /^\/groups\/join\/([^/]+)$/;
