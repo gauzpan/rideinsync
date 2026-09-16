@@ -5,13 +5,11 @@ import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
 import { Loader } from "./components/ui/Loader";
-import { SosAlertStack } from "./components/SosAlertStack";
-import { OwnSosBar } from "./components/OwnSosBar";
-import { SosButton, shouldShowSos } from "./components/SosButton";
+import { SosButton, shouldShowSos, SOS_BUTTON_SIZE, SOS_BUTTON_FOOTPRINT } from "./components/SosButton";
 import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
 import { consumePendingJoinCode, consumePendingGroupJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
-import { canResolveSos, markReached, resolveSosAlert, respondToSos, useMyRideRole, useOwnSosAlert, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
+import { useSosAlerts, useMyRideRole, OPS_ROLES } from "./lib/sos";
 import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
 import { usePersistedToggle } from "./lib/preference";
 import { TOUR_WELCOME_KEY } from "./lib/tour";
@@ -27,6 +25,8 @@ import {
 import { SIGNAL_LABEL, SIGNAL_TIER, sendRideSignal, useRideSignalListener, type SignalKind } from "./lib/signals";
 import { playSignalTone } from "./lib/earcon";
 import { vibrateForTier } from "./lib/haptics";
+import { publishBellEvent, publishBellRidePath } from "./lib/notificationBell";
+import { track } from "./lib/analytics";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
 const GROUP_JOIN_PATH_RE = /^\/groups\/join\/([^/]+)$/;
@@ -38,19 +38,47 @@ const VOICE_ONBOARDING_KEY = "voice.onboarding.seen";
 // stays behind the sign-in gate below.
 const PUBLIC_PATHS = new Set(["/", "/ride/create", "/create"]);
 
-// Floating-SOS footprint above the tab bar, read (read-only) from SosButton.tsx:
-// the button sits `var(--space-md)` above the nav+safe-area and is
-// SOS_BUTTON_SIZE px tall. When it is shown, the scrolling content wrapper must
-// clear that whole footprint (plus a normal `var(--space-lg)` gap) so a control
-// at the very bottom of a page can always scroll clear of the button instead of
-// sitting under it. When SOS is hidden the padding is unchanged — just the nav
-// clearance. Pure seam so the arithmetic is unit-tested.
-export const SOS_BUTTON_SIZE = 60;
+// Floating-SOS footprint above the tab bar — SOS_BUTTON_SIZE and the derived
+// SOS_BUTTON_FOOTPRINT are owned by SosButton.tsx (single source of truth) and
+// re-exported here for the existing footprint tests. When the button is shown,
+// the scrolling content wrapper must clear that whole footprint (plus a normal
+// `var(--space-lg)` gap) so a control at the very bottom of a page can always
+// scroll clear of the button instead of sitting under it. When SOS is hidden the
+// padding is unchanged — just the nav clearance. Pure seam so the arithmetic is
+// unit-tested.
+export { SOS_BUTTON_SIZE, SOS_BUTTON_FOOTPRINT };
 export function contentBottomPadding(showSos: boolean): string {
   const navClearance = "var(--tabbar-height) + env(safe-area-inset-bottom)";
   return showSos
-    ? `calc(${navClearance} + var(--space-md) + ${SOS_BUTTON_SIZE}px + var(--space-lg))`
+    ? `calc(${navClearance} + ${SOS_BUTTON_FOOTPRINT} + var(--space-lg))`
     : `calc(${navClearance} + var(--space-lg))`;
+}
+
+// The fixed alert container (own-SOS bar + incoming SosAlertStack) is anchored
+// just above the tab bar and paints at z-index 41 — one above the z-40 floating
+// SOS button. Full-width, it would otherwise be drawn ACROSS the bottom-right
+// button and swallow its taps. When the button is shown we lift the container's
+// bottom edge ABOVE the button's footprint (+ a small gap) so the button keeps
+// its corner and the alerts stack upward from above it, never intersecting.
+// When the button is hidden the container keeps its plain nav clearance.
+export function alertContainerBottom(showSos: boolean): string {
+  const navClearance = "var(--tabbar-height) + env(safe-area-inset-bottom)";
+  return showSos
+    ? `calc(${navClearance} + ${SOS_BUTTON_FOOTPRINT} + var(--space-sm))`
+    : `calc(${navClearance} + var(--space-sm))`;
+}
+
+// Pure decision for a "sync SOS" voice command: where to navigate. Opening /sos
+// with { auto: true } makes SosPage start its 5s countdown + auto-send instead
+// of sitting in the "confirm" phase waiting for a tap. When the rider is already
+// on the /sos screen (any /sos* path), there's nothing to do — SosPage owns the
+// flow from there — so this returns null and the caller does nothing extra.
+// Unit-tested seam (voiceSosNavigation) so the decision is checked without a DOM.
+export function voiceSosNavigation(
+  pathname: string,
+): { to: string; state: { auto: true } } | null {
+  if (pathname.startsWith("/sos")) return null;
+  return { to: "/sos", state: { auto: true } };
 }
 export function AppLayout() {
   const { loading, isAuthenticated, user } = useAuth();
@@ -89,26 +117,13 @@ export function AppLayout() {
   const userId = isAuthenticated ? user?.id ?? null : null;
 
   const inApp = isAuthenticated && pathname !== "/";
-  const { rideId } = useActiveRide(inApp ? userId : null);
+  const { rideId } = useActiveRide(inApp ? userId : null, pathname);
 
+  // AppLayout keeps the incoming-SOS subscription only to drive the critical
+  // earcon/haptic and light the AccountBar bell — the SOS cards themselves now
+  // render in the ride view's combined Signals card (LiveOps), and the responder
+  // actions live there too. The raiser's own status and responses moved with it.
   const alerts = useSosAlerts(inApp ? rideId : null, userId);
-  const responsesByAlert = useSosResponses(inApp ? rideId : null);
-  // The raiser's OWN unresolved alert (useSosAlerts filters it out). Drives a
-  // "help is coming" bar shown to the raiser on every in-app screen but /sos,
-  // which has its own responder list. Hidden on /sos to avoid doubling up.
-  const ownAlert = useOwnSosAlert(inApp ? rideId : null, userId);
-  const showOwnSosBar = Boolean(ownAlert) && pathname !== "/sos";
-  const myRole = useMyRideRole(inApp ? rideId : null, userId);
-  const canResolve = canResolveSos(myRole);
-
-  // The SOS alerts surface (SosAlertStack) — collapse-to-strip + seen state —
-  // is shared. On the ride view (LiveOps) it's rendered *embedded* in the page,
-  // so suppress this global fixed overlay there to avoid a fixed duplicate;
-  // every other in-app screen still gets it fixed above the TabBar.
-  const onRideView =
-    /^\/ride\/[^/]+(\/lead)?$/.test(pathname) &&
-    pathname !== "/ride/create" &&
-    pathname !== "/ride/demo";
 
   // In-app sound (§7d/§7e) for incoming SOS — Critical tier, 3 beeps. `alerts`
   // already excludes the current user's own (useSosAlerts filters self out),
@@ -122,6 +137,8 @@ export function AppLayout() {
         tonedAlertIds.current.add(a.id);
         playSignalTone("critical");
         vibrateForTier("critical");
+        // Light the bell so a member off the ride view still sees the SOS.
+        publishBellEvent({ id: a.id, kind: "sos", at: Date.now() });
       }
     }
   }, [alerts]);
@@ -143,31 +160,6 @@ export function AppLayout() {
     // showVoiceFeedback is a stable hoisted declaration; alerts drives this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alerts]);
-
-  function handleRespond(alertId: string) {
-    if (!rideId || !userId) return;
-    void respondToSos(alertId, rideId, userId).catch(() => {
-      /* logged in respondToSos; unique-constraint clashes are expected */
-    });
-  }
-
-  function handleReached(responseId: string) {
-    void markReached(responseId).catch(() => {
-      /* logged in markReached */
-    });
-  }
-
-  function handleResolve(alert: IncomingAlert) {
-    if (!rideId || !userId) return Promise.reject(new Error("Not in a ride."));
-    return resolveSosAlert({
-      alertId: alert.id,
-      rideId,
-      riderUserId: alert.userId,
-      riderName: alert.name,
-      riderTriggeredAt: alert.triggeredAt,
-      resolverUserId: userId,
-    }).then(() => {});
-  }
 
   // "Sync, ___" wake word + signal command (toggled on Profile). Runs
   // app-wide during an active ride so it works hands-free from any screen,
@@ -195,7 +187,13 @@ export function AppLayout() {
     showVoiceFeedback("Sync heard");
     if (!rideId || !userId) return;
     if (kind === "sos") {
-      navigate("/sos");
+      const nav = voiceSosNavigation(pathname);
+      if (nav) {
+        console.info("[voice] sos command → /sos auto-send");
+        navigate(nav.to, { state: nav.state });
+      } else {
+        console.info("[voice] sos command ignored — already on /sos");
+      }
       return;
     }
     // Fired immediately rather than after the send resolves — a voice
@@ -227,7 +225,28 @@ export function AppLayout() {
     playSignalTone(SIGNAL_TIER[kind]);
     vibrateForTier(SIGNAL_TIER[kind]);
     showVoiceFeedback(`${SIGNAL_LABEL[kind]} signalled`);
+    // Light the bell for hazard/regroup/pit-stop from another rider. No stable
+    // id from the realtime callback, so mint one — the store dedupes by id.
+    publishBellEvent({ id: crypto.randomUUID(), kind, at: Date.now() });
   });
+
+  // Keep the bell store's deep-link path current so the bell opens the ride view
+  // the viewer can actually load: ops crew (leader/co-leader/sweep) must land on
+  // /ride/:id/lead (LeadViewPage) — the member view fails for them — everyone
+  // else on the plain /ride/:id (mirrors resumePath's rule). null (ride ended /
+  // left the app) also clears unseen events. While the role is still resolving
+  // it is null, so we publish the plain path first and upgrade to /lead once it
+  // arrives — an ops rider might briefly deep-link to the member view, but never
+  // the reverse (which is the failure mode), and the role settles in one fetch.
+  const myRole = useMyRideRole(inApp ? rideId : null, userId);
+  useEffect(() => {
+    const ridePath = rideId
+      ? (OPS_ROLES as readonly string[]).includes(myRole ?? "")
+        ? `/ride/${rideId}/lead`
+        : `/ride/${rideId}`
+      : null;
+    publishBellRidePath(inApp ? ridePath : null);
+  }, [inApp, rideId, myRole]);
 
   const voice = useVoiceCommand({
     enabled: inApp && Boolean(rideId) && voiceOn,
@@ -322,46 +341,11 @@ export function AppLayout() {
         <Outlet />
       </div>
 
-      {inApp && !onWelcome && (showOwnSosBar || !onRideView) && (
-        <div
-          style={{
-            position: "fixed",
-            left: 0,
-            right: 0,
-            // Above the TabBar.
-            bottom:
-              "calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-sm))",
-            zIndex: 41,
-            maxWidth: 600,
-            margin: "0 auto",
-            padding: "0 var(--gutter)",
-          }}
-        >
-          {/* Raiser's own "help is coming" bar — shown above the incoming
-              stack on every in-app screen but /sos, ride view included (LiveOps
-              embeds SosAlertStack but has no own-SOS UI, so this is the raiser's
-              only status there). */}
-          {showOwnSosBar && ownAlert && (
-            <OwnSosBar
-              responders={responsesByAlert[ownAlert.id] ?? []}
-              onView={() => navigate("/sos")}
-            />
-          )}
-          {/* Incoming SOS surface — suppressed on the ride view, where LiveOps
-              renders its own embedded SosAlertStack, to avoid a fixed duplicate. */}
-          {!onRideView && (
-            <SosAlertStack
-              alerts={alerts}
-              responsesByAlert={responsesByAlert}
-              selfUserId={userId}
-              canResolve={canResolve}
-              onRespond={handleRespond}
-              onReached={handleReached}
-              onResolve={handleResolve}
-            />
-          )}
-        </div>
-      )}
+      {/* The fixed SOS strip above the tab bar was removed (2026-09-16 design):
+          incoming SOS + the raiser's own status now live in the ride view's
+          combined Signals card, and the global entry point is the AccountBar
+          bell. AppLayout still owns the SOS subscription (useSosAlerts) purely
+          to drive the critical earcon/haptic and the bell. */}
 
       {voiceFeedback && (
         <div

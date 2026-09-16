@@ -10,6 +10,7 @@ import {
   closeSos,
   diffResponders,
   sendSos,
+  skipPendingLocationRead,
   startSosTracking,
   staySos,
   stopSosTracking,
@@ -17,6 +18,7 @@ import {
   type Responder,
 } from "../lib/sos";
 import { playSignalTone } from "../lib/earcon";
+import { track } from "../lib/analytics";
 import { vibrateForTier } from "../lib/haptics";
 import type { SignalTier } from "../lib/signals";
 
@@ -48,7 +50,7 @@ export function SosPage() {
   const location = useLocation();
   const auto = Boolean((location.state as { auto?: boolean } | null)?.auto);
   const { userId } = useSession();
-  const { rideId, loading } = useActiveRide(userId);
+  const { rideId, loading } = useActiveRide(userId, location.pathname);
 
   const [phase, setPhase] = useState<Phase>(auto ? "countdown" : "confirm");
   const [count, setCount] = useState(COUNTDOWN_FROM);
@@ -58,6 +60,9 @@ export function SosPage() {
   const [stayedIds, setStayedIds] = useState<Set<string>>(new Set());
   // Inline "Cancel your SOS request?" confirm, shown over the sent screen.
   const [confirmCancel, setConfirmCancel] = useState(false);
+  // After 1.5 s in the "sending" phase, offer "Send now without location" so a
+  // rider with GPS off is never stuck waiting on the location read.
+  const [showSendNow, setShowSendNow] = useState(false);
 
   const responsesByAlert = useSosResponses(phase === "sent" ? rideId : null);
   const responders = alertId ? responsesByAlert[alertId] ?? [] : [];
@@ -83,10 +88,30 @@ export function SosPage() {
     vibrateForTier(RESPONSE_TIER);
   }, [responders]);
 
+  // Reveal the "Send now without location" button 1.5 s into the sending phase.
+  useEffect(() => {
+    if (phase !== "sending") {
+      setShowSendNow(false);
+      return;
+    }
+    const id = window.setTimeout(() => setShowSendNow(true), 1500);
+    return () => window.clearTimeout(id);
+  }, [phase]);
+
   // Fall into no-ride only before any action has been taken.
   useEffect(() => {
     if (!loading && !rideId && phase === "confirm") setPhase("no-ride");
   }, [loading, rideId, phase]);
+
+  const confirmShownRef = useRef(false);
+  useEffect(() => {
+    if (confirmShownRef.current) return;
+    if (loading || !rideId) return; // no active ride -> flips to no-ride, don't count
+    if (phase === "confirm" || phase === "countdown") {
+      confirmShownRef.current = true;
+      track("sos_confirm_shown", { mode: phase === "countdown" ? "auto" : "manual" });
+    }
+  }, [phase, loading, rideId]);
 
   // Once the countdown ends, clear the auto flag (same-path replace keeps phase
   // state) so a later cancel word no longer navigates home from the sent screen.
@@ -108,6 +133,7 @@ export function SosPage() {
       setPhase("no-ride");
       return;
     }
+    track("sos_confirmed", { ride_id: rideId, surface: "sos_page" });
     setPhase("sending");
     // Fired synchronously before the `await` below — see DemoControlsPage's
     // SignalModal.sendSignal for why: AudioContext.resume() only unlocks
@@ -120,6 +146,7 @@ export function SosPage() {
     playSignalTone("critical");
     try {
       const res = await sendSos(rideId, userId);
+      track("sos_delivered", { ride_id: rideId, surface: "sos_page", has_location: res.hasLocation });
       setAlertId(res.alertId);
       setHasLocation(res.hasLocation);
       setPhase("sent");
@@ -202,10 +229,18 @@ export function SosPage() {
   if (phase === "sending") {
     return (
       <Card>
-        <h1 style={headingStyle}>Sending your location…</h1>
-        <Button variant="danger" loading>
-          Send SOS
-        </Button>
+        <h1 style={headingStyle}>Sending SOS…</h1>
+        <p style={bodyStyle}>Getting your location (a few seconds)…</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+          <Button variant="danger" loading>
+            Send SOS
+          </Button>
+          {showSendNow && (
+            <Button variant="secondary" onClick={() => skipPendingLocationRead()}>
+              Send now without location
+            </Button>
+          )}
+        </div>
       </Card>
     );
   }

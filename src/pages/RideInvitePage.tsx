@@ -15,6 +15,7 @@ import {
 } from "../services/onboardingService";
 import { generateQrDataUrl } from "../services/qrService";
 import { copyToClipboard, shareContent } from "../services/shareService";
+import { track } from "../lib/analytics";
 import "../components/BottomNav.css";
 
 type CopyTarget = "code" | "link" | null;
@@ -108,6 +109,13 @@ export function RideInvitePage() {
     if (!ride) return;
     const text = target === "code" ? ride.code : joinUrl;
     const ok = await copyToClipboard(text);
+    if (ok) {
+      track("ride_shared", {
+        ride_id: ride.id,
+        via: target === "code" ? "copy_code" : "copy_link",
+        surface: "invite",
+      });
+    }
     setCopied(ok ? target : null);
     setTimeout(() => setCopied(null), 2000);
   }
@@ -119,6 +127,9 @@ export function RideInvitePage() {
       text: `Join "${ride.name}" on RideInSync — code ${ride.code}`,
       url: joinUrl,
     });
+    if (result === "shared" || result === "copied") {
+      track("ride_shared", { ride_id: ride.id, via: "share", surface: "invite" });
+    }
     if (result === "copied") setShareMessage("Link copied — share it your way.");
     else if (result === "unsupported") setShareMessage(null);
     else setShareMessage(null);

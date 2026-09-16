@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveActiveRideId, subscribeActiveRide } from "./activeRide";
+import { resolveActiveRideId, subscribeActiveRide, RERESOLVE_DEBOUNCE_MS } from "./activeRide";
 // The ./supabase import inside activeRide is aliased to a controllable mock by
 // the esbuild test bundler (scratchpad/run-activeRide-test.mjs).
 import {
@@ -30,7 +30,26 @@ function installFakeDocument() {
   return (globalThis as any).document;
 }
 
+// A minimal fake window so subscribeActiveRide's `focus` wiring runs.
+function installFakeWindow() {
+  const listeners: Record<string, Array<() => void>> = {};
+  (globalThis as any).window = {
+    addEventListener: (evt: string, cb: () => void) => {
+      (listeners[evt] ??= []).push(cb);
+    },
+    removeEventListener: (evt: string, cb: () => void) => {
+      listeners[evt] = (listeners[evt] ?? []).filter((f) => f !== cb);
+    },
+    __fire: (evt: string) => (listeners[evt] ?? []).forEach((f) => f()),
+    __count: (evt: string) => (listeners[evt] ?? []).length,
+  };
+  return (globalThis as any).window;
+}
+
 const tick = () => new Promise((r) => setTimeout(r, 0));
+// Wait comfortably past the foreground-return debounce so a scheduled
+// re-resolve has fired.
+const pastDebounce = () => new Promise((r) => setTimeout(r, RERESOLVE_DEBOUNCE_MS + 30));
 
 test("resolveActiveRideId returns the active ride id", async () => {
   __reset();
@@ -83,7 +102,7 @@ test("subscription surfaces the new active ride after status flips (no remount)"
   cleanup();
 });
 
-test("visibilitychange -> visible re-resolves", async () => {
+test("visibilitychange -> visible re-resolves (debounced)", async () => {
   __reset();
   const doc = installFakeDocument();
   __setMembers({ data: [{ ride_id: RIDE }], error: null });
@@ -94,9 +113,59 @@ test("visibilitychange -> visible re-resolves", async () => {
   assert.equal(seen.at(-1), null);
   __setRides({ data: { id: RIDE }, error: null });
   (doc as any).__fire("visibilitychange");
-  await tick();
+  await pastDebounce();
   assert.equal(seen.at(-1), RIDE, "coming back to foreground refetches");
   cleanup();
+});
+
+test("window focus re-resolves (debounced)", async () => {
+  __reset();
+  installFakeDocument();
+  const win = installFakeWindow();
+  __setMembers({ data: [{ ride_id: RIDE }], error: null });
+  __setRides({ data: null, error: null });
+  const seen: Array<string | null> = [];
+  const cleanup = subscribeActiveRide(UID, (id) => seen.push(id));
+  await tick();
+  assert.equal(seen.at(-1), null);
+  __setRides({ data: { id: RIDE }, error: null });
+  (win as any).__fire("focus");
+  await pastDebounce();
+  assert.equal(seen.at(-1), RIDE, "window focus (rider returns to app) refetches");
+  cleanup();
+});
+
+test("a visibility+focus burst coalesces into a single re-resolve", async () => {
+  __reset();
+  const doc = installFakeDocument();
+  const win = installFakeWindow();
+  __setMembers({ data: [{ ride_id: RIDE }], error: null });
+  __setRides({ data: { id: RIDE }, error: null });
+  const seen: Array<string | null> = [];
+  const cleanup = subscribeActiveRide(UID, (id) => seen.push(id));
+  await tick();
+  assert.equal(seen.length, 1, "initial resolve only");
+
+  // One foreground return typically fires both events back-to-back.
+  (doc as any).__fire("visibilitychange");
+  (win as any).__fire("focus");
+  (doc as any).__fire("visibilitychange");
+  await pastDebounce();
+  assert.equal(seen.length, 2, "the burst yields exactly one extra resolve, not three");
+  cleanup();
+});
+
+test("focus listener is removed on cleanup (no leak)", async () => {
+  __reset();
+  installFakeDocument();
+  const win = installFakeWindow();
+  __setMembers({ data: [{ ride_id: RIDE }], error: null });
+  __setRides({ data: null, error: null });
+  const cleanup = subscribeActiveRide(UID, () => {});
+  await tick();
+  assert.equal((win as any).__count("focus"), 1);
+  cleanup();
+  assert.equal((win as any).__count("focus"), 0, "focus listener removed");
 });
 
 test("cleanup removes the channel and the visibility listener (no leak)", async () => {

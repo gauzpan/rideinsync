@@ -3,6 +3,7 @@ import { Button } from "./ui/Button";
 import { Mark } from "./ui/Logo";
 import { useAuth } from "../hooks/useAuth";
 import { stashPendingJoinCode, stashPendingGroupJoinCode } from "../services/authService";
+import { track } from "../lib/analytics";
 
 type Props = {
   /** Set when the sign-in sheet is showing over a `/join/:code` deep link —
@@ -23,6 +24,7 @@ export function SignInSheet({ joinCode, groupJoinCode }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   async function handleGoogle() {
+    track("sign_in_started", { method: "google", surface: "sheet" });
     setError(null);
     setPending("google");
     try {
@@ -44,6 +46,7 @@ export function SignInSheet({ joinCode, groupJoinCode }: Props) {
   }
 
   async function handleGuest() {
+    track("sign_in_started", { method: "guest", surface: "sheet" });
     setError(null);
     setPending("guest");
     try {
