@@ -26,6 +26,7 @@ import {
 import { SIGNAL_LABEL, SIGNAL_TIER, sendRideSignal, useRideSignalListener, type SignalKind } from "./lib/signals";
 import { playSignalTone } from "./lib/earcon";
 import { vibrateForTier } from "./lib/haptics";
+import { publishBellEvent, publishBellRide } from "./lib/notificationBell";
 
 const JOIN_PATH_RE = /^\/join\/([^/]+)$/;
 const GROUP_JOIN_PATH_RE = /^\/groups\/join\/([^/]+)$/;
@@ -149,6 +150,8 @@ export function AppLayout() {
         tonedAlertIds.current.add(a.id);
         playSignalTone("critical");
         vibrateForTier("critical");
+        // Light the bell so a member off the ride view still sees the SOS.
+        publishBellEvent({ id: a.id, kind: "sos", at: Date.now() });
       }
     }
   }, [alerts]);
@@ -260,7 +263,16 @@ export function AppLayout() {
     playSignalTone(SIGNAL_TIER[kind]);
     vibrateForTier(SIGNAL_TIER[kind]);
     showVoiceFeedback(`${SIGNAL_LABEL[kind]} signalled`);
+    // Light the bell for hazard/regroup/pit-stop from another rider. No stable
+    // id from the realtime callback, so mint one — the store dedupes by id.
+    publishBellEvent({ id: crypto.randomUUID(), kind, at: Date.now() });
   });
+
+  // Keep the bell store's ride id current so the bell can deep-link to the
+  // active ride; null (ride ended / left the app) also clears unseen events.
+  useEffect(() => {
+    publishBellRide(inApp ? rideId : null);
+  }, [inApp, rideId]);
 
   const voice = useVoiceCommand({
     enabled: inApp && Boolean(rideId) && voiceOn,
