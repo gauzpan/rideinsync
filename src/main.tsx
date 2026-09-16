@@ -5,7 +5,20 @@ import { Capacitor } from "@capacitor/core";
 import { router } from "./router";
 import { AuthProvider } from "./hooks/useAuth";
 import { completeOAuthFromUrl } from "./services/authService";
+import posthog from "posthog-js";
 import "./styles/global.css";
+
+const posthogKey = import.meta.env.VITE_PUBLIC_POSTHOG_KEY;
+if (posthogKey) {
+  posthog.init(posthogKey, {
+    api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
+    capture_pageview: true,
+    capture_pageleave: true,
+    autocapture: false, // named events only for now; less noise
+    persistence: "localStorage+cookie",
+  });
+  posthog.register({ env: import.meta.env.MODE }); // super-property on every event
+}
 
 // Native: finish Google OAuth when the system browser deep-links back into the app.
 if (Capacitor.isNativePlatform()) {

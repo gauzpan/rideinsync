@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -8,6 +8,7 @@ import { Mark } from "../components/ui/Logo";
 import { RideAnimation } from "../components/RideAnimation";
 import { useAuth } from "../hooks/useAuth";
 import { ROLE_COLOR, ROLE_LABEL } from "../lib/roles";
+import { track } from "../lib/analytics";
 import { formatScheduleDateTime, getMyRides, type MyRideSummary } from "../services/onboardingService";
 
 const STATUS_LABEL: Record<MyRideSummary["status"], string> = {
@@ -256,14 +257,45 @@ function TeaserStrip() {
 }
 
 export function LandingPage() {
-  const { signInWithGoogle, signInAsGuest, signInDev } = useAuth();
+  const { isAuthenticated, loading, signInWithGoogle, signInAsGuest, signInDev } = useAuth();
   const [pending, setPending] = useState<"google" | "guest" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const isDev = import.meta.env.DEV;
 
+  useEffect(() => {
+    if (loading || isAuthenticated) return;
+    try {
+      if (sessionStorage.getItem("rideinsync:landing_fired")) return;
+      sessionStorage.setItem("rideinsync:landing_fired", "1");
+    } catch {
+      // ignore
+    }
+    track("landing_viewed");
+  }, [loading, isAuthenticated]);
+
+  const handleCarouselEngage = useCallback(
+    (via: "swipe" | "wheel" | "dot") => {
+      if (isAuthenticated) return; // pre-login metric only, matches landing_viewed
+      try {
+        if (sessionStorage.getItem("rideinsync:carousel_fired")) return;
+        sessionStorage.setItem("rideinsync:carousel_fired", "1");
+      } catch {
+        // ignore
+      }
+      track("landing_carousel_engaged", { via });
+    },
+    [isAuthenticated]
+  );
+
   async function handleGoogle() {
+    track("sign_in_started", { method: "google", surface: "landing" });
     setError(null);
     setPending("google");
+    try {
+      localStorage.setItem("rideinsync:oauth_pending", "1");
+    } catch {
+      // ignore
+    }
     try {
       await signInWithGoogle(); // redirects away for the OAuth round-trip
     } catch (e) {
@@ -273,6 +305,7 @@ export function LandingPage() {
   }
 
   async function handleGuest() {
+    track("sign_in_started", { method: "guest", surface: "landing" });
     setError(null);
     setPending("guest");
     try {
@@ -365,7 +398,7 @@ export function LandingPage() {
         >
           Why RideInSync
         </p>
-        <Carousel aria-label="What RideInSync gives you">
+        <Carousel aria-label="What RideInSync gives you" onUserEngage={handleCarouselEngage}>
           {values.map((v) => (
             <div key={v.title} style={{ padding: "0 2px" }}>
               <Card padding="var(--space-lg)" style={{ minHeight: 220 }}>
