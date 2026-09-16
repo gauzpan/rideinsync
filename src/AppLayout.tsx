@@ -5,12 +5,11 @@ import { SignInSheet } from "./components/SignInSheet";
 import { AccountBar } from "./components/AccountBar";
 import { TabBar } from "./components/ui/TabBar";
 import { Loader } from "./components/ui/Loader";
-import { SosStrip } from "./components/SosStrip";
 import { SosButton, shouldShowSos, SOS_BUTTON_SIZE, SOS_BUTTON_FOOTPRINT } from "./components/SosButton";
 import { HomeWallpaper, shouldShowWallpaper } from "./components/HomeWallpaper";
 import { consumePendingJoinCode, consumePendingGroupJoinCode } from "./services/authService";
 import { useActiveRide } from "./lib/activeRide";
-import { buildOwnSosStatusShort, canResolveSos, markReached, resolveSosAlert, respondToSos, useMyRideRole, useOwnSosAlert, useSosAlerts, useSosResponses, type IncomingAlert } from "./lib/sos";
+import { useSosAlerts } from "./lib/sos";
 import { VoicePermissionSheet } from "./components/VoicePermissionSheet";
 import { usePersistedToggle } from "./lib/preference";
 import { TOUR_WELCOME_KEY } from "./lib/tour";
@@ -119,24 +118,11 @@ export function AppLayout() {
   const inApp = isAuthenticated && pathname !== "/";
   const { rideId } = useActiveRide(inApp ? userId : null, pathname);
 
+  // AppLayout keeps the incoming-SOS subscription only to drive the critical
+  // earcon/haptic and light the AccountBar bell — the SOS cards themselves now
+  // render in the ride view's combined Signals card (LiveOps), and the responder
+  // actions live there too. The raiser's own status and responses moved with it.
   const alerts = useSosAlerts(inApp ? rideId : null, userId);
-  const responsesByAlert = useSosResponses(inApp ? rideId : null);
-  // The raiser's OWN unresolved alert (useSosAlerts filters it out). Drives a
-  // "help is coming" bar shown to the raiser on every in-app screen but /sos,
-  // which has its own responder list. Hidden on /sos to avoid doubling up.
-  const ownAlert = useOwnSosAlert(inApp ? rideId : null, userId);
-  const showOwnSosBar = Boolean(ownAlert) && pathname !== "/sos";
-  const myRole = useMyRideRole(inApp ? rideId : null, userId);
-  const canResolve = canResolveSos(myRole);
-
-  // The SOS alerts surface (SosAlertStack) — collapse-to-strip + seen state —
-  // is shared. On the ride view (LiveOps) it's rendered *embedded* in the page,
-  // so suppress this global fixed overlay there to avoid a fixed duplicate;
-  // every other in-app screen still gets it fixed above the TabBar.
-  const onRideView =
-    /^\/ride\/[^/]+(\/lead)?$/.test(pathname) &&
-    pathname !== "/ride/create" &&
-    pathname !== "/ride/demo";
 
   // In-app sound (§7d/§7e) for incoming SOS — Critical tier, 3 beeps. `alerts`
   // already excludes the current user's own (useSosAlerts filters self out),
@@ -173,31 +159,6 @@ export function AppLayout() {
     // showVoiceFeedback is a stable hoisted declaration; alerts drives this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alerts]);
-
-  function handleRespond(alertId: string) {
-    if (!rideId || !userId) return;
-    void respondToSos(alertId, rideId, userId).catch(() => {
-      /* logged in respondToSos; unique-constraint clashes are expected */
-    });
-  }
-
-  function handleReached(responseId: string) {
-    void markReached(responseId).catch(() => {
-      /* logged in markReached */
-    });
-  }
-
-  function handleResolve(alert: IncomingAlert) {
-    if (!rideId || !userId) return Promise.reject(new Error("Not in a ride."));
-    return resolveSosAlert({
-      alertId: alert.id,
-      rideId,
-      riderUserId: alert.userId,
-      riderName: alert.name,
-      riderTriggeredAt: alert.triggeredAt,
-      resolverUserId: userId,
-    }).then(() => {});
-  }
 
   // "Sync, ___" wake word + signal command (toggled on Profile). Runs
   // app-wide during an active ride so it works hands-free from any screen,
@@ -367,52 +328,11 @@ export function AppLayout() {
         <Outlet />
       </div>
 
-      {inApp && !onWelcome && (showOwnSosBar || !onRideView) && (
-        <div
-          style={{
-            position: "fixed",
-            left: 0,
-            right: 0,
-            // Above the TabBar, and above the floating SOS button's footprint
-            // when it is shown so the z-41 container never covers the z-40
-            // button (which keeps its bottom-right corner and stays tappable).
-            bottom: alertContainerBottom(showSos),
-            zIndex: 41,
-            maxWidth: 600,
-            margin: "0 auto",
-            padding: "0 var(--gutter)",
-            // Own bar + up to 3 stacked rows can grow tall on a short screen;
-            // cap the surface at half the viewport and scroll within it so it
-            // never climbs over the map/content above.
-            maxHeight: "50vh",
-            overflowY: "auto",
-          }}
-        >
-          {/* One compact SOS strip replaces the old stack (own-SOS bar +
-              counter row + full cards). Incoming alerts are suppressed on the
-              ride view — LiveOps renders its own embedded SosAlertStack there —
-              so the strip only carries the raiser's own status ("Help is
-              coming · …", tap → /sos) on that screen. Off the ride view it
-              carries incoming ("SOS · … needs help (N)", tap → expand cards)
-              plus the own status as the expanded list's first line. */}
-          <SosStrip
-            alerts={onRideView ? [] : alerts}
-            responsesByAlert={responsesByAlert}
-            selfUserId={userId}
-            canResolve={canResolve}
-            onRespond={handleRespond}
-            onReached={handleReached}
-            onResolve={handleResolve}
-            ownStatus={
-              showOwnSosBar && ownAlert
-                ? buildOwnSosStatusShort(responsesByAlert[ownAlert.id] ?? [])
-                : null
-            }
-            ownResponders={ownAlert ? responsesByAlert[ownAlert.id] ?? [] : []}
-            onViewOwn={() => navigate("/sos")}
-          />
-        </div>
-      )}
+      {/* The fixed SOS strip above the tab bar was removed (2026-09-16 design):
+          incoming SOS + the raiser's own status now live in the ride view's
+          combined Signals card, and the global entry point is the AccountBar
+          bell. AppLayout still owns the SOS subscription (useSosAlerts) purely
+          to drive the critical earcon/haptic and the bell. */}
 
       {voiceFeedback && (
         <div

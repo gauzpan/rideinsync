@@ -14,17 +14,19 @@ type Props = {
 
 /**
  * The expanded SOS alert-card body: incoming "needs help" cards with the
- * responder + resolve actions. The single collapsed entry point now lives in
- * SosStrip (off the ride page) — this just renders the visible cards.
+ * responder + resolve actions. The collapsed entry point now lives in the ride
+ * view's combined Signals card (off the ride page, in the AccountBar bell) —
+ * this just renders the visible cards.
  *
  * - Every visible alert gets a card; each card's X marks it *seen for this
  *   viewer* → it collapses to a slim bar and sinks below unseen alerts; a later
  *   escalation (rider taps Stay, or a new/reached responder) re-expands it via
  *   the signature check.
  *
- * Rendered embedded in the ride page (LiveOps) and, off the ride page, inside
- * SosStrip's expanded area — the positioning is the parent's job; this owns
- * only the per-card collapse/seen behavior. Returns null when nothing is visible.
+ * Rendered embedded in the ride page (LiveOps' Signals card) and, off the ride
+ * page, inside the AccountBar bell popover — the positioning is the parent's
+ * job; this owns only the per-card collapse/seen behavior. Returns null when
+ * nothing is visible.
  */
 export function SosAlertStack({
   alerts,
