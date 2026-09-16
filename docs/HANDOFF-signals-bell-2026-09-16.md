@@ -108,7 +108,37 @@ Base: `upstream/fox-architecture` `592492f`.
 
 ## Browser proof
 
-filled by orchestrator
+Run by the orchestrator (Fable 5.1) on 2026-09-16 against the Vite dev server on
+port 5174 (`.env.local`, demo mode), Chrome extension, DOM assertions via JS.
+Screenshots timed out on this page, so every observation below is a DOM/computed
+style read-out. Incoming events were simulated with `publishBellEvent(...)` from
+the same module instance (a fresh dev server was required first: after HMR the
+console `import()` returned a different module instance and the bell did not
+react — a known lesson, no code change needed).
+
+| Step | Observed |
+|---|---|
+| /home, idle | bell present left of account icon, 44x44, `aria-label="Notifications"`, colour `rgb(183,183,188)` (text-secondary), no fixed z-41 strip container |
+| hazard event | bell `rgb(255,122,90)` (role-sweep), label "Notifications: new signal", popover "Hazard" with Dismiss X, right edge aligned to bell (980.4 = bell right), 4 px below bell |
+| wait 5.3 s | popover gone, bell still coloured (unseen persists) |
+| sos event | bell `rgb(255,59,48)` (danger), label "Notifications: new SOS", popover "SOS" |
+| click X | popover closed, bell stays red |
+| regroup while SOS unseen | popover "Regroup", bell stays red (priority) |
+| bell tap | `[bell] seen`, bell grey, navigated with `state.openSignals=true` |
+| pitstop after seen | bell `rgb(196,248,42)` (accent), popover "Pit stop" |
+| /sos | renders normally ("Send an SOS? ... Send SOS / Cancel") |
+
+Defect found and fixed (commit 602b823): bell tap went to `/ride/:id` for every
+viewer; ops riders need `/ride/:id/lead`. Store now carries a role-correct path.
+
+NOT provable locally: the ride-view Signals card (expanded order, loader,
+auto-expand + scroll on bell tap). Demo mode has an empty `VITE_SUPABASE_URL`, so
+`/ride/:id` and `/ride/:id/lead` never load ("Couldn't load the ride." /
+"Loading roster…" forever) on this branch AND on the base — pre-existing, not
+caused by this work. `useMyRideRole` also has no demo branch, so the role
+upgrade to `/lead` only happens against real Supabase. The card logic was
+reviewed statically (diff of LiveOps.tsx) and its pure helpers are unit-tested.
+Founder to verify on the production PWA after merge (see Open items).
 
 ## Fixes after browser proof
 
