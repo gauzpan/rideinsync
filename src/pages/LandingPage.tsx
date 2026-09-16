@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Carousel } from "../components/ui/Carousel";
-import { Icon } from "../components/ui/Icon";
 import { Mark } from "../components/ui/Logo";
 import { RideAnimation } from "../components/RideAnimation";
 import { useAuth } from "../hooks/useAuth";
@@ -187,75 +186,6 @@ const values: Value[] = [
   },
 ];
 
-const teaserSteps: { icon: "map" | "users" | "signal"; title: string; body: string }[] = [
-  { icon: "map", title: "Create or join", body: "Start a ride or hop in with a code." },
-  { icon: "users", title: "Ride in sync", body: "See the whole pack on one live map." },
-  { icon: "signal", title: "Help, one tap", body: "SOS and voice signals while you ride." },
-];
-
-function TeaserStrip() {
-  const scrollToWhy = () => {
-    document.getElementById("why-rideinsync")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
-  return (
-    <section aria-label="How RideInSync works" style={{ marginTop: "var(--space-xl)" }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gap: "var(--space-sm)",
-        }}
-      >
-        {teaserSteps.map((s) => (
-          <div key={s.title} style={{ display: "flex", flexDirection: "column", gap: "var(--space-2xs)" }}>
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: "var(--radius-md)",
-                display: "grid",
-                placeItems: "center",
-                background: "color-mix(in srgb, var(--color-accent) 16%, transparent)",
-                color: "var(--color-accent)",
-              }}
-            >
-              <Icon name={s.icon} size={20} />
-            </div>
-            <span style={{ fontSize: "var(--text-label)", fontWeight: "var(--weight-semibold)" as unknown as number, color: "var(--color-text-primary)" }}>
-              {s.title}
-            </span>
-            <span style={{ fontSize: "var(--text-caption)", lineHeight: "var(--lh-body)", color: "var(--color-text-secondary)" }}>
-              {s.body}
-            </span>
-          </div>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={scrollToWhy}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "var(--space-2xs)",
-          minHeight: 44,
-          marginTop: "var(--space-sm)",
-          background: "none",
-          border: "none",
-          padding: 0,
-          color: "var(--color-text-secondary)",
-          fontSize: "var(--text-label)",
-          fontWeight: "var(--weight-semibold)" as unknown as number,
-          cursor: "pointer",
-        }}
-      >
-        See how it works
-        <Icon name="chevron-right" size={16} />
-      </button>
-    </section>
-  );
-}
-
 export function LandingPage() {
   const { isAuthenticated, loading, signInWithGoogle, signInAsGuest, signInDev } = useAuth();
   const [pending, setPending] = useState<"google" | "guest" | null>(null);
@@ -371,17 +301,8 @@ export function LandingPage() {
             </strong>
             .
           </p>
-
-          {/* Hero flourish: two riders in sync along the shared route. */}
-          <div style={{ marginTop: "var(--space-lg)" }}>
-            <RideAnimation />
-          </div>
         </div>
       </section>
-
-      {/* How it works, at a glance — three-step teaser under the hero. No auth,
-          no persistence; the carousel below carries the depth. */}
-      <TeaserStrip />
 
       {/* Returning members' rides (renders nothing while signed out). */}
       <YourRides />
@@ -401,11 +322,11 @@ export function LandingPage() {
         <Carousel aria-label="What RideInSync gives you" onUserEngage={handleCarouselEngage}>
           {values.map((v) => (
             <div key={v.title} style={{ padding: "0 2px" }}>
-              <Card padding="var(--space-lg)" style={{ minHeight: 220 }}>
+              <Card padding="var(--space-md)" style={{ minHeight: 150 }}>
                 <div
                   style={{
-                    width: 52,
-                    height: 52,
+                    width: 40,
+                    height: 40,
                     display: "grid",
                     placeItems: "center",
                     borderRadius: "var(--radius-md)",
@@ -417,17 +338,17 @@ export function LandingPage() {
                 </div>
                 <h2
                   style={{
-                    fontSize: "var(--text-h2)",
-                    lineHeight: "var(--lh-h2)",
+                    fontSize: "var(--text-body-size)",
+                    lineHeight: "var(--lh-body)",
                     fontWeight: "var(--weight-semibold)",
-                    margin: "var(--space-md) 0 var(--space-xs)",
+                    margin: "var(--space-sm) 0 var(--space-2xs)",
                   }}
                 >
                   {v.title}
                 </h2>
                 <p
                   style={{
-                    fontSize: "var(--text-body-size)",
+                    fontSize: "var(--text-label)",
                     lineHeight: "var(--lh-body)",
                     color: "var(--color-text-secondary)",
                     margin: 0,
@@ -483,6 +404,11 @@ export function LandingPage() {
           By continuing you agree to share ride and safety details with your group.
         </p>
       </section>
+
+      {/* Hero flourish: three riders in sync, in the brand chevron colours. */}
+      <div style={{ marginTop: "var(--space-2xl)" }}>
+        <RideAnimation />
+      </div>
     </div>
   );
 }
