@@ -15,6 +15,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { track } from "../../lib/analytics";
 import { useAuth } from "../../hooks/useAuth";
 import { useGeolocation } from "../../hooks/useGeolocation";
+import { useWakeLock } from "../../hooks/useWakeLock";
 import type { Fix } from "../../hooks/useGeolocation";
 import { supabase } from "../../lib/supabase";
 import type { Ride, RiderOnMap, GroupStatus, RideEvent } from "../../lib/models";
@@ -166,6 +167,9 @@ function LiveOpsInner({ ride }: { ride: Ride }) {
   const [ending, setEnding] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [navMode, setNavMode] = useState(false); // heading-up follow-me (rider nav)
+  // Keep the screen lit in nav mode so the map stays visible over the lock
+  // screen (paired with the Android showWhenLocked flag). See useWakeLock.
+  useWakeLock(navMode);
   // Any member can tap a rider in the strip below the map to focus them: the
   // map pans to their fix, their pin is highlighted, and their live
   // coordinates are shown. Tapping again (or the focused rider going away)
