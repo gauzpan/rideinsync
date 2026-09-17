@@ -5,7 +5,8 @@
 // M3 (docs/scale-readiness-roadmap.md): group status used to be derived here
 // on the client from raw `rider_positions` INSERTs (nearestGapMeters O(N) per
 // rider, recomputed on nearly every incoming position). That's gone. A
-// server-side aggregator now reads `latest_positions` on a 2s+ tick, computes
+// server-side aggregator now reads `latest_positions` on a 15s tick (skipping
+// rides with no fresh fix — 0036_throttle_broadcast_aggregator.sql), computes
 // each rider's status itself (deriveStatus's thresholds, ported to SQL —
 // supabase/migrations/0024_broadcast_aggregator.sql), and broadcasts the
 // whole ride's rider list as one `{type:'broadcast', event:'pack', payload}`
@@ -96,10 +97,9 @@ export function useRideChannel(rideId: string | undefined) {
       if (pos) {
         // status: null — the aggregator, not this seed query, owns status,
         // and hasn't broadcast yet on first mount. The `riders` memo treats
-        // a null status as "stale" until the first "pack" tick lands (≤ the
-        // aggregator's 2s+ interval) — well inside the ~5s freshness SLA
-        // the roadmap signed off on, so it's not worth re-deriving a
-        // fallback status client-side just for that brief window.
+        // a null status as client-derived until the first "pack" tick lands
+        // (≤ the aggregator's 15s interval when the ride is active); the
+        // latest_positions fallback keeps pins live in the meantime.
         const seeded: PackMap = {};
         for (const p of pos) {
           seeded[p.user_id] = {
