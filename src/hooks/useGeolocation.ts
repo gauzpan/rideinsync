@@ -1,12 +1,15 @@
-// GPS watch for the rider. Uses the Capacitor Geolocation plugin, which:
-//  - on native Android: requests the runtime location permission (prompts) and
-//    uses native GPS — navigator.geolocation is unreliable inside a WebView;
-//  - on web: falls back to navigator.geolocation.
-// Foreground only; the watch is cleared on unmount / when inactive.
+// GPS watch for the rider.
+//  - native (Android): @capacitor-community/background-geolocation — a foreground
+//    service that keeps delivering fixes while the screen is locked or the rider
+//    is in another app, so their position keeps sharing (and never goes stale)
+//    for the whole ride.
+//  - web / iOS PWA: @capacitor/geolocation (falls back to navigator.geolocation).
+//    Foreground only — the browser suspends the watch when backgrounded.
+// The watch is cleared on unmount / when inactive.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Geolocation } from "@capacitor/geolocation";
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { haversineMeters } from "../lib/geo";
 import { track } from "../lib/analytics";
 
@@ -24,6 +27,31 @@ export type Fix = {
   speed: number | null;
   accuracy: number | null;
 };
+
+// Minimal typing for @capacitor-community/background-geolocation.
+type BgLocation = {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  bearing: number | null;
+  speed: number | null;
+  time: number | null;
+};
+type BgError = { code?: string; message?: string };
+type BackgroundGeolocationPlugin = {
+  addWatcher(
+    options: {
+      backgroundMessage?: string;
+      backgroundTitle?: string;
+      requestPermissions?: boolean;
+      stale?: boolean;
+      distanceFilter?: number;
+    },
+    callback: (location?: BgLocation, error?: BgError) => void,
+  ): Promise<string>;
+  removeWatcher(options: { id: string }): Promise<void>;
+};
+const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>("BackgroundGeolocation");
 
 const num = (v: number | null | undefined) =>
   typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -56,10 +84,75 @@ export function useGeolocation(active: boolean) {
   // native fix to decide whether to accept it. Null until the first fix.
   const lastAccepted = useRef<{ lat: number; lng: number; t: number } | null>(null);
 
+  // Shared accept-gate: throttle to MIN_INTERVAL_MS unless moved MIN_DISTANCE_M.
+  const accept = useCallback((next: Fix) => {
+    const now = Date.now();
+    const last = lastAccepted.current;
+    const ok =
+      !last ||
+      now - last.t >= MIN_INTERVAL_MS ||
+      haversineMeters({ lat: last.lat, lng: last.lng }, { lat: next.lat, lng: next.lng }) >= MIN_DISTANCE_M;
+    if (!ok) return;
+    lastAccepted.current = { lat: next.lat, lng: next.lng, t: now };
+    setFix(next);
+  }, []);
+
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
 
+    // ---- Native: background foreground-service watcher (locked / other apps) ----
+    if (Capacitor.isNativePlatform()) {
+      let removed = false;
+      BackgroundGeolocation.addWatcher(
+        {
+          backgroundTitle: "RideInSync — ride active",
+          backgroundMessage: "Sharing your live location with your ride.",
+          requestPermissions: true,
+          stale: false,
+          distanceFilter: 5,
+        },
+        (location, err) => {
+          if (cancelled) return;
+          if (err) {
+            if (err.code === "NOT_AUTHORIZED") {
+              setError('Location permission denied. Enable it (choose "Allow all the time") to keep sharing while your screen is off.');
+              track("location_permission", { result: "denied", platform: "native" });
+            } else {
+              setError(err.message || "Couldn't get your location.");
+            }
+            return;
+          }
+          if (!location) return;
+          if (!gotFix.current) track("location_permission", { result: "granted", platform: "native" });
+          gotFix.current = true;
+          setError(null);
+          accept({
+            lat: location.latitude,
+            lng: location.longitude,
+            heading: num(location.bearing),
+            speed: num(location.speed),
+            accuracy: num(location.accuracy),
+          });
+        },
+      )
+        .then((id) => {
+          if (cancelled || removed) void BackgroundGeolocation.removeWatcher({ id });
+          else watchId.current = id;
+        })
+        .catch((e) => setError(e instanceof Error ? e.message : "Location unavailable."));
+
+      return () => {
+        cancelled = true;
+        removed = true;
+        if (watchId.current) {
+          void BackgroundGeolocation.removeWatcher({ id: watchId.current });
+          watchId.current = null;
+        }
+      };
+    }
+
+    // ---- Web / iOS PWA: foreground-only @capacitor/geolocation ----
     (async () => {
       try {
         // Detect whether a prompt will actually show, so we log only genuine prompt
@@ -78,10 +171,7 @@ export function useGeolocation(active: boolean) {
 
         if (willPrompt) {
           const granted = perm.location === "granted" || perm.coarseLocation === "granted";
-          track("location_permission", {
-            result: granted ? "granted" : "denied",
-            platform: Capacitor.isNativePlatform() ? "native" : "web",
-          });
+          track("location_permission", { result: granted ? "granted" : "denied", platform: "web" });
         }
 
         if (perm.location === "denied" && perm.coarseLocation === "denied") {
@@ -105,13 +195,7 @@ export function useGeolocation(active: boolean) {
             if (err) {
               console.warn("[gps] watch error", err);
               const code =
-                typeof err === "object" && err !== null
-                  ? (err as { code?: unknown }).code
-                  : undefined;
-              // No fix yet on the sharp watch and the provider gave up
-              // (timeout OR unavailable): fall back to a coarse watch instead
-              // of parking in an error state. Only the coarse watch failing
-              // surfaces an error to the UI.
+                typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined;
               if ((code === 3 || code === 2) && !gotFix.current && !lowAccuracy) {
                 setLowAccuracy(true);
                 return;
@@ -122,23 +206,13 @@ export function useGeolocation(active: boolean) {
             if (pos) {
               gotFix.current = true;
               setError(null);
-              const next: Fix = {
+              accept({
                 lat: pos.coords.latitude,
                 lng: pos.coords.longitude,
                 heading: num(pos.coords.heading),
                 speed: num(pos.coords.speed),
                 accuracy: num(pos.coords.accuracy),
-              };
-              const now = Date.now();
-              const last = lastAccepted.current;
-              const accepted =
-                !last ||
-                now - last.t >= MIN_INTERVAL_MS ||
-                haversineMeters({ lat: last.lat, lng: last.lng }, { lat: next.lat, lng: next.lng }) >=
-                  MIN_DISTANCE_M;
-              if (!accepted) return;
-              lastAccepted.current = { lat: next.lat, lng: next.lng, t: now };
-              setFix(next);
+              });
             }
           },
         );
@@ -156,7 +230,7 @@ export function useGeolocation(active: boolean) {
         watchId.current = null;
       }
     };
-  }, [active, attempt, lowAccuracy]);
+  }, [active, attempt, lowAccuracy, accept]);
 
   /** Clear the error and restart the position watch (re-prompts if needed). */
   const retry = useCallback(() => {
